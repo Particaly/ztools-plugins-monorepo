@@ -11,7 +11,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc && vite build"
+    "build": "node build.js"
   },
   "dependencies": {
     "@fastify/cors": "^8.5.0",
