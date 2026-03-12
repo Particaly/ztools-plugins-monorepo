@@ -7,6 +7,8 @@ const WS_PORT_OFFSET = 1
 const WS_READY_STATE_OPEN = 1
 const CONFIG_PATH = path.join(os.homedir(), '.ztools-swap-file.json')
 
+let _nodeIdSeq = 0
+
 // 配置持久化
 function loadConfig() {
   try {
@@ -81,7 +83,7 @@ function getLanIP() {
 function createFileNode(fullPath, relativePath, stats, isDir) {
   const name = path.basename(fullPath)
   return {
-    id: relativePath || name,
+    id: `node_${++_nodeIdSeq}`,
     name,
     path: relativePath || name,
     fullPath,

@@ -184,9 +184,9 @@ export const useFileShareStore = defineStore('fileShare', () => {
       }
 
       const nodes = await window.services.scanDirectory(filePath)
-      const isDirectory = nodes.length > 0 && nodes[0].path !== filePath
+      const isFile = nodes.length === 1 && nodes[0].type === 'file' && nodes[0].fullPath === filePath
 
-      if (isDirectory) {
+      if (!isFile && nodes.length > 0) {
         const rootNode = createFolderRootNode(filePath, nodes)
         await scanChildrenRecursive(rootNode)
         sharedFiles.value.push(rootNode)
