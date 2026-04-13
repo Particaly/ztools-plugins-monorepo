@@ -1,3 +1,6 @@
+export type EnvironmentType = 'public' | 'dev' | 'test' | 'prod'
+export type EditMode = 'entry' | 'source'
+
 export interface HostEntry {
   id: string
   ip: string
@@ -6,17 +9,27 @@ export interface HostEntry {
   enabled: boolean
 }
 
-export interface HostPreset {
+export interface Environment {
   id: string
   name: string
-  description?: string
+  type: EnvironmentType
+  enabled: boolean // public is always true
+  editMode: EditMode
   entries: HostEntry[]
+  sourceContent?: string // raw hosts format for source mode
   updatedAt: string
 }
 
-export interface PresetStore {
-  activePresetId: string | null
-  presets: HostPreset[]
+export interface EnvironmentStore {
+  activeEnvironmentId: string | null // null means only public is active
+  environments: Environment[]
+}
+
+// Public environment stores the original hosts content (read-only)
+export interface PublicContent {
+  content: string // original hosts without managed block
+  hash: string // for change detection
+  updatedAt: string
 }
 
 export interface SystemInfo {

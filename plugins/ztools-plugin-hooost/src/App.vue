@@ -1,161 +1,214 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import type { HostEntry, HostPreset, PresetStore, BackupInfo, SystemInfo } from '@/types/hosts'
-import { mergeHostsContent } from '@/lib/hosts'
+import type { HostEntry, Environment, EnvironmentStore, BackupInfo, SystemInfo } from '@/types/hosts'
+import { mergeHostsContent, extractPublicContent, parseSourceToEntries, renderEntriesToSource } from '@/lib/hosts'
 import { Toast, useToast, ConfirmDialog, useConfirmDialog } from '@/components'
-import PresetList from '@/components/PresetList.vue'
-import PresetEditor from '@/components/PresetEditor.vue'
+import { useEnvironmentStorage } from '@/composables'
+import EnvironmentList from '@/components/EnvironmentList.vue'
+import EnvironmentEditor from '@/components/EnvironmentEditor.vue'
 
 const { toastState, success, error: showError, confirm: toastConfirm, handleConfirm: handleToastConfirm, handleCancel: handleToastCancel } = useToast()
 const { confirmState, confirm, handleConfirm, handleCancel } = useConfirmDialog()
+const { loadStore, saveStore, loadPublicContent, savePublicContent } = useEnvironmentStorage()
 
 const sysInfo = ref<SystemInfo | null>(null)
-const store = ref<PresetStore>({ activePresetId: null, presets: [] })
-const hostsContent = ref('')
-const selectedPresetId = ref<string | null>(null)
+const store = ref<EnvironmentStore>({ activeEnvironmentId: null, environments: [] })
+const publicContent = ref('')
+const selectedEnvironmentId = ref<string | null>(null)
 const backups = ref<BackupInfo[]>([])
 const loading = ref(false)
 
-const selectedPreset = computed(() =>
-  store.value.presets.find(p => p.id === selectedPresetId.value) ?? null
+const selectedEnvironment = computed(() =>
+  store.value.environments.find(e => e.id === selectedEnvironmentId.value) ?? null
 )
 
-const activePreset = computed(() =>
-  store.value.presets.find(p => p.id === store.value.activePresetId) ?? null
+const activeEnvironment = computed(() =>
+  store.value.environments.find(e => e.id === store.value.activeEnvironmentId) ?? null
 )
 
 function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).substring(2, 8)
 }
 
-function saveStore() {
-  window.services.savePresets(store.value)
+function persistStore() {
+  saveStore(store.value)
 }
 
 function loadAll() {
   try {
     sysInfo.value = window.services.getSystemInfo()
-    hostsContent.value = window.services.readHosts()
-    store.value = window.services.loadPresets()
+    const fullHosts = window.services.readHosts()
+
+    // Load or initialize store from dbStorage
+    store.value = loadStore()
+
+    // Extract and save public content
+    const extracted = extractPublicContent(fullHosts)
+    publicContent.value = extracted
+    savePublicContent({
+      content: extracted,
+      hash: btoa(extracted).substring(0, 16),
+      updatedAt: new Date().toISOString(),
+    })
+
+    // Load backups
     backups.value = window.services.listBackups()
-    if (!selectedPresetId.value && store.value.presets.length > 0) {
-      selectedPresetId.value = store.value.activePresetId || store.value.presets[0].id
+
+    // Auto-select first environment if none selected
+    if (!selectedEnvironmentId.value && store.value.environments.length > 0) {
+      selectedEnvironmentId.value = store.value.environments[0].id
     }
   } catch (err: any) {
     showError('加载数据失败: ' + (err.message || String(err)))
   }
 }
 
-function createPreset() {
-  const preset: HostPreset = {
-    id: generateId(),
-    name: '新预设',
-    entries: [],
-    updatedAt: new Date().toISOString(),
-  }
-  store.value.presets.push(preset)
-  selectedPresetId.value = preset.id
-  saveStore()
-}
-
-function duplicatePreset(id: string) {
-  const source = store.value.presets.find(p => p.id === id)
-  if (!source) return
-  const copy: HostPreset = {
-    ...JSON.parse(JSON.stringify(source)),
-    id: generateId(),
-    name: source.name + ' (副本)',
-    updatedAt: new Date().toISOString(),
-  }
-  copy.entries.forEach(e => { e.id = generateId() })
-  store.value.presets.push(copy)
-  selectedPresetId.value = copy.id
-  saveStore()
-}
-
-async function deletePreset(id: string) {
-  const preset = store.value.presets.find(p => p.id === id)
-  if (!preset) return
-  const ok = await confirm({
-    title: '删除预设',
-    message: `确定要删除预设「${preset.name}」吗？此操作不可撤销。`,
-    type: 'danger',
-    confirmText: '删除',
-    cancelText: '取消',
-  })
-  if (!ok) return
-  store.value.presets = store.value.presets.filter(p => p.id !== id)
-  if (store.value.activePresetId === id) store.value.activePresetId = null
-  if (selectedPresetId.value === id) {
-    selectedPresetId.value = store.value.presets.length > 0 ? store.value.presets[0].id : null
-  }
-  saveStore()
-  success('已删除预设')
-}
-
-function updatePreset(updated: HostPreset) {
-  const idx = store.value.presets.findIndex(p => p.id === updated.id)
-  if (idx !== -1) {
-    updated.updatedAt = new Date().toISOString()
-    store.value.presets[idx] = updated
-    saveStore()
-  }
-}
-
-function addEntry(presetId: string) {
-  const preset = store.value.presets.find(p => p.id === presetId)
-  if (!preset) return
+function addEntry(envId: string) {
+  const env = store.value.environments.find(e => e.id === envId)
+  if (!env) return
   const entry: HostEntry = {
     id: generateId(),
     ip: '127.0.0.1',
     domain: '',
     enabled: true,
   }
-  preset.entries.push(entry)
-  preset.updatedAt = new Date().toISOString()
-  saveStore()
+  env.entries.push(entry)
+  env.updatedAt = new Date().toISOString()
+  persistStore()
 }
 
-function updateEntry(presetId: string, entryId: string, field: keyof HostEntry, value: any) {
-  const preset = store.value.presets.find(p => p.id === presetId)
-  if (!preset) return
-  const entry = preset.entries.find(e => e.id === entryId)
+function updateEntry(envId: string, entryId: string, field: keyof HostEntry, value: any) {
+  const env = store.value.environments.find(e => e.id === envId)
+  if (!env) return
+  const entry = env.entries.find(e => e.id === entryId)
   if (!entry) return
   ;(entry as any)[field] = value
-  preset.updatedAt = new Date().toISOString()
-  saveStore()
+  env.updatedAt = new Date().toISOString()
+  persistStore()
 }
 
-function deleteEntry(presetId: string, entryId: string) {
-  const preset = store.value.presets.find(p => p.id === presetId)
-  if (!preset) return
-  preset.entries = preset.entries.filter(e => e.id !== entryId)
-  preset.updatedAt = new Date().toISOString()
-  saveStore()
+function deleteEntry(envId: string, entryId: string) {
+  const env = store.value.environments.find(e => e.id === envId)
+  if (!env) return
+  env.entries = env.entries.filter(e => e.id !== entryId)
+  env.updatedAt = new Date().toISOString()
+  persistStore()
 }
 
-function applyPreset(id: string) {
-  const preset = store.value.presets.find(p => p.id === id)
-  if (!preset) return
+function updateEnvironment(updated: Environment) {
+  const idx = store.value.environments.findIndex(e => e.id === updated.id)
+  if (idx !== -1) {
+    updated.updatedAt = new Date().toISOString()
+    store.value.environments[idx] = updated
+    persistStore()
+  }
+}
 
-  const enabledCount = preset.entries.filter(e => e.enabled).length
+async function deleteEnvironment(id: string) {
+  const env = store.value.environments.find(e => e.id === id)
+  if (!env || env.type === 'public') return
+
+  if (store.value.activeEnvironmentId === id) {
+    const ok = await confirm({
+      title: '删除环境',
+      message: `环境「${env.name}」当前正在生效，删除将同时停用。确定要删除吗？`,
+      type: 'danger',
+      confirmText: '删除',
+      cancelText: '取消',
+    })
+    if (!ok) return
+
+    loading.value = true
+    try {
+      const publicContentData = loadPublicContent()
+      const content = publicContentData?.content || window.services.readHosts()
+      const result = window.services.applyHosts(content, 'deactivate')
+      if (!result.success) {
+        showError('停用失败: ' + (result.error || '未知错误'))
+        return
+      }
+      store.value.activeEnvironmentId = null
+    } catch (err: any) {
+      showError('停用失败: ' + (err.message || String(err)))
+      return
+    } finally {
+      loading.value = false
+    }
+  } else {
+    const ok = await confirm({
+      title: '删除环境',
+      message: `确定要删除环境「${env.name}」吗？`,
+      type: 'danger',
+      confirmText: '删除',
+      cancelText: '取消',
+    })
+    if (!ok) return
+  }
+
+  store.value.environments = store.value.environments.filter(e => e.id !== id)
+  if (selectedEnvironmentId.value === id) {
+    selectedEnvironmentId.value = store.value.environments.length > 0
+      ? store.value.environments[0].id
+      : null
+  }
+  persistStore()
+  success(`已删除环境「${env.name}」`)
+}
+
+function toggleEditMode(envId: string) {
+  const env = store.value.environments.find(e => e.id === envId)
+  if (!env || env.type === 'public') return
+
+  if (env.editMode === 'entry') {
+    // Switching to source mode: render entries to source content
+    env.sourceContent = renderEntriesToSource(env.entries)
+    env.editMode = 'source'
+  } else {
+    // Switching to entry mode: parse source content to entries
+    if (env.sourceContent) {
+      env.entries = parseSourceToEntries(env.sourceContent)
+    }
+    env.editMode = 'entry'
+  }
+  env.updatedAt = new Date().toISOString()
+  persistStore()
+}
+
+function applyEnvironment(id: string) {
+  const env = store.value.environments.find(e => e.id === id)
+  if (!env || env.type === 'public') return
+
+  if (!env.enabled) {
+    showError('请先启用该环境')
+    return
+  }
+
+  // Sync source mode to entries before applying
+  if (env.editMode === 'source' && env.sourceContent) {
+    env.entries = parseSourceToEntries(env.sourceContent)
+  }
+
+  const enabledCount = env.entries.filter(e => e.enabled).length
   if (enabledCount === 0) {
-    showError('当前预设没有启用的条目')
+    showError('当前环境没有启用的条目')
     return
   }
 
   loading.value = true
   try {
-    const currentHosts = window.services.readHosts()
-    const newContent = mergeHostsContent(currentHosts, preset)
-    const result = window.services.applyHosts(newContent, preset.name)
+    const publicContentData = loadPublicContent()
+    const baseContent = publicContentData?.content || window.services.readHosts()
+
+    const newBlock = mergeHostsContent(baseContent, env)
+    const newContent = newBlock.trimEnd() + '\n'
+
+    const result = window.services.applyHosts(newContent, env.name)
 
     if (result.success) {
-      store.value.activePresetId = id
-      hostsContent.value = newContent
-      saveStore()
+      store.value.activeEnvironmentId = id
+      persistStore()
       backups.value = window.services.listBackups()
-      success(`已应用预设「${preset.name}」`)
+      success(`已应用环境「${env.name}」`)
     } else {
       showError('写入 hosts 失败: ' + (result.error || '未知错误'))
     }
@@ -166,11 +219,11 @@ function applyPreset(id: string) {
   }
 }
 
-async function deactivatePreset() {
-  if (!activePreset.value) return
+async function deactivateEnvironment() {
+  if (!activeEnvironment.value) return
   const ok = await confirm({
-    title: '停用预设',
-    message: `确定要停用当前预设「${activePreset.value.name}」吗？`,
+    title: '停用环境',
+    message: `确定要停用当前环境「${activeEnvironment.value.name}」吗？`,
     type: 'warning',
     confirmText: '停用',
     cancelText: '取消',
@@ -179,23 +232,16 @@ async function deactivatePreset() {
 
   loading.value = true
   try {
-    // 应用空区块来清除受控内容
-    const emptyPreset: HostPreset = {
-      id: '__deactivate__',
-      name: activePreset.value.name,
-      entries: [],
-      updatedAt: new Date().toISOString(),
-    }
-    const currentHosts = window.services.readHosts()
-    const newContent = mergeHostsContent(currentHosts, emptyPreset)
-    const result = window.services.applyHosts(newContent, 'deactivate')
+    const publicContentData = loadPublicContent()
+    const content = publicContentData?.content || window.services.readHosts()
+
+    const result = window.services.applyHosts(content, 'deactivate')
 
     if (result.success) {
-      store.value.activePresetId = null
-      hostsContent.value = newContent
-      saveStore()
+      store.value.activeEnvironmentId = null
+      persistStore()
       backups.value = window.services.listBackups()
-      success('已停用当前预设')
+      success('已停用当前环境')
     } else {
       showError('停用失败: ' + (result.error || '未知错误'))
     }
@@ -220,9 +266,18 @@ async function restoreBackup(backupPath: string) {
   try {
     const result = window.services.restoreBackup(backupPath)
     if (result.success) {
-      hostsContent.value = window.services.readHosts()
-      store.value.activePresetId = null
-      saveStore()
+      // Reload public content from restored hosts
+      const fullHosts = window.services.readHosts()
+      const extracted = extractPublicContent(fullHosts)
+      publicContent.value = extracted
+      savePublicContent({
+        content: extracted,
+        hash: btoa(extracted).substring(0, 16),
+        updatedAt: new Date().toISOString(),
+      })
+
+      store.value.activeEnvironmentId = null
+      persistStore()
       backups.value = window.services.listBackups()
       success('已恢复备份')
     } else {
@@ -235,7 +290,18 @@ async function restoreBackup(backupPath: string) {
   }
 }
 
+function applyTheme(theme: { isDark: boolean; windowMaterial: string }) {
+  console.log(theme);
+  document.documentElement.setAttribute('data-material', theme.windowMaterial)
+  document.documentElement.classList.toggle('dark', theme.isDark)
+}
+
 onMounted(() => {
+  // Theme
+  const theme = window.services.getThemeInfo()
+  applyTheme(theme)
+  window.services.onThemeChange((t) => applyTheme(t))
+
   window.ztools.onPluginEnter(() => {
     loadAll()
   })
@@ -247,30 +313,30 @@ onMounted(() => {
 <template>
   <div class="app" :class="{ 'app--loading': loading }">
     <div class="app-body">
-      <PresetList
-        :presets="store.presets"
-        :active-preset-id="store.activePresetId"
-        :selected-preset-id="selectedPresetId"
-        @create="createPreset"
-        @duplicate="duplicatePreset"
-        @delete="deletePreset"
-        @select="(id: string) => selectedPresetId = id"
-        @apply="applyPreset"
-        @deactivate="deactivatePreset"
+      <EnvironmentList
+        :environments="store.environments"
+        :active-environment-id="store.activeEnvironmentId"
+        :selected-environment-id="selectedEnvironmentId"
+        @select="(id: string) => selectedEnvironmentId = id"
+        @apply="applyEnvironment"
+        @deactivate="deactivateEnvironment"
+        @delete="deleteEnvironment"
       />
 
       <div class="app-main">
-        <PresetEditor
-          v-if="selectedPreset"
-          :preset="selectedPreset"
-          :is-active="selectedPreset.id === store.activePresetId"
-          @update="updatePreset"
+        <EnvironmentEditor
+          v-if="selectedEnvironment"
+          :environment="selectedEnvironment"
+          :is-active="selectedEnvironment.id === store.activeEnvironmentId"
+          :public-content="publicContent"
+          @update="updateEnvironment"
           @add-entry="addEntry"
           @update-entry="updateEntry"
           @delete-entry="deleteEntry"
+          @toggle-mode="toggleEditMode"
         />
         <div v-else class="app-empty">
-          <p>选择或创建一个预设开始管理</p>
+          <p>选择一个环境开始管理</p>
         </div>
       </div>
     </div>
@@ -305,32 +371,6 @@ onMounted(() => {
   font-size: 13px;
 }
 .app--loading { opacity: 0.7; pointer-events: none; }
-.app-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border-color, #e0e0e0);
-}
-.app-header h1 {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 600;
-}
-.app-platform {
-  font-size: 11px;
-  padding: 1px 6px;
-  border-radius: 3px;
-  background: var(--bg-color-secondary, #f0f0f0);
-  color: var(--text-color-secondary, #888);
-}
-.app-active-badge {
-  font-size: 11px;
-  padding: 1px 6px;
-  border-radius: 3px;
-  background: #58a4f6;
-  color: #fff;
-}
 .app-body {
   display: flex;
   flex: 1;
@@ -339,7 +379,9 @@ onMounted(() => {
 .app-main {
   flex: 1;
   min-width: 0;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow-y: hidden;
   padding: 8px 12px;
 }
 .app-empty {

@@ -19,14 +19,27 @@ interface RestoreResult {
   error?: string
 }
 
+interface PresetStoreLegacy {
+  activePresetId: string | null
+  presets: any[]
+}
+
+interface ThemeInfo {
+  isDark: boolean
+  primaryColor: string
+  customColor: string
+  windowMaterial: string
+}
+
 interface Services {
   getSystemInfo(): import('./types/hosts').SystemInfo
   readHosts(): string
-  loadPresets(): import('./types/hosts').PresetStore
-  savePresets(store: import('./types/hosts').PresetStore): void
+  loadPresets(): PresetStoreLegacy
   listBackups(): import('./types/hosts').BackupInfo[]
-  applyHosts(content: string, presetName: string): ApplyResult
+  applyHosts(content: string, envName: string): ApplyResult
   restoreBackup(backupPath: string): RestoreResult
+  getThemeInfo(): ThemeInfo
+  onThemeChange(callback: (theme: ThemeInfo) => void): void
 }
 
 declare global {

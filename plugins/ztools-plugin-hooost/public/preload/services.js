@@ -56,6 +56,7 @@ window.services = {
     return fs.readFileSync(getHostsPath(), { encoding: 'utf-8' })
   },
 
+  // Keep loadPresets for migration from old preset-based storage
   loadPresets() {
     const filePath = getPresetsPath()
     if (!fs.existsSync(filePath)) {
@@ -66,12 +67,6 @@ window.services = {
     } catch {
       return { activePresetId: null, presets: [] }
     }
-  },
-
-  savePresets(store) {
-    const filePath = getPresetsPath()
-    ensureDir(path.dirname(filePath))
-    fs.writeFileSync(filePath, JSON.stringify(store, null, 2), { encoding: 'utf-8' })
   },
 
   listBackups() {
@@ -92,12 +87,12 @@ window.services = {
     })
   },
 
-  applyHosts(content, presetName) {
+  applyHosts(content, envName) {
     const hostsPath = getHostsPath()
 
     // 1. 备份当前 hosts
     const timestamp = new Date().toISOString().replace(/[-:T]/g, '').substring(0, 15)
-    const safeName = presetName ? presetName.replace(/[^a-zA-Z0-9_-]/g, '_') : 'unknown'
+    const safeName = envName ? envName.replace(/[^a-zA-Z0-9_-]/g, '_') : 'unknown'
     const backupFile = path.join(getBackupsDir(), `${timestamp}_${safeName}.hosts`)
     fs.copyFileSync(hostsPath, backupFile)
 
@@ -147,6 +142,14 @@ window.services = {
         tmpFile,
       }
     }
+  },
+
+  getThemeInfo() {
+    return window.ztools.getThemeInfo()
+  },
+
+  onThemeChange(callback) {
+    window.ztools.onThemeChange(callback)
   },
 
   restoreBackup(backupPath) {
