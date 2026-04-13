@@ -7,11 +7,26 @@ declare module '*.vue' {
   export default component
 }
 
-// Preload services 类型声明（对应 public/preload/services.js）
+interface ApplyResult {
+  success: boolean
+  error?: string
+  backupPath?: string
+  tmpFile?: string
+}
+
+interface RestoreResult {
+  success: boolean
+  error?: string
+}
+
 interface Services {
-  readFile: (file: string) => string
-  writeTextFile: (text: string) => string
-  writeImageFile: (base64Url: string) => string | undefined
+  getSystemInfo(): import('./types/hosts').SystemInfo
+  readHosts(): string
+  loadPresets(): import('./types/hosts').PresetStore
+  savePresets(store: import('./types/hosts').PresetStore): void
+  listBackups(): import('./types/hosts').BackupInfo[]
+  applyHosts(content: string, presetName: string): ApplyResult
+  restoreBackup(backupPath: string): RestoreResult
 }
 
 declare global {

@@ -2,7 +2,7 @@
   "$schema": "node_modules/@ztools-center/ztools-api-types/resource/ztools.schema.json",
   "name": "hooost",
   "title": "hooost",
-  "description": "A ZTools plugin",
+  "description": "本地 hosts 环境管理，支持预设切换、备份与回滚",
   "author": "皮皮虾我们走",
   "version": "1.0.0",
   "main": "index.html",
@@ -13,40 +13,10 @@
   },
   "features": [
     {
-      "code": "hello",
-      "explain": "这是插件应用的第一个功能",
+      "code": "hosts",
+      "explain": "管理本地 hosts 文件，支持预设环境切换",
       "icon": "logo.png",
-      "cmds": ["你好", "hello"]
-    },
-    {
-      "code": "read",
-      "explain": "功能指令+匹配指令示例，使用 node.js 能力读文件",
-      "icon": "logo.png",
-      "cmds": [
-        "读文件",
-        {
-          "type": "files",
-          "fileType": "file",
-          "maxLength": 1,
-          "label": "读文件"
-        }
-      ]
-    },
-    {
-      "code": "write",
-      "explain": "匹配指令示例，使用 node.js 能力写文件",
-      "icon": "logo.png",
-      "mainHide": true,
-      "cmds": [
-        {
-          "type": "over",
-          "label": "保存为文件"
-        },
-        {
-          "type": "img",
-          "label": "保存为文件"
-        }
-      ]
+      "cmds": ["hosts", "切换hosts", "管理hosts"]
     }
   ]
 }
