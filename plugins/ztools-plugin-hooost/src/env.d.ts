@@ -31,18 +31,27 @@ interface ThemeInfo {
   windowMaterial: string
 }
 
-interface Services {
-  getSystemInfo(): import('./types/hosts').SystemInfo
-  readHosts(): string
-  loadPresets(): PresetStoreLegacy
-  listBackups(): import('./types/hosts').BackupInfo[]
-  applyHosts(content: string, envName: string): ApplyResult
-  restoreBackup(backupPath: string): RestoreResult
-  getThemeInfo(): ThemeInfo
-  onThemeChange(callback: (theme: ThemeInfo) => void): void
-}
-
 declare global {
+  interface ZToolsInternalApi {
+    [key: string]: any
+    analyzeImage?(src: string): Promise<{
+      isSimpleIcon: boolean
+      mainColor: string | null
+      isDark: boolean
+      needsAdaptation: boolean
+    }>
+    getPlatform?(): 'darwin' | 'win32' | 'linux' | string
+    startHotkeyRecording?(): Promise<{ success: boolean; error?: string }>
+    onHotkeyRecorded?(callback: (shortcut: string) => void): void
+    dbGet?(key: string): Promise<any>
+    dbPut?(key: string, value: any): Promise<any>
+    getPluginReadme?(target: string): Promise<{ success: boolean; content?: string; error?: string }>
+  }
+
+  interface ZToolsApi {
+    internal?: ZToolsInternalApi
+  }
+
   interface Window {
     services: Services
   }

@@ -1,70 +1,114 @@
-import type { HostEntry, Environment } from '../types/hosts'
+import type { SourceLine, HostEntry, Environment } from '../types/hosts'
 
 const BEGIN_MARKER = '# >>> hooost managed start'
 const END_MARKER = '# <<< hooost managed end'
 
-export function parseManagedBlock(content: string): { envName: string | null; entries: HostEntry[] } | null {
-  const startIdx = content.indexOf(BEGIN_MARKER)
-  const endIdx = content.indexOf(END_MARKER)
-  if (startIdx === -1 || endIdx === -1 || endIdx <= startIdx) return null
-
-  const block = content.substring(startIdx + BEGIN_MARKER.length, endIdx).trim()
-  const lines = block.split('\n')
-  let envName: string | null = null
-  const entries: HostEntry[] = []
-
-  for (const line of lines) {
-    const trimmed = line.trim()
-    if (!trimmed) continue
-    if (trimmed.startsWith('# env:')) {
-      envName = trimmed.replace('# env:', '').trim()
-      continue
-    }
-    if (trimmed.startsWith('# name:')) continue
-    if (trimmed.startsWith('#')) continue
-
-    const enabled = !trimmed.startsWith('#')
-    const activeLine = enabled ? trimmed : trimmed.replace(/^#+\s*/, '')
-    const match = activeLine.match(/^(\S+)\s+(\S+)/)
-    if (match) {
-      entries.push({
-        id: `${match[1]}-${match[2]}-${entries.length}`,
-        ip: match[1],
-        domain: match[2],
-        enabled,
-      })
-    }
-  }
-
-  return { envName, entries }
+function generateLineId(): string {
+  return Date.now().toString(36) + Math.random().toString(36).substring(2, 8)
 }
 
-// Parse source content (raw hosts format) into entries
-export function parseSourceToEntries(content: string): HostEntry[] {
-  const entries: HostEntry[] = []
+function isIpv4(value: string): boolean {
+  if (!/^(\d{1,3}\.){3}\d{1,3}$/.test(value)) return false
+  const parts = value.split('.').map(Number)
+  return parts.every(part => part >= 0 && part <= 255)
+}
+
+function isIpv6(value: string): boolean {
+  return value.includes(':') && /^[0-9a-fA-F:.%]+$/.test(value)
+}
+
+function parseHostLine(line: string) {
+  const commentIdx = line.indexOf('#')
+  const mainPart = commentIdx !== -1 ? line.substring(0, commentIdx).trim() : line.trim()
+  const inlineComment = commentIdx !== -1 ? line.substring(commentIdx + 1).trim() : undefined
+  const parts = mainPart.split(/\s+/).filter(Boolean)
+
+  if (parts.length < 2) return null
+
+  const [ip, domain] = parts
+  if (!isIpv4(ip) && !isIpv6(ip)) return null
+
+  return { ip, domain, comment: inlineComment }
+}
+
+/** Parse every line of source content into SourceLine[], preserving comments and blank lines */
+export function parseSourceToLines(content: string): SourceLine[] {
   const lines = content.split('\n')
-
-  for (const line of lines) {
+  return lines.map(line => {
     const trimmed = line.trim()
-    if (!trimmed || trimmed.startsWith('#')) continue
 
-    const enabled = !trimmed.startsWith('#')
-    const activeLine = enabled ? trimmed : trimmed.replace(/^#+\s*/, '')
-    const match = activeLine.match(/^(\S+)\s+(\S+)/)
-
-    if (match) {
-      entries.push({
-        id: `${match[1]}-${match[2]}-${entries.length}`,
-        ip: match[1],
-        domain: match[2],
-        enabled,
-      })
+    if (!trimmed) {
+      return { id: generateLineId(), type: 'blank' as const, raw: line }
     }
-  }
-  return entries
+
+    if (!trimmed.startsWith('#')) {
+      const parsed = parseHostLine(trimmed)
+      if (parsed) {
+        return {
+          id: generateLineId(),
+          type: 'host' as const,
+          raw: line,
+          ip: parsed.ip,
+          domain: parsed.domain,
+          enabled: true,
+          comment: parsed.comment,
+        }
+      }
+
+      return { id: generateLineId(), type: 'comment' as const, raw: line }
+    }
+
+    const uncommented = trimmed.replace(/^#+\s*/, '')
+    const parsed = parseHostLine(uncommented)
+    if (parsed) {
+      return {
+        id: generateLineId(),
+        type: 'host' as const,
+        raw: line,
+        ip: parsed.ip,
+        domain: parsed.domain,
+        enabled: false,
+        comment: parsed.comment,
+      }
+    }
+
+    return { id: generateLineId(), type: 'comment' as const, raw: line }
+  })
 }
 
-// Render entries to source content (raw hosts format)
+/** Render SourceLine[] back to a string — faithful round-trip */
+export function renderLinesToSource(lines: SourceLine[]): string {
+  return lines.map(l => {
+    if (l.type === 'host' && (l.ip !== undefined || l.domain !== undefined)) {
+      const line = `${l.ip}\t${l.domain}`
+      const base = l.enabled ? line : `# ${line}`
+      return l.comment ? `${base} # ${l.comment}` : base
+    }
+    return l.raw
+  }).join('\n')
+}
+
+/** Get only host-type lines as HostEntry[] (for merge / apply interop) */
+export function linesToHostEntries(lines: SourceLine[]): HostEntry[] {
+  return lines
+    .filter(l => l.type === 'host')
+    .map(l => ({
+      id: l.id,
+      ip: l.ip ?? '',
+      domain: l.domain ?? '',
+      comment: l.comment,
+      enabled: l.enabled ?? true,
+    }))
+}
+
+// --- Legacy helpers kept for backward compat & migration ---
+
+/** @deprecated use parseSourceToLines instead */
+export function parseSourceToEntries(content: string): HostEntry[] {
+  return linesToHostEntries(parseSourceToLines(content))
+}
+
+/** @deprecated use renderLinesToSource instead */
 export function renderEntriesToSource(entries: HostEntry[]): string {
   return entries
     .map(e => {
@@ -74,7 +118,8 @@ export function renderEntriesToSource(entries: HostEntry[]): string {
     .join('\n')
 }
 
-// Extract public content (everything outside managed block)
+// --- Public content extraction ---
+
 export function extractPublicContent(fullHosts: string): string {
   const startIdx = fullHosts.indexOf(BEGIN_MARKER)
   const endIdx = fullHosts.indexOf(END_MARKER)
@@ -85,20 +130,19 @@ export function extractPublicContent(fullHosts: string): string {
   return fullHosts.trim()
 }
 
-// Render environment block (replaces renderPresetBlock)
+// --- Managed block rendering (for apply / merge) ---
+
 export function renderEnvironmentBlock(env: Environment): string {
   const lines = [BEGIN_MARKER, `# env: ${env.type}`, `# name: ${env.name}`]
-  for (const entry of env.entries) {
-    const line = entry.enabled
-      ? `${entry.ip}\t${entry.domain}`
-      : `# ${entry.ip}\t${entry.domain}`
-    lines.push(entry.comment ? `${line} # ${entry.comment}` : line)
+  for (const l of env.lines) {
+    if (l.type !== 'host') continue
+    const line = l.enabled ? `${l.ip}\t${l.domain}` : `# ${l.ip}\t${l.domain}`
+    lines.push(l.comment ? `${line} # ${l.comment}` : line)
   }
   lines.push(END_MARKER)
   return lines.join('\n')
 }
 
-// Merge environment block into hosts content
 export function mergeHostsContent(original: string, env: Environment): string {
   const newBlock = renderEnvironmentBlock(env)
   const startIdx = original.indexOf(BEGIN_MARKER)

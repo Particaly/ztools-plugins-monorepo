@@ -1,12 +1,14 @@
 export type EnvironmentType = 'public' | 'dev' | 'test' | 'prod'
 export type EditMode = 'entry' | 'source'
 
-export interface HostEntry {
+export interface SourceLine {
   id: string
-  ip: string
-  domain: string
+  type: 'host' | 'comment' | 'blank'
+  raw: string // original line text for faithful round-trip
+  ip?: string
+  domain?: string
+  enabled?: boolean
   comment?: string
-  enabled: boolean
 }
 
 export interface Environment {
@@ -15,14 +17,22 @@ export interface Environment {
   type: EnvironmentType
   enabled: boolean // public is always true
   editMode: EditMode
-  entries: HostEntry[]
-  sourceContent?: string // raw hosts format for source mode
+  lines: SourceLine[]
   updatedAt: string
 }
 
 export interface EnvironmentStore {
   activeEnvironmentId: string | null // null means only public is active
   environments: Environment[]
+}
+
+// Legacy types kept for migration / merge-hosts interop
+export interface HostEntry {
+  id: string
+  ip: string
+  domain: string
+  comment?: string
+  enabled: boolean
 }
 
 // Public environment stores the original hosts content (read-only)

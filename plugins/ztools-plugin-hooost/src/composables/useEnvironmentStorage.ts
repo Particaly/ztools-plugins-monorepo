@@ -1,4 +1,5 @@
-import type { EnvironmentStore, PublicContent } from '@/types/hosts'
+import type { EnvironmentStore, PublicContent, SourceLine } from '@/types/hosts'
+import { parseSourceToLines, renderEntriesToSource } from '../lib/hosts'
 
 const STORAGE_KEYS = {
   STORE: 'hooost:environment:store',
@@ -15,8 +16,8 @@ function createDefaultStore(): EnvironmentStore {
         name: '公共环境',
         type: 'public',
         enabled: true,
-        editMode: 'entry',
-        entries: [],
+        editMode: 'source',
+        lines: [],
         updatedAt: now,
       },
       {
@@ -24,8 +25,8 @@ function createDefaultStore(): EnvironmentStore {
         name: '开发环境',
         type: 'dev',
         enabled: false,
-        editMode: 'entry',
-        entries: [],
+        editMode: 'source',
+        lines: [],
         updatedAt: now,
       },
       {
@@ -33,8 +34,8 @@ function createDefaultStore(): EnvironmentStore {
         name: '测试环境',
         type: 'test',
         enabled: false,
-        editMode: 'entry',
-        entries: [],
+        editMode: 'source',
+        lines: [],
         updatedAt: now,
       },
       {
@@ -42,12 +43,30 @@ function createDefaultStore(): EnvironmentStore {
         name: '生产环境',
         type: 'prod',
         enabled: false,
-        editMode: 'entry',
-        entries: [],
+        editMode: 'source',
+        lines: [],
         updatedAt: now,
       },
     ],
   }
+}
+
+/** Migrate legacy store (entries[] + sourceContent?) to new lines[] format */
+function migrateStore(store: any): EnvironmentStore {
+  for (const env of store.environments) {
+    if (env.lines !== undefined) continue // already migrated
+    // Prefer sourceContent (preserves comments/blanks), fall back to entries
+    if (env.sourceContent) {
+      env.lines = parseSourceToLines(env.sourceContent)
+    } else if (env.entries && env.entries.length) {
+      env.lines = parseSourceToLines(renderEntriesToSource(env.entries))
+    } else {
+      env.lines = []
+    }
+    delete env.entries
+    delete env.sourceContent
+  }
+  return store
 }
 
 function migrateFromPresets(): EnvironmentStore {
@@ -57,10 +76,11 @@ function migrateFromPresets(): EnvironmentStore {
   }
 
   const defaults = createDefaultStore()
-  // Distribute existing presets across dev/test/prod environments
   oldStore.presets.forEach((preset: any, index: number) => {
-    const env = defaults.environments[1 + (index % 3)] // dev/test/prod
-    env.entries = preset.entries || []
+    const env = defaults.environments[1 + (index % 3)]
+    if (preset.entries && preset.entries.length) {
+      env.lines = parseSourceToLines(renderEntriesToSource(preset.entries))
+    }
     env.name = preset.name
   })
 
@@ -70,9 +90,8 @@ function migrateFromPresets(): EnvironmentStore {
 export function useEnvironmentStorage() {
   const loadStore = (): EnvironmentStore => {
     const stored = window.ztools.dbStorage.getItem<EnvironmentStore>(STORAGE_KEYS.STORE)
-    if (stored) return stored
+    if (stored) return migrateStore(stored)
 
-    // Try migrating from old presets
     try {
       const migrated = migrateFromPresets()
       saveStore(migrated)
@@ -83,7 +102,7 @@ export function useEnvironmentStorage() {
   }
 
   const saveStore = (store: EnvironmentStore) => {
-    window.ztools.dbStorage.setItem(STORAGE_KEYS.STORE, store)
+    window.ztools.dbStorage.setItem(STORAGE_KEYS.STORE, JSON.parse(JSON.stringify(store)))
   }
 
   const loadPublicContent = (): PublicContent | null => {
