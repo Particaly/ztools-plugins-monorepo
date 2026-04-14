@@ -1,9 +1,8 @@
-import type { EnvironmentStore, PublicContent, Environment, BuiltinEnvironmentType } from '@/types/hosts'
+import type { EnvironmentStore, Environment, BuiltinEnvironmentType } from '@/types/hosts'
 import { parseSourceToLines, renderEntriesToSource } from '../lib/hosts'
 
 const STORAGE_KEYS = {
   STORE: 'hooost:environment:store',
-  PUBLIC_CONTENT: 'hooost:public:content',
 }
 
 function createDefaultEnvironment(type: BuiltinEnvironmentType): Environment {
@@ -11,7 +10,7 @@ function createDefaultEnvironment(type: BuiltinEnvironmentType): Environment {
   const defaults: Record<BuiltinEnvironmentType, Environment> = {
     public: {
       id: 'env-public',
-      name: '公共环境',
+      name: 'hosts 文件',
       type: 'public',
       enabled: true,
       editMode: 'source',
@@ -173,13 +172,5 @@ export function useEnvironmentStorage() {
     window.ztools.dbStorage.setItem(STORAGE_KEYS.STORE, JSON.parse(JSON.stringify(normalizeStore(store))))
   }
 
-  const loadPublicContent = (): PublicContent | null => {
-    return window.ztools.dbStorage.getItem<PublicContent>(STORAGE_KEYS.PUBLIC_CONTENT)
-  }
-
-  const savePublicContent = (content: PublicContent) => {
-    window.ztools.dbStorage.setItem(STORAGE_KEYS.PUBLIC_CONTENT, content)
-  }
-
-  return { loadStore, saveStore, loadPublicContent, savePublicContent }
+  return { loadStore, saveStore }
 }

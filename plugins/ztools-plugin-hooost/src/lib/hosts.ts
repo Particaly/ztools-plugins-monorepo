@@ -4,7 +4,7 @@ const DEFAULT_PUBLIC_HEADER = '#-------- 公共配置 --------'
 const GROUP_HEADER_PATTERN = /^#--------\s*(.*?)\s*--------$/
 
 const BUILTIN_GROUPS: Array<{ type: BuiltinEnvironmentType; name: string; header: string; id: string }> = [
-  { type: 'public', name: '公共环境', header: DEFAULT_PUBLIC_HEADER, id: 'env-public' },
+  { type: 'public', name: 'hosts 文件', header: DEFAULT_PUBLIC_HEADER, id: 'env-public' },
   { type: 'dev', name: '开发环境', header: '#-------- 开发环境 --------', id: 'env-dev' },
   { type: 'test', name: '测试环境', header: '#-------- 测试环境 --------', id: 'env-test' },
   { type: 'prod', name: '生产环境', header: '#-------- 生产环境 --------', id: 'env-prod' },
@@ -33,10 +33,7 @@ export function buildGroupHeader(name: string): string {
 }
 
 export function normalizeHostsContent(content: string): string {
-  const normalized = content.replace(/^\uFEFF/, '')
-  const lines = normalized.split('\n')
-  if (lines[0] === DEFAULT_PUBLIC_HEADER) return normalized
-  return [DEFAULT_PUBLIC_HEADER, normalized].filter(Boolean).join('\n')
+  return content.replace(/^\uFEFF/, '')
 }
 
 function getGroupMeta(header: string) {
@@ -174,17 +171,18 @@ export function renderEntriesToSource(entries: HostEntry[]): string {
 export function parseEnvironmentBlocks(fullHosts: string): Environment[] {
   const normalized = normalizeHostsContent(fullHosts)
   const sections = new Map<string, { meta: ReturnType<typeof getGroupMeta>; lines: string[] }>()
-  let currentHeader = DEFAULT_PUBLIC_HEADER
-
-  sections.set(DEFAULT_PUBLIC_HEADER, {
-    meta: getGroupMeta(DEFAULT_PUBLIC_HEADER),
-    lines: [],
-  })
+  let currentHeader: string | null = null
+  const publicLines: string[] = []
 
   for (const line of normalized.split('\n')) {
     const trimmed = line.trim()
     const match = trimmed.match(GROUP_HEADER_PATTERN)
     if (match) {
+      if (trimmed === DEFAULT_PUBLIC_HEADER) {
+        currentHeader = DEFAULT_PUBLIC_HEADER
+        continue
+      }
+
       currentHeader = trimmed
       if (!sections.has(currentHeader)) {
         sections.set(currentHeader, {
@@ -195,20 +193,34 @@ export function parseEnvironmentBlocks(fullHosts: string): Environment[] {
       continue
     }
 
+    if (!currentHeader || currentHeader === DEFAULT_PUBLIC_HEADER) {
+      publicLines.push(line)
+      continue
+    }
+
     const section = sections.get(currentHeader)
     if (section) section.lines.push(line)
   }
 
-  return Array.from(sections.values()).map(({ meta, lines }) => ({
+  return [{
+    id: 'env-public',
+    name: 'hosts 文件',
+    type: 'public' as const,
+    enabled: true,
+    editMode: 'source' as const,
+    header: DEFAULT_PUBLIC_HEADER,
+    lines: parseSourceToLines(publicLines.join('\n').trim()),
+    updatedAt: new Date().toISOString(),
+  }, ...Array.from(sections.values()).map(({ meta, lines }) => ({
     id: meta.id,
     name: meta.name,
     type: meta.type,
-    enabled: meta.type === 'public',
-    editMode: 'source',
+    enabled: false,
+    editMode: 'source' as const,
     header: meta.header,
     lines: parseSourceToLines(lines.join('\n').trim()),
     updatedAt: new Date().toISOString(),
-  }))
+  }))]
 }
 
 export function getEnabledEnvironmentTypesFromHosts(fullHosts: string): EnvironmentType[] {
@@ -249,14 +261,11 @@ export function renderEnvironmentBlock(environments: Environment[]): string {
 }
 
 export function mergeHostsContent(original: string, environments: Environment[]): string {
-  const normalizedOriginal = normalizeHostsContent(original)
-  const publicEnvironment = parseEnvironmentBlocks(normalizedOriginal).find(env => env.type === 'public')
-  const blocks = [
-    publicEnvironment?.header || DEFAULT_PUBLIC_HEADER,
-    ...(publicEnvironment?.lines.length ? renderLinesToSource(publicEnvironment.lines).split('\n') : []),
-  ]
+  const baseContent = extractPublicContent(original)
   const rendered = renderEnvironmentBlock(environments)
-  return rendered ? [...blocks, '', rendered].join('\n').trimEnd() + '\n' : blocks.join('\n').trimEnd() + '\n'
+  return rendered
+    ? [baseContent.trimEnd(), rendered].filter(Boolean).join('\n\n').trimEnd() + '\n'
+    : baseContent.trimEnd() + '\n'
 }
 
 export function validateEntry(entry: { ip: string; domain: string }): string | null {

@@ -15,6 +15,7 @@ const emit = defineEmits<{
   apply: [id: string];
   deactivate: [id: string];
   delete: [id: string];
+  create: [];
 }>();
 
 // Context menu state
@@ -90,7 +91,10 @@ function onContextMenuClose() {
       }}</span>
     </div>
 
-    <div class="env-list-header env-list-header--section">自定义</div>
+    <div class="env-list-section-header env-list-header--section">
+      <div class="env-list-header">自定义</div>
+      <button class="env-list-add" type="button" @click="emit('create')">新增</button>
+    </div>
     <div v-for="env in customEnvironments" :key="env.id" class="env-item" :class="[
       { 'env-item--selected': env.id === selectedEnvironmentId },
       { 'env-item--active': activeEnvironmentIds.includes(env.id) },
@@ -125,8 +129,28 @@ function onContextMenuClose() {
   color: var(--text-color-secondary, #888);
 }
 
+.env-list-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px 10px;
+}
+
 .env-list-header--section {
   padding-top: 10px;
+}
+
+.env-list-section-header .env-list-header {
+  padding: 0;
+}
+
+.env-list-add {
+  border: none;
+  background: transparent;
+  color: var(--primary-color);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
 }
 
 .env-list-items {

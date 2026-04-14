@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { Environment } from '@/types/hosts'
 import { renderLinesToSource } from '../lib/hosts'
 import SourceModeEditor from './SourceModeEditor.vue'
@@ -7,6 +8,7 @@ const props = defineProps<{
   environment: Environment
   isActive: boolean
   hasPendingChanges: boolean
+  publicReadonlyContent?: string
 }>()
 
 const emit = defineEmits<{
@@ -15,6 +17,12 @@ const emit = defineEmits<{
   saveDraft: [envId: string]
   cancelDraft: [envId: string]
 }>()
+
+const editorContent = computed(() => (
+  props.environment.type === 'public'
+    ? (props.publicReadonlyContent ?? '')
+    : renderLinesToSource(props.environment.lines)
+))
 
 function onSourceChange(content: string) {
   emit('sourceChange', props.environment.id, content)
@@ -37,7 +45,7 @@ function onSourceChange(content: string) {
     </div>
 
     <SourceModeEditor
-      :model-value="renderLinesToSource(environment.lines)"
+      :model-value="editorContent"
       :readonly="environment.type === 'public'"
       @update:model-value="onSourceChange"
     />
@@ -89,7 +97,7 @@ function onSourceChange(content: string) {
   white-space: nowrap;
 }
 .active-tag {
-  background: #58a4f6;
+  background: var(--primary-color);
 }
 .draft-tag {
   background: #f59e0b;

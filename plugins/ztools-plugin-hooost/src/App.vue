@@ -1,7 +1,7 @@
 <script setup lang="ts">
   import { ref, computed, onMounted } from 'vue'
   import type { Environment, EnvironmentStore, BackupInfo, SystemInfo } from '@/types/hosts'
-  import { mergeHostsContent, extractPublicContent, normalizeHostsContent, parseEnvironmentBlocks, parseSourceToLines } from '@/lib/hosts'
+  import { extractPublicContent, mergeHostsContent, normalizeHostsContent, parseEnvironmentBlocks, parseSourceToLines } from '@/lib/hosts'
   import { Toast, useToast, ConfirmDialog, useConfirmDialog } from '@/components'
   import { useEnvironmentStorage } from '@/composables'
   import EnvironmentList from '@/components/EnvironmentList.vue'
@@ -9,11 +9,12 @@
 
   const { toastState, success, error: showError, confirm: toastConfirm, handleConfirm: handleToastConfirm, handleCancel: handleToastCancel } = useToast()
   const { confirmState, confirm, handleConfirm, handleCancel } = useConfirmDialog()
-  const { loadStore, saveStore, loadPublicContent, savePublicContent } = useEnvironmentStorage()
+  const { loadStore, saveStore } = useEnvironmentStorage()
 
   const sysInfo = ref<SystemInfo | null>(null)
   const store = ref<EnvironmentStore>({ activeEnvironmentIds: [], environments: [] })
-  const publicContent = ref('')
+  const hostsBaseContent = ref('')
+  const publicReadonlyContent = ref('')
   const selectedEnvironmentId = ref<string | null>(null)
   const backups = ref<BackupInfo[]>([])
   const loading = ref(false)
@@ -82,18 +83,6 @@
     return normalizeEnvironment(draft) !== normalizeEnvironment(stored)
   })
 
-  function simpleHash(str: string): string {
-    let h = 0
-    for (let i = 0; i < str.length; i++) {
-      h = ((h << 5) - h + str.charCodeAt(i)) | 0
-    }
-    return (h >>> 0).toString(36).padStart(8, '0')
-  }
-
-  function generateId() {
-    return Date.now().toString(36) + Math.random().toString(36).substring(2, 8)
-  }
-
   function persistStore() {
     saveStore(store.value)
   }
@@ -101,16 +90,32 @@
   function syncEnvironmentsFromHosts(fullHosts: string) {
     const normalizedHosts = normalizeHostsContent(fullHosts)
     const parsedEnvironments = parseEnvironmentBlocks(normalizedHosts)
-    const storedById = new Map(store.value.environments.map(env => [env.id, env]))
+    const parsedById = new Map(parsedEnvironments.map(env => [env.id, env]))
 
-    store.value.environments = parsedEnvironments.map(env => {
-      const stored = storedById.get(env.id)
+    const mergedEnvironments = store.value.environments.map(env => {
+      const parsed = parsedById.get(env.id)
+      if (!parsed) {
+        return {
+          ...env,
+          enabled: env.type === 'public' ? true : store.value.activeEnvironmentIds.includes(env.id),
+        }
+      }
+
       return {
         ...env,
-        enabled: env.type === 'public' ? true : store.value.activeEnvironmentIds.includes(env.id),
-        updatedAt: stored?.updatedAt ?? env.updatedAt,
+        ...parsed,
+        enabled: parsed.type === 'public' ? true : store.value.activeEnvironmentIds.includes(parsed.id),
+        updatedAt: env.updatedAt ?? parsed.updatedAt,
       }
     })
+
+    const existingIds = new Set(mergedEnvironments.map(env => env.id))
+    const appendedEnvironments = parsedEnvironments.filter(env => !existingIds.has(env.id)).map(env => ({
+      ...env,
+      enabled: env.type === 'public' ? true : store.value.activeEnvironmentIds.includes(env.id),
+    }))
+
+    store.value.environments = [...mergedEnvironments, ...appendedEnvironments]
 
     const selectedExists = selectedEnvironmentId.value && store.value.environments.some(env => env.id === selectedEnvironmentId.value)
     selectedEnvironmentId.value = selectedExists
@@ -123,17 +128,9 @@
   function loadAll() {
     try {
       sysInfo.value = window.services.getSystemInfo()
-      const fullHosts = window.services.readHosts()
 
       store.value = loadStore()
-      const normalizedHosts = syncEnvironmentsFromHosts(fullHosts)
-      const extracted = extractPublicContent(normalizedHosts)
-      publicContent.value = extracted
-      savePublicContent({
-        content: extracted,
-        hash: simpleHash(extracted),
-        updatedAt: new Date().toISOString(),
-      })
+      refreshHostsContentFromSystem()
 
       store.value.activeEnvironmentIds = [
         'env-public',
@@ -195,6 +192,33 @@
     }
   }
 
+  function createEnvironment() {
+    const existingNames = new Set(store.value.environments.map(env => env.name))
+    let name = '新环境'
+    let index = 2
+    while (existingNames.has(name)) {
+      name = `新环境 ${index}`
+      index += 1
+    }
+
+    const now = new Date().toISOString()
+    const newEnvironment: Environment = {
+      id: `env-custom-${Date.now().toString(36)}${Math.random().toString(36).substring(2, 6)}`,
+      name,
+      type: 'custom',
+      enabled: false,
+      editMode: 'source',
+      header: `#-------- ${name} --------`,
+      lines: [],
+      updatedAt: now,
+    }
+
+    store.value.environments = [...store.value.environments, newEnvironment]
+    persistStore()
+    selectedEnvironmentId.value = newEnvironment.id
+    success(`已新增环境「${newEnvironment.name}」`)
+  }
+
   function getActiveEnvironments(nextActiveIds = store.value.activeEnvironmentIds) {
     return nextActiveIds
       .map(id => store.value.environments.find(env => env.id === id))
@@ -202,11 +226,16 @@
   }
 
   function getMergedContent(nextActiveIds = store.value.activeEnvironmentIds) {
-    const publicContentData = loadPublicContent()
-    const baseContent = publicContentData?.content || window.services.readHosts()
+    const baseContent = hostsBaseContent.value || extractPublicContent(normalizeHostsContent(window.services.readHosts()))
     const activeEnvs = getActiveEnvironments(nextActiveIds)
-    if (activeEnvs.length === 0) return baseContent.trimEnd() + '\n'
     return mergeHostsContent(baseContent, activeEnvs).trimEnd() + '\n'
+  }
+
+  function refreshHostsContentFromSystem() {
+    const fullHosts = window.services.readHosts()
+    const normalizedHosts = syncEnvironmentsFromHosts(fullHosts)
+    hostsBaseContent.value = extractPublicContent(normalizedHosts)
+    publicReadonlyContent.value = fullHosts
   }
 
   async function deleteEnvironment(id: string) {
@@ -243,6 +272,7 @@
           : null
       }
       persistStore()
+      refreshHostsContentFromSystem()
       backups.value = window.services.listBackups()
       success(`已删除环境「${env.name}」`)
     } catch (err: any) {
@@ -274,6 +304,7 @@
       if (result.success) {
         store.value.activeEnvironmentIds = nextActiveIds
         persistStore()
+        refreshHostsContentFromSystem()
         backups.value = window.services.listBackups()
         success(`已启用环境「${env.name}」`)
       } else {
@@ -307,6 +338,7 @@
       if (result.success) {
         store.value.activeEnvironmentIds = nextActiveIds
         persistStore()
+        refreshHostsContentFromSystem()
         backups.value = window.services.listBackups()
         success(`已停用环境「${env.name}」`)
       } else {
@@ -333,15 +365,7 @@
     try {
       const result = window.services.restoreBackup(backupPath)
       if (result.success) {
-        const fullHosts = window.services.readHosts()
-        const normalizedHosts = syncEnvironmentsFromHosts(fullHosts)
-        const extracted = extractPublicContent(normalizedHosts)
-        publicContent.value = extracted
-        savePublicContent({
-          content: extracted,
-          hash: simpleHash(extracted),
-          updatedAt: new Date().toISOString(),
-        })
+        refreshHostsContentFromSystem()
 
         store.value.activeEnvironmentIds = [
           'env-public',
@@ -353,6 +377,7 @@
           ...env,
           enabled: store.value.activeEnvironmentIds.includes(env.id),
         }))
+        draftEnvironments.value = {}
         backups.value = window.services.listBackups()
         success('已恢复备份')
       } else {
@@ -425,12 +450,14 @@
           @apply="applyEnvironment"
           @deactivate="deactivateEnvironment"
           @delete="deleteEnvironment"
+          @create="createEnvironment"
         />
 
         <div class="app-main">
           <EnvironmentEditor
             v-if="selectedEnvironment"
             :environment="selectedEnvironment"
+            :public-readonly-content="publicReadonlyContent"
             :is-active="activeEnvironmentIds.has(selectedEnvironment.id)"
             :has-pending-changes="hasPendingChanges"
             @source-change="onSourceChange"

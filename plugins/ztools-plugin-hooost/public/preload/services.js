@@ -5,6 +5,18 @@ const { execSync } = require('node:child_process')
 
 const APP_DIR_NAME = 'hooost'
 
+function escapePowerShellArg(value) {
+  return String(value).replace(/'/g, "''")
+}
+
+function copyFileElevatedOnWindows(sourcePath, targetPath) {
+  const source = escapePowerShellArg(sourcePath)
+  const target = escapePowerShellArg(targetPath)
+  const innerCommand = `$ErrorActionPreference = 'Stop'; Copy-Item -LiteralPath '${source}' -Destination '${target}' -Force`
+  const encodedCommand = Buffer.from(innerCommand, 'utf16le').toString('base64')
+  execSync(`powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -Command "Start-Process powershell.exe -Verb RunAs -WindowStyle Hidden -Wait -ArgumentList '-NoProfile','-NonInteractive','-WindowStyle','Hidden','-ExecutionPolicy','Bypass','-EncodedCommand','${encodedCommand}'"`, { stdio: 'ignore' })
+}
+
 function getDataDir() {
   const platform = os.platform()
   if (platform === 'win32') {
@@ -104,12 +116,10 @@ window.services = {
     try {
       const platform = os.platform()
       if (platform === 'win32') {
-        // Windows: 使用 runas 或直接尝试复制（ZTools 本身可能已提权）
         try {
           fs.copyFileSync(tmpFile, hostsPath)
         } catch {
-          // 如果普通复制失败，尝试使用管理员权限
-          execSync(`copy /Y "${tmpFile}" "${hostsPath}"`, { shell: 'cmd.exe' })
+          copyFileElevatedOnWindows(tmpFile, hostsPath)
         }
       } else {
         // macOS / Linux: 使用 osascript 提权
@@ -169,7 +179,7 @@ window.services = {
         fs.copyFileSync(backupPath, hostsPath)
       } catch {
         if (platform === 'win32') {
-          execSync(`copy /Y "${backupPath}" "${hostsPath}"`, { shell: 'cmd.exe' })
+          copyFileElevatedOnWindows(backupPath, hostsPath)
         } else {
           execSync(`osascript -e 'do shell script "cp \\"${backupPath}\\" \\"${hostsPath}\\"" with administrator privileges'`)
         }
