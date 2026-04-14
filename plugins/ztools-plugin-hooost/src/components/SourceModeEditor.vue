@@ -8,6 +8,12 @@ import 'ace-builds/src-noconflict/ext-language_tools'
 
 const modelValue = defineModel<string>({ required: true })
 
+const props = withDefaults(defineProps<{
+  readonly?: boolean
+}>(), {
+  readonly: false,
+})
+
 const editorRef = ref<HTMLDivElement | null>(null)
 const isDark = computed(() => document.documentElement.classList.contains('dark'))
 
@@ -21,6 +27,7 @@ onMounted(() => {
     mode: 'ace/mode/sh',
     theme: isDark.value ? 'ace/theme/one_dark' : 'ace/theme/github',
     value: modelValue.value,
+    readOnly: props.readonly,
     fontSize: 12,
     fontFamily: "'Cascadia Code', 'Fira Code', 'Consolas', monospace",
     showPrintMargin: false,
@@ -51,6 +58,10 @@ watch(modelValue, (val) => {
 
 watch(isDark, (dark) => {
   editor?.setTheme(dark ? 'ace/theme/one_dark' : 'ace/theme/github')
+})
+
+watch(() => props.readonly, (readonly) => {
+  editor?.setReadOnly(readonly)
 })
 
 onBeforeUnmount(() => {

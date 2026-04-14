@@ -1,31 +1,87 @@
 <script setup lang="ts">
   import { ref, computed, onMounted } from 'vue'
-  import type { SourceLine, Environment, EnvironmentStore, BackupInfo, SystemInfo } from '@/types/hosts'
-  import { mergeHostsContent, extractPublicContent, parseSourceToLines, renderLinesToSource } from '@/lib/hosts'
+  import type { Environment, EnvironmentStore, BackupInfo, SystemInfo } from '@/types/hosts'
+  import { mergeHostsContent, extractPublicContent, normalizeHostsContent, parseEnvironmentBlocks, parseSourceToLines } from '@/lib/hosts'
   import { Toast, useToast, ConfirmDialog, useConfirmDialog } from '@/components'
   import { useEnvironmentStorage } from '@/composables'
   import EnvironmentList from '@/components/EnvironmentList.vue'
   import EnvironmentEditor from '@/components/EnvironmentEditor.vue'
-  
+
   const { toastState, success, error: showError, confirm: toastConfirm, handleConfirm: handleToastConfirm, handleCancel: handleToastCancel } = useToast()
   const { confirmState, confirm, handleConfirm, handleCancel } = useConfirmDialog()
   const { loadStore, saveStore, loadPublicContent, savePublicContent } = useEnvironmentStorage()
-  
+
   const sysInfo = ref<SystemInfo | null>(null)
-  const store = ref<EnvironmentStore>({ activeEnvironmentId: null, environments: [] })
+  const store = ref<EnvironmentStore>({ activeEnvironmentIds: [], environments: [] })
   const publicContent = ref('')
   const selectedEnvironmentId = ref<string | null>(null)
   const backups = ref<BackupInfo[]>([])
   const loading = ref(false)
-  
-  const selectedEnvironment = computed(() =>
-    store.value.environments.find(e => e.id === selectedEnvironmentId.value) ?? null
-  )
-  
-  const activeEnvironment = computed(() =>
-    store.value.environments.find(e => e.id === store.value.activeEnvironmentId) ?? null
-  )
-  
+  const draftEnvironments = ref<Record<string, Environment>>({})
+
+  function cloneEnvironment(env: Environment): Environment {
+    return JSON.parse(JSON.stringify(env))
+  }
+
+
+  function normalizeEnvironment(env: Environment): string {
+    return JSON.stringify({
+      id: env.id,
+      name: env.name,
+      type: env.type,
+      enabled: env.enabled,
+      editMode: env.editMode,
+      lines: env.lines,
+    })
+  }
+
+  function getStoredEnvironment(envId: string) {
+    return store.value.environments.find(e => e.id === envId) ?? null
+  }
+
+  function isPublicEnvironment(envId: string) {
+    return getStoredEnvironment(envId)?.type === 'public'
+  }
+
+  function getEditableEnvironment(envId: string) {
+    return draftEnvironments.value[envId] ?? getStoredEnvironment(envId)
+  }
+
+  function ensureDraft(envId: string) {
+    if (isPublicEnvironment(envId)) return null
+    const existingDraft = draftEnvironments.value[envId]
+    if (existingDraft) return existingDraft
+    const stored = getStoredEnvironment(envId)
+    if (!stored) return null
+    const draft = cloneEnvironment(stored)
+    draftEnvironments.value = {
+      ...draftEnvironments.value,
+      [envId]: draft,
+    }
+    return draft
+  }
+
+  function clearDraft(envId: string) {
+    const next = { ...draftEnvironments.value }
+    delete next[envId]
+    draftEnvironments.value = next
+  }
+
+  const selectedEnvironment = computed(() => {
+    if (!selectedEnvironmentId.value) return null
+    return getEditableEnvironment(selectedEnvironmentId.value)
+  })
+
+  const activeEnvironmentIds = computed(() => new Set(store.value.activeEnvironmentIds))
+
+  const hasPendingChanges = computed(() => {
+    if (!selectedEnvironmentId.value) return false
+    const draft = draftEnvironments.value[selectedEnvironmentId.value]
+    const stored = getStoredEnvironment(selectedEnvironmentId.value)
+    if (!draft || !stored) return false
+    return normalizeEnvironment(draft) !== normalizeEnvironment(stored)
+  })
+
   function simpleHash(str: string): string {
     let h = 0
     for (let i = 0; i < str.length; i++) {
@@ -33,229 +89,226 @@
     }
     return (h >>> 0).toString(36).padStart(8, '0')
   }
-  
+
   function generateId() {
     return Date.now().toString(36) + Math.random().toString(36).substring(2, 8)
   }
-  
+
   function persistStore() {
     saveStore(store.value)
   }
-  
+
+  function syncEnvironmentsFromHosts(fullHosts: string) {
+    const normalizedHosts = normalizeHostsContent(fullHosts)
+    const parsedEnvironments = parseEnvironmentBlocks(normalizedHosts)
+    const storedById = new Map(store.value.environments.map(env => [env.id, env]))
+
+    store.value.environments = parsedEnvironments.map(env => {
+      const stored = storedById.get(env.id)
+      return {
+        ...env,
+        enabled: env.type === 'public' ? true : store.value.activeEnvironmentIds.includes(env.id),
+        updatedAt: stored?.updatedAt ?? env.updatedAt,
+      }
+    })
+
+    const selectedExists = selectedEnvironmentId.value && store.value.environments.some(env => env.id === selectedEnvironmentId.value)
+    selectedEnvironmentId.value = selectedExists
+      ? selectedEnvironmentId.value
+      : (store.value.environments[0]?.id ?? null)
+
+    return normalizedHosts
+  }
+
   function loadAll() {
     try {
       sysInfo.value = window.services.getSystemInfo()
       const fullHosts = window.services.readHosts()
-  
+
       store.value = loadStore()
-  
-      const extracted = extractPublicContent(fullHosts)
+      const normalizedHosts = syncEnvironmentsFromHosts(fullHosts)
+      const extracted = extractPublicContent(normalizedHosts)
       publicContent.value = extracted
       savePublicContent({
         content: extracted,
         hash: simpleHash(extracted),
         updatedAt: new Date().toISOString(),
       })
-  
+
+      store.value.activeEnvironmentIds = [
+        'env-public',
+        ...store.value.environments
+          .filter(env => env.type !== 'public' && env.lines.some(line => line.type === 'host' && line.enabled))
+          .map(env => env.id),
+      ]
+
+      store.value.environments = store.value.environments.map(env => ({
+        ...env,
+        enabled: store.value.activeEnvironmentIds.includes(env.id),
+      }))
+
       backups.value = window.services.listBackups()
-  
-      if (!selectedEnvironmentId.value && store.value.environments.length > 0) {
-        selectedEnvironmentId.value = store.value.environments[0].id
-      }
-  
-      // Sync public content into the public environment's lines
-      const publicEnv = store.value.environments.find(e => e.id === 'env-public')
-      if (publicEnv) {
-        publicEnv.lines = parseSourceToLines(publicContent.value)
-      }
+      draftEnvironments.value = {}
     } catch (err: any) {
       showError('加载数据失败: ' + (err.message || String(err)))
     }
   }
-  
-  function addEntry(envId: string) {
-    const env = store.value.environments.find(e => e.id === envId)
-    if (!env) return
-    const line: SourceLine = {
-      id: generateId(),
-      type: 'host',
-      raw: '127.0.0.1\t',
-      ip: '127.0.0.1',
-      domain: '',
-      enabled: true,
-    }
-    env.lines.push(line)
-    env.updatedAt = new Date().toISOString()
-    persistStore()
-  }
-  
-  function updateEntry(envId: string, entryId: string, field: keyof SourceLine, value: any) {
-    const env = store.value.environments.find(e => e.id === envId)
-    if (!env) return
-    const line = env.lines.find(l => l.id === entryId)
-    if (!line || line.type !== 'host') return
-    ;(line as any)[field] = value
-    // Keep raw in sync for source-mode round-trip when not edited via source
-    line.raw = line.enabled ? `${line.ip}\t${line.domain}` : `# ${line.ip}\t${line.domain}`
-    env.updatedAt = new Date().toISOString()
-    persistStore()
-  }
-  
-  function deleteEntry(envId: string, entryId: string) {
-    const env = store.value.environments.find(e => e.id === envId)
-    if (!env) return
-    env.lines = env.lines.filter(l => l.id !== entryId)
-    env.updatedAt = new Date().toISOString()
-    persistStore()
-  }
-  
+
+
   function onSourceChange(envId: string, content: string) {
-    const env = store.value.environments.find(e => e.id === envId)
+    if (isPublicEnvironment(envId)) return
+    const env = ensureDraft(envId)
     if (!env) return
     env.lines = parseSourceToLines(content)
-    env.updatedAt = new Date().toISOString()
-    persistStore()
-    if (env.type === 'public') {
-      publicContent.value = content
-      savePublicContent({
-        content,
-        hash: simpleHash(content),
-        updatedAt: env.updatedAt,
-      })
-    }
   }
-  
+
   function updateName(envId: string, name: string) {
-    const env = store.value.environments.find(e => e.id === envId)
+    if (isPublicEnvironment(envId)) return
+    const env = ensureDraft(envId)
     if (!env) return
     env.name = name
-    env.updatedAt = new Date().toISOString()
-    persistStore()
   }
-  
+
+
+  function saveEnvironmentDraft(envId: string) {
+    if (isPublicEnvironment(envId)) return
+    const draft = draftEnvironments.value[envId]
+    const envIndex = store.value.environments.findIndex(e => e.id === envId)
+    if (!draft || envIndex === -1) return
+
+    const updatedAt = new Date().toISOString()
+    const saved = cloneEnvironment(draft)
+    saved.updatedAt = updatedAt
+    store.value.environments[envIndex] = saved
+    persistStore()
+
+    clearDraft(envId)
+    success(`已保存环境「${saved.name}」`)
+  }
+
+  function cancelEnvironmentDraft(envId: string) {
+    if (isPublicEnvironment(envId)) return
+    const env = getStoredEnvironment(envId)
+    clearDraft(envId)
+    if (env) {
+      success(`已取消环境「${env.name}」的未保存修改`)
+    }
+  }
+
+  function getActiveEnvironments(nextActiveIds = store.value.activeEnvironmentIds) {
+    return nextActiveIds
+      .map(id => store.value.environments.find(env => env.id === id))
+      .filter((env): env is Environment => !!env && env.type !== 'public')
+  }
+
+  function getMergedContent(nextActiveIds = store.value.activeEnvironmentIds) {
+    const publicContentData = loadPublicContent()
+    const baseContent = publicContentData?.content || window.services.readHosts()
+    const activeEnvs = getActiveEnvironments(nextActiveIds)
+    if (activeEnvs.length === 0) return baseContent.trimEnd() + '\n'
+    return mergeHostsContent(baseContent, activeEnvs).trimEnd() + '\n'
+  }
+
   async function deleteEnvironment(id: string) {
     const env = store.value.environments.find(e => e.id === id)
     if (!env || env.type === 'public') return
-  
-    if (store.value.activeEnvironmentId === id) {
-      const ok = await confirm({
-        title: '删除环境',
-        message: `环境「${env.name}」当前正在生效，删除将同时停用。确定要删除吗？`,
-        type: 'danger',
-        confirmText: '删除',
-        cancelText: '取消',
-      })
-      if (!ok) return
-  
-      loading.value = true
-      try {
-        const publicContentData = loadPublicContent()
-        const content = publicContentData?.content || window.services.readHosts()
-        const result = window.services.applyHosts(content, 'deactivate')
-        if (!result.success) {
-          showError('停用失败: ' + (result.error || '未知错误'))
-          return
-        }
-        store.value.activeEnvironmentId = null
-      } catch (err: any) {
-        showError('停用失败: ' + (err.message || String(err)))
-        return
-      } finally {
-        loading.value = false
-      }
-    } else {
-      const ok = await confirm({
-        title: '删除环境',
-        message: `确定要删除环境「${env.name}」吗？`,
-        type: 'danger',
-        confirmText: '删除',
-        cancelText: '取消',
-      })
-      if (!ok) return
-    }
-  
-    store.value.environments = store.value.environments.filter(e => e.id !== id)
-    if (selectedEnvironmentId.value === id) {
-      selectedEnvironmentId.value = store.value.environments.length > 0
-        ? store.value.environments[0].id
-        : null
-    }
-    persistStore()
-    success(`已删除环境「${env.name}」`)
-  }
-  
-  function toggleEditMode(envId: string) {
-    const env = store.value.environments.find(e => e.id === envId)
-    if (!env) return
-    env.editMode = env.editMode === 'entry' ? 'source' : 'entry'
-    env.updatedAt = new Date().toISOString()
-    persistStore()
-  }
-  
-  function applyEnvironment(id: string) {
-    const env = store.value.environments.find(e => e.id === id)
-    if (!env) return
-  
-    if (!env.enabled) {
-      showError('请先启用该环境')
-      return
-    }
-  
-    const hostLines = env.lines.filter(l => l.type === 'host')
-    const enabledCount = hostLines.filter(l => l.enabled).length
-    if (enabledCount === 0) {
-      showError('当前环境没有启用的条目')
-      return
-    }
-  
+
+    const isActive = store.value.activeEnvironmentIds.includes(id)
+    const ok = await confirm({
+      title: '删除环境',
+      message: isActive
+        ? `环境「${env.name}」当前已启用，删除将同时停用。确定要删除吗？`
+        : `确定要删除环境「${env.name}」吗？`,
+      type: 'danger',
+      confirmText: '删除',
+      cancelText: '取消',
+    })
+    if (!ok) return
+
     loading.value = true
     try {
-      const publicContentData = loadPublicContent()
-      const baseContent = publicContentData?.content || window.services.readHosts()
-  
-      const newBlock = mergeHostsContent(baseContent, env)
-      const newContent = newBlock.trimEnd() + '\n'
-  
-      const result = window.services.applyHosts(newContent, env.name)
-  
-      if (result.success) {
-        store.value.activeEnvironmentId = id
-        persistStore()
-        backups.value = window.services.listBackups()
-        success(`已应用环境「${env.name}」`)
-      } else {
-        showError('写入 hosts 失败: ' + (result.error || '未知错误'))
+      const nextActiveIds = store.value.activeEnvironmentIds.filter(activeId => activeId !== id)
+      const result = window.services.applyHosts(getMergedContent(nextActiveIds), isActive ? 'deactivate' : env.name)
+      if (!result.success) {
+        showError((isActive ? '停用失败: ' : '删除失败: ') + (result.error || '未知错误'))
+        return
       }
+
+      store.value.activeEnvironmentIds = nextActiveIds
+      store.value.environments = store.value.environments.filter(e => e.id !== id)
+      clearDraft(id)
+      if (selectedEnvironmentId.value === id) {
+        selectedEnvironmentId.value = store.value.environments.length > 0
+          ? store.value.environments[0].id
+          : null
+      }
+      persistStore()
+      backups.value = window.services.listBackups()
+      success(`已删除环境「${env.name}」`)
     } catch (err: any) {
-      showError('应用失败: ' + (err.message || String(err)))
+      showError('删除失败: ' + (err.message || String(err)))
     } finally {
       loading.value = false
     }
   }
-  
-  async function deactivateEnvironment() {
-    if (!activeEnvironment.value) return
+
+
+  function applyEnvironment(id: string) {
+    const env = store.value.environments.find(e => e.id === id)
+    if (!env || env.type === 'public') return
+
+    const hostLines = env.lines.filter(l => l.type === 'host' && l.enabled && l.domain && l.ip)
+    if (hostLines.length === 0) {
+      showError('当前环境没有启用的条目')
+      return
+    }
+
+    const nextActiveIds = store.value.activeEnvironmentIds.includes(id)
+      ? store.value.activeEnvironmentIds
+      : [...store.value.activeEnvironmentIds, id]
+
+    loading.value = true
+    try {
+      const result = window.services.applyHosts(getMergedContent(nextActiveIds), env.name)
+
+      if (result.success) {
+        store.value.activeEnvironmentIds = nextActiveIds
+        persistStore()
+        backups.value = window.services.listBackups()
+        success(`已启用环境「${env.name}」`)
+      } else {
+        showError('写入 hosts 失败: ' + (result.error || '未知错误'))
+      }
+    } catch (err: any) {
+      showError('启用失败: ' + (err.message || String(err)))
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function deactivateEnvironment(id: string) {
+    const env = store.value.environments.find(e => e.id === id)
+    if (!env || !store.value.activeEnvironmentIds.includes(id)) return
+
     const ok = await confirm({
       title: '停用环境',
-      message: `确定要停用当前环境「${activeEnvironment.value.name}」吗？`,
+      message: `确定要停用环境「${env.name}」吗？`,
       type: 'warning',
       confirmText: '停用',
       cancelText: '取消',
     })
     if (!ok) return
-  
+
     loading.value = true
     try {
-      const publicContentData = loadPublicContent()
-      const content = publicContentData?.content || window.services.readHosts()
-  
-      const result = window.services.applyHosts(content, 'deactivate')
-  
+      const nextActiveIds = store.value.activeEnvironmentIds.filter(activeId => activeId !== id)
+      const result = window.services.applyHosts(getMergedContent(nextActiveIds), 'deactivate')
+
       if (result.success) {
-        store.value.activeEnvironmentId = null
+        store.value.activeEnvironmentIds = nextActiveIds
         persistStore()
         backups.value = window.services.listBackups()
-        success('已停用当前环境')
+        success(`已停用环境「${env.name}」`)
       } else {
         showError('停用失败: ' + (result.error || '未知错误'))
       }
@@ -265,7 +318,7 @@
       loading.value = false
     }
   }
-  
+
   async function restoreBackup(backupPath: string) {
     const ok = await confirm({
       title: '恢复备份',
@@ -275,22 +328,31 @@
       cancelText: '取消',
     })
     if (!ok) return
-  
+
     loading.value = true
     try {
       const result = window.services.restoreBackup(backupPath)
       if (result.success) {
         const fullHosts = window.services.readHosts()
-        const extracted = extractPublicContent(fullHosts)
+        const normalizedHosts = syncEnvironmentsFromHosts(fullHosts)
+        const extracted = extractPublicContent(normalizedHosts)
         publicContent.value = extracted
         savePublicContent({
           content: extracted,
           hash: simpleHash(extracted),
           updatedAt: new Date().toISOString(),
         })
-  
-        store.value.activeEnvironmentId = null
-        persistStore()
+
+        store.value.activeEnvironmentIds = [
+          'env-public',
+          ...store.value.environments
+            .filter(env => env.type !== 'public' && env.lines.some(line => line.type === 'host' && line.enabled))
+            .map(env => env.id),
+        ]
+        store.value.environments = store.value.environments.map(env => ({
+          ...env,
+          enabled: store.value.activeEnvironmentIds.includes(env.id),
+        }))
         backups.value = window.services.listBackups()
         success('已恢复备份')
       } else {
@@ -302,13 +364,11 @@
       loading.value = false
     }
   }
-  
+
   function applyTheme(theme: { isDark: boolean; windowMaterial: string; primaryColor?: string; customColor?: string }) {
-    console.log(theme);
     document.documentElement.setAttribute('data-material', theme.windowMaterial)
     document.documentElement.classList.toggle('dark', theme.isDark)
-  
-    // Remove existing theme-* classes from body
+
     const themeClass = [
       'theme-blue',
       'theme-purple',
@@ -319,15 +379,14 @@
       'theme-custom'
     ]
     document.body.classList.remove(...themeClass)
-  
-    // Apply theme color class on body so CSS variables cascade correctly
+
     document.body.classList.add(`theme-${theme.primaryColor}`)
-  
+
     if (theme.customColor) {
       document.documentElement.style.setProperty('--primary-color', theme.customColor)
     }
   }
-  
+
   function applyOsClass(platform: string) {
     document.documentElement.classList.remove('os-mac', 'os-windows', 'os-linux')
     if (platform === 'darwin') {
@@ -338,17 +397,15 @@
       document.documentElement.classList.add('os-linux')
     }
   }
-  
+
   onMounted(() => {
-    // Theme
     const theme = window.services.getThemeInfo()
     applyTheme(theme)
     window.services.onThemeChange((t) => applyTheme(t))
-  
-    // OS class
+
     const sys = window.services.getSystemInfo()
     applyOsClass(sys.platform)
-  
+
     window.ztools.onPluginEnter(() => {
       loadAll()
     })
@@ -356,38 +413,37 @@
     loadAll()
   })
   </script>
-  
+
   <template>
     <div class="app" :class="{ 'app--loading': loading }">
       <div class="app-body">
         <EnvironmentList
           :environments="store.environments"
-          :active-environment-id="store.activeEnvironmentId"
+          :active-environment-ids="store.activeEnvironmentIds"
           :selected-environment-id="selectedEnvironmentId"
           @select="(id: string) => selectedEnvironmentId = id"
           @apply="applyEnvironment"
           @deactivate="deactivateEnvironment"
           @delete="deleteEnvironment"
         />
-  
+
         <div class="app-main">
           <EnvironmentEditor
             v-if="selectedEnvironment"
             :environment="selectedEnvironment"
-            :is-active="selectedEnvironment.id === store.activeEnvironmentId"
-            @add-entry="addEntry"
-            @update-entry="updateEntry"
-            @delete-entry="deleteEntry"
-            @toggle-mode="toggleEditMode"
+            :is-active="activeEnvironmentIds.has(selectedEnvironment.id)"
+            :has-pending-changes="hasPendingChanges"
             @source-change="onSourceChange"
             @update-name="updateName"
+            @save-draft="saveEnvironmentDraft"
+            @cancel-draft="cancelEnvironmentDraft"
           />
           <div v-else class="app-empty">
             <p>选择一个环境开始管理</p>
           </div>
         </div>
       </div>
-  
+
       <Toast
         :message="toastState.message"
         :type="toastState.type"
@@ -408,7 +464,7 @@
       />
     </div>
   </template>
-  
+
   <style scoped>
   .app {
     min-height: 100vh;

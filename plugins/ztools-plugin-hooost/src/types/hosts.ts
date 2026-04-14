@@ -1,5 +1,6 @@
-export type EnvironmentType = 'public' | 'dev' | 'test' | 'prod'
-export type EditMode = 'entry' | 'source'
+export type BuiltinEnvironmentType = 'public' | 'dev' | 'test' | 'prod'
+export type EnvironmentType = BuiltinEnvironmentType | 'custom'
+export type EditMode = 'source'
 
 export interface SourceLine {
   id: string
@@ -15,14 +16,15 @@ export interface Environment {
   id: string
   name: string
   type: EnvironmentType
-  enabled: boolean // public is always true
+  enabled: boolean // public is always true and normalized in storage
   editMode: EditMode
+  header: string
   lines: SourceLine[]
   updatedAt: string
 }
 
 export interface EnvironmentStore {
-  activeEnvironmentId: string | null // null means only public is active
+  activeEnvironmentIds: string[]
   environments: Environment[]
 }
 

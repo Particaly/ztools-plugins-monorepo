@@ -1,10 +1,63 @@
-import type { SourceLine, HostEntry, Environment } from '../types/hosts'
+import type { SourceLine, HostEntry, Environment, EnvironmentType, BuiltinEnvironmentType } from '../types/hosts'
 
-const BEGIN_MARKER = '# >>> hooost managed start'
-const END_MARKER = '# <<< hooost managed end'
+const DEFAULT_PUBLIC_HEADER = '#-------- 公共配置 --------'
+const GROUP_HEADER_PATTERN = /^#--------\s*(.*?)\s*--------$/
+
+const BUILTIN_GROUPS: Array<{ type: BuiltinEnvironmentType; name: string; header: string; id: string }> = [
+  { type: 'public', name: '公共环境', header: DEFAULT_PUBLIC_HEADER, id: 'env-public' },
+  { type: 'dev', name: '开发环境', header: '#-------- 开发环境 --------', id: 'env-dev' },
+  { type: 'test', name: '测试环境', header: '#-------- 测试环境 --------', id: 'env-test' },
+  { type: 'prod', name: '生产环境', header: '#-------- 生产环境 --------', id: 'env-prod' },
+]
+
+const BUILTIN_BY_HEADER = new Map(BUILTIN_GROUPS.map(group => [group.header, group]))
+const BUILTIN_BY_TYPE = new Map(BUILTIN_GROUPS.map(group => [group.type, group]))
 
 function generateLineId(): string {
   return Date.now().toString(36) + Math.random().toString(36).substring(2, 8)
+}
+
+function normalizeGroupId(name: string): string {
+  const normalized = name
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^\p{L}\p{N}-]+/gu, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+  return normalized || 'group'
+}
+
+export function buildGroupHeader(name: string): string {
+  return `#-------- ${name.trim()} --------`
+}
+
+export function normalizeHostsContent(content: string): string {
+  const normalized = content.replace(/^\uFEFF/, '')
+  const lines = normalized.split('\n')
+  if (lines[0] === DEFAULT_PUBLIC_HEADER) return normalized
+  return [DEFAULT_PUBLIC_HEADER, normalized].filter(Boolean).join('\n')
+}
+
+function getGroupMeta(header: string) {
+  const builtin = BUILTIN_BY_HEADER.get(header)
+  if (builtin) {
+    return {
+      id: builtin.id,
+      name: builtin.name,
+      type: builtin.type as EnvironmentType,
+      header: builtin.header,
+    }
+  }
+
+  const match = header.match(GROUP_HEADER_PATTERN)
+  const name = match?.[1]?.trim() || '自定义分组'
+  return {
+    id: `env-${normalizeGroupId(name)}`,
+    name,
+    type: 'custom' as const,
+    header,
+  }
 }
 
 function isIpv4(value: string): boolean {
@@ -118,42 +171,92 @@ export function renderEntriesToSource(entries: HostEntry[]): string {
     .join('\n')
 }
 
+export function parseEnvironmentBlocks(fullHosts: string): Environment[] {
+  const normalized = normalizeHostsContent(fullHosts)
+  const sections = new Map<string, { meta: ReturnType<typeof getGroupMeta>; lines: string[] }>()
+  let currentHeader = DEFAULT_PUBLIC_HEADER
+
+  sections.set(DEFAULT_PUBLIC_HEADER, {
+    meta: getGroupMeta(DEFAULT_PUBLIC_HEADER),
+    lines: [],
+  })
+
+  for (const line of normalized.split('\n')) {
+    const trimmed = line.trim()
+    const match = trimmed.match(GROUP_HEADER_PATTERN)
+    if (match) {
+      currentHeader = trimmed
+      if (!sections.has(currentHeader)) {
+        sections.set(currentHeader, {
+          meta: getGroupMeta(currentHeader),
+          lines: [],
+        })
+      }
+      continue
+    }
+
+    const section = sections.get(currentHeader)
+    if (section) section.lines.push(line)
+  }
+
+  return Array.from(sections.values()).map(({ meta, lines }) => ({
+    id: meta.id,
+    name: meta.name,
+    type: meta.type,
+    enabled: meta.type === 'public',
+    editMode: 'source',
+    header: meta.header,
+    lines: parseSourceToLines(lines.join('\n').trim()),
+    updatedAt: new Date().toISOString(),
+  }))
+}
+
+export function getEnabledEnvironmentTypesFromHosts(fullHosts: string): EnvironmentType[] {
+  return parseEnvironmentBlocks(fullHosts).map(env => env.type)
+}
+
+export function splitHostsByEnvironment(fullHosts: string): Record<string, string> {
+  return Object.fromEntries(
+    parseEnvironmentBlocks(fullHosts).map(env => [env.id, renderLinesToSource(env.lines)])
+  )
+}
+
 // --- Public content extraction ---
 
 export function extractPublicContent(fullHosts: string): string {
-  const startIdx = fullHosts.indexOf(BEGIN_MARKER)
-  const endIdx = fullHosts.indexOf(END_MARKER)
-
-  if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
-    return (fullHosts.substring(0, startIdx) + fullHosts.substring(endIdx + END_MARKER.length)).trim()
-  }
-  return fullHosts.trim()
+  return parseEnvironmentBlocks(fullHosts).find(env => env.type === 'public')
+    ? renderLinesToSource(parseEnvironmentBlocks(fullHosts).find(env => env.type === 'public')!.lines)
+    : ''
 }
 
 // --- Managed block rendering (for apply / merge) ---
 
-export function renderEnvironmentBlock(env: Environment): string {
-  const lines = [BEGIN_MARKER, `# env: ${env.type}`, `# name: ${env.name}`]
-  for (const l of env.lines) {
-    if (l.type !== 'host') continue
-    const line = l.enabled ? `${l.ip}\t${l.domain}` : `# ${l.ip}\t${l.domain}`
-    lines.push(l.comment ? `${line} # ${l.comment}` : line)
+export function renderEnvironmentBlock(environments: Environment[]): string {
+  const blocks: string[] = []
+
+  for (const env of environments) {
+    const lines = env.lines
+      .filter(l => l.type === 'host' && l.enabled && l.domain && l.ip)
+      .map(l => (l.comment ? `${l.ip}\t${l.domain} # ${l.comment}` : `${l.ip}\t${l.domain}`))
+
+    blocks.push(env.header || BUILTIN_BY_TYPE.get(env.type as BuiltinEnvironmentType)?.header || buildGroupHeader(env.name))
+    if (lines.length > 0) {
+      blocks.push(...lines)
+    }
   }
-  lines.push(END_MARKER)
-  return lines.join('\n')
+
+  return blocks.join('\n')
 }
 
-export function mergeHostsContent(original: string, env: Environment): string {
-  const newBlock = renderEnvironmentBlock(env)
-  const startIdx = original.indexOf(BEGIN_MARKER)
-  const endIdx = original.indexOf(END_MARKER)
-
-  if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
-    return original.substring(0, startIdx) + newBlock + original.substring(endIdx + END_MARKER.length)
-  }
-
-  const trimmed = original.trimEnd()
-  return trimmed + '\n\n' + newBlock + '\n'
+export function mergeHostsContent(original: string, environments: Environment[]): string {
+  const normalizedOriginal = normalizeHostsContent(original)
+  const publicEnvironment = parseEnvironmentBlocks(normalizedOriginal).find(env => env.type === 'public')
+  const blocks = [
+    publicEnvironment?.header || DEFAULT_PUBLIC_HEADER,
+    ...(publicEnvironment?.lines.length ? renderLinesToSource(publicEnvironment.lines).split('\n') : []),
+  ]
+  const rendered = renderEnvironmentBlock(environments)
+  return rendered ? [...blocks, '', rendered].join('\n').trimEnd() + '\n' : blocks.join('\n').trimEnd() + '\n'
 }
 
 export function validateEntry(entry: { ip: string; domain: string }): string | null {
