@@ -1,5 +1,9 @@
 # IP Switcher - 电脑 IP 便捷切换工具
 
+#### 源码来源
+
+感谢[焚霜/ip-switcher (gitee.com)](https://gitee.com/chronosmaker/ip-switcher)
+
 #### 介绍
 
 > 【ztools插件】快捷修改本机 IP 地址，保存多套 IP 方案，一键切换。
@@ -45,10 +49,6 @@
 1. 支持多网卡独立配置
 2. 支持保存多套 IP 方案，一键切换
 3. 支持快速切换为【自动获取】
-
-#### 完整代码
-
-[焚霜/ip-switcher (gitee.com)](https://gitee.com/chronosmaker/ip-switcher)
 
 #### 参与贡献
 

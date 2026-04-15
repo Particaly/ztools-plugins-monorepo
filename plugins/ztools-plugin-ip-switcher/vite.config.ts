@@ -1,13 +1,25 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import path from 'path';
+import path from 'node:path';
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
+const rootDir = fileURLToPath(new URL('.', import.meta.url));
 
 export default defineConfig({
   base: './',
-  plugins: [react()],
+  plugins: [
+    react(),
+    {
+      name: 'copy-license',
+      closeBundle() {
+        fs.copyFileSync(path.resolve(rootDir, 'LICENSE'), path.resolve(rootDir, 'dist', 'LICENSE'));
+      },
+    },
+  ],
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, 'src'),
+      '@': path.resolve(rootDir, 'src'),
     },
   },
   server: {

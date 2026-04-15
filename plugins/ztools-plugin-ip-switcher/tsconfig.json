@@ -11,7 +11,9 @@
     "paths": {
       "@/*": ["src/*"]
     },
-    "allowSyntheticDefaultImports": true
+    "allowSyntheticDefaultImports": true,
+    "types": ["node"],
+    "skipLibCheck": true
   },
   "include": ["src/**/*", "typings.d.ts", "vite.config.ts"],
   "exclude": [
