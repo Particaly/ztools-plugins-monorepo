@@ -26,6 +26,21 @@ describe('hosts helpers', () => {
     ].join('\n'))
   })
 
+  it('preserves multiple hostnames on the same line', () => {
+    const content = '127.0.0.1 localhost api.dev.com'
+
+    const lines = parseSourceToLines(content)
+
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({
+      type: 'host',
+      ip: '127.0.0.1',
+      domain: 'localhost api.dev.com',
+      enabled: true,
+    })
+    expect(renderLinesToSource(lines)).toBe('127.0.0.1\tlocalhost api.dev.com')
+  })
+
   it('repairs missing end markers while preserving external sections', () => {
     const content = [
       '127.0.0.1 localhost',

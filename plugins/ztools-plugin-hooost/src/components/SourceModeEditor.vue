@@ -22,13 +22,11 @@ let isInternalChange = false
 async function createEditor(): Promise<void> {
   if (!editorRef.value) return
 
-  const [{ default: ace }] = await Promise.all([
-    import('ace-builds'),
-    import('ace-builds/src-noconflict/mode-sh'),
-    import('ace-builds/src-noconflict/theme-github'),
-    import('ace-builds/src-noconflict/theme-one_dark'),
-    import('ace-builds/src-noconflict/ext-language_tools'),
-  ])
+  const { default: ace } = await import('ace-builds/src-noconflict/ace')
+  await import('ace-builds/src-noconflict/mode-sh')
+  await import('ace-builds/src-noconflict/theme-github')
+  await import('ace-builds/src-noconflict/theme-one_dark')
+  await import('ace-builds/src-noconflict/ext-language_tools')
 
   if (!editorRef.value || editor) return
 

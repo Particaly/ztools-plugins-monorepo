@@ -333,6 +333,20 @@ function saveEnvironmentDraft(envId: string): void {
 
   savedEnvironment.updatedAt = new Date().toISOString()
   store.value.environments[environmentIndex] = savedEnvironment
+
+  if (store.value.activeEnvironmentIds.includes(envId)) {
+    runServiceAction({
+      run: () => window.services.applyHosts(getMergedContent(), savedEnvironment.name),
+      failureMessage: '保存配置失败',
+      successMessage: `已保存配置「${savedEnvironment.name}」`,
+      onSuccess: () => {
+        persistStore()
+        clearDraft(envId)
+      },
+    })
+    return
+  }
+
   persistStore()
   clearDraft(envId)
   success(`已保存配置「${savedEnvironment.name}」`)

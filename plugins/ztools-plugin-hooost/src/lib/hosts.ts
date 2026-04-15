@@ -264,7 +264,7 @@ export function parseSourceToLines(content: string): SourceLine[] {
 export function renderLinesToSource(lines: SourceLine[]): string {
   return lines
     .map((l) => {
-      if (l.type === 'host' && (l.ip !== undefined || l.domain !== undefined)) {
+      if (l.type === 'host' && l.ip !== undefined && l.domain !== undefined) {
         const line = `${l.ip}\t${l.domain}`
         const base = l.enabled ? line : `# ${line}`
         return l.comment ? `${base} # ${l.comment}` : base
