@@ -1,27 +1,36 @@
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, watch, computed } from 'vue'
-import ace from 'ace-builds/src-noconflict/ace'
-import 'ace-builds/src-noconflict/mode-sh'
-import 'ace-builds/src-noconflict/theme-github'
-import 'ace-builds/src-noconflict/theme-one_dark'
-import 'ace-builds/src-noconflict/ext-language_tools'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import type aceBuilds from 'ace-builds'
 
 const modelValue = defineModel<string>({ required: true })
 
-const props = withDefaults(defineProps<{
-  readonly?: boolean
-}>(), {
-  readonly: false,
-})
+const props = withDefaults(
+  defineProps<{
+    readonly?: boolean
+  }>(),
+  {
+    readonly: false,
+  }
+)
 
 const editorRef = ref<HTMLDivElement | null>(null)
 const isDark = computed(() => document.documentElement.classList.contains('dark'))
 
-let editor: ace.Ace.Editor | null = null
+let editor: aceBuilds.Ace.Editor | null = null
 let isInternalChange = false
 
-onMounted(() => {
+async function createEditor(): Promise<void> {
   if (!editorRef.value) return
+
+  const [{ default: ace }] = await Promise.all([
+    import('ace-builds'),
+    import('ace-builds/src-noconflict/mode-sh'),
+    import('ace-builds/src-noconflict/theme-github'),
+    import('ace-builds/src-noconflict/theme-one_dark'),
+    import('ace-builds/src-noconflict/ext-language_tools'),
+  ])
+
+  if (!editorRef.value || editor) return
 
   editor = ace.edit(editorRef.value, {
     mode: 'ace/mode/sh',
@@ -40,18 +49,24 @@ onMounted(() => {
   })
 
   editor.on('change', () => {
-    if (isInternalChange) return
+    if (!editor || isInternalChange) return
+
     isInternalChange = true
-    modelValue.value = editor!.getValue()
+    modelValue.value = editor.getValue()
     isInternalChange = false
   })
+}
+
+onMounted(() => {
+  void createEditor()
 })
 
-watch(modelValue, (val) => {
+watch(modelValue, (value) => {
   if (!editor || isInternalChange) return
+
   isInternalChange = true
   const cursor = editor.getCursorPosition()
-  editor.setValue(val ?? '', -1)
+  editor.setValue(value ?? '', -1)
   editor.moveCursorToPosition(cursor)
   isInternalChange = false
 })
@@ -60,9 +75,12 @@ watch(isDark, (dark) => {
   editor?.setTheme(dark ? 'ace/theme/one_dark' : 'ace/theme/github')
 })
 
-watch(() => props.readonly, (readonly) => {
-  editor?.setReadOnly(readonly)
-})
+watch(
+  () => props.readonly,
+  (readonly) => {
+    editor?.setReadOnly(readonly)
+  }
+)
 
 onBeforeUnmount(() => {
   editor?.destroy()

@@ -25,7 +25,7 @@ const confirmState = ref<ConfirmState>({
   type: 'info',
   confirmText: '确定',
   cancelText: '取消',
-  resolve: null
+  resolve: null,
 })
 
 /**
@@ -46,7 +46,7 @@ export function useConfirmDialog(): {
         type: options.type || 'info',
         confirmText: options.confirmText || '确定',
         cancelText: options.cancelText || '取消',
-        resolve
+        resolve,
       }
     })
   }
@@ -65,6 +65,6 @@ export function useConfirmDialog(): {
     confirmState,
     confirm,
     handleConfirm,
-    handleCancel
+    handleCancel,
   }
 }

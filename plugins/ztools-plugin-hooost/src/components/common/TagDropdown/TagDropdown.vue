@@ -43,7 +43,7 @@ function updateMenuPosition(): void {
     position: 'fixed',
     left: `${left}px`,
     top: `${top}px`,
-    zIndex: '10000'
+    zIndex: '10000',
   }
 }
 

@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { DropdownEmits, DropdownOption, DropdownProps } from './Dropdown'
 
 const props = withDefaults(defineProps<DropdownProps>(), {
-  placeholder: '请选择'
+  placeholder: '请选择',
 })
 
 const emit = defineEmits<DropdownEmits>()

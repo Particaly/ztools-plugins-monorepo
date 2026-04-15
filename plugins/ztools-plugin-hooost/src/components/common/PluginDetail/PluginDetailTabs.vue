@@ -1,22 +1,21 @@
 <script setup lang="ts">
 import { CommandTag, FeatureCard } from '@/components'
-import type { DocItem, PluginItem, TabId, TabItem } from './types'
+import type { DocItem, PluginDocContent, PluginItem, TabId, TabItem } from './types'
+import { cmdKey, formatDate, formatJsonData, normalizeCommand } from './utils'
 
 defineProps<{
   plugin: PluginItem
   activeTab: TabId
   availableTabs: TabItem[]
-  // README
   readmeLoading: boolean
   readmeError: string
   renderedMarkdown: string
   readmeContent: string
-  // 插件数据
   docKeys: DocItem[]
   dataLoading: boolean
   dataError: string
   expandedDataId: string
-  currentDocContent: any
+  currentDocContent: PluginDocContent
   currentDocType: 'document' | 'attachment'
   isClearing: boolean
 }>()
@@ -26,54 +25,6 @@ const emit = defineEmits<{
   (e: 'toggle-data-detail', item: DocItem): void
   (e: 'clear-all-data'): void
 }>()
-
-function cmdKey(cmd: any): string {
-  if (cmd && typeof cmd === 'object') {
-    return cmd.label || cmd.text || cmd.name || ''
-  }
-  return String(cmd)
-}
-
-function normalizeCommand(cmd: any): any {
-  if (cmd && typeof cmd === 'object') {
-    return {
-      name: cmd.label || cmd.name,
-      text: cmd.label,
-      type: cmd.type,
-      match: cmd.match
-    }
-  }
-  return {
-    text: String(cmd),
-    type: 'text'
-  }
-}
-
-function formatJsonData(data: any): string {
-  if (!data) return ''
-  try {
-    return JSON.stringify(data, null, 2)
-  } catch {
-    return String(data)
-  }
-}
-
-function formatDate(dateStr?: string): string {
-  if (!dateStr) return ''
-  try {
-    const date = new Date(dateStr)
-    return date.toLocaleString('zh-CN', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit'
-    })
-  } catch {
-    return dateStr
-  }
-}
 </script>
 
 <template>
@@ -91,7 +42,6 @@ function formatDate(dateStr?: string): string {
     </div>
 
     <div class="tab-content">
-      <!-- 详情 Tab -->
       <div v-if="activeTab === 'detail'" class="tab-panel">
         <div v-if="readmeLoading" class="loading-container">
           <div class="spinner"></div>
@@ -100,12 +50,10 @@ function formatDate(dateStr?: string): string {
         <div v-else-if="readmeError" class="error-container">
           <span>{{ readmeError }}</span>
         </div>
-        <!-- eslint-disable-next-line vue/no-v-html -->
         <div v-else-if="readmeContent" class="markdown-content" v-html="renderedMarkdown"></div>
         <div v-else class="empty-message">该插件暂无详情说明</div>
       </div>
 
-      <!-- 指令列表 Tab -->
       <div v-if="activeTab === 'commands'" class="tab-panel">
         <div v-if="plugin.features && plugin.features.length > 0" class="feature-list">
           <FeatureCard v-for="feature in plugin.features" :key="feature.code" :feature="feature">
@@ -119,7 +67,6 @@ function formatDate(dateStr?: string): string {
         <div v-else class="empty-message">暂无指令</div>
       </div>
 
-      <!-- 数据 Tab -->
       <div v-if="activeTab === 'data'" class="tab-panel">
         <div v-if="dataLoading" class="loading-container">
           <div class="spinner"></div>
@@ -128,7 +75,7 @@ function formatDate(dateStr?: string): string {
         <div v-else-if="dataError" class="error-container">
           <span>{{ dataError }}</span>
         </div>
-        <div v-else-if="docKeys && docKeys.length > 0" class="data-container">
+        <div v-else-if="docKeys.length > 0" class="data-container">
           <div class="data-header-actions">
             <button
               class="btn btn-sm btn-danger"
@@ -180,17 +127,30 @@ function formatDate(dateStr?: string): string {
                         {{ currentDocType === 'document' ? '文档' : '附件' }}
                       </span>
                     </div>
-                    <div v-if="currentDocContent?._rev" class="data-meta-item">
+                    <div
+                      v-if="
+                        currentDocContent &&
+                        typeof currentDocContent === 'object' &&
+                        '_rev' in currentDocContent
+                      "
+                      class="data-meta-item"
+                    >
                       <span class="label">版本:</span>
                       <span class="value">{{ currentDocContent._rev }}</span>
                     </div>
                     <div
-                      v-if="currentDocContent?._updatedAt || currentDocContent?.updatedAt"
+                      v-if="
+                        currentDocContent &&
+                        typeof currentDocContent === 'object' &&
+                        ('_updatedAt' in currentDocContent || 'updatedAt' in currentDocContent)
+                      "
                       class="data-meta-item"
                     >
                       <span class="label">更新时间:</span>
                       <span class="value">{{
-                        formatDate(currentDocContent._updatedAt || currentDocContent.updatedAt)
+                        formatDate(
+                          String(currentDocContent._updatedAt || currentDocContent.updatedAt || '')
+                        )
                       }}</span>
                     </div>
                   </div>
@@ -205,7 +165,6 @@ function formatDate(dateStr?: string): string {
         <div v-else class="empty-message">该插件暂无存储数据</div>
       </div>
 
-      <!-- 额外 Tab 内容（留言等） -->
       <slot name="extra-tabs" />
     </div>
   </div>
@@ -262,6 +221,7 @@ function formatDate(dateStr?: string): string {
     opacity: 0;
     transform: translateY(4px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -306,7 +266,6 @@ function formatDate(dateStr?: string): string {
   }
 }
 
-/* Markdown 内容样式 */
 .markdown-content {
   padding: 12px;
   font-size: 14px;
@@ -401,14 +360,12 @@ function formatDate(dateStr?: string): string {
   font-weight: 600;
 }
 
-/* 指令列表样式 */
 .feature-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
-/* 数据容器 */
 .data-container {
   display: flex;
   flex-direction: column;
@@ -418,166 +375,5 @@ function formatDate(dateStr?: string): string {
 .data-header-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
-  padding: 0 4px;
-}
-
-.data-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.data-item {
-  cursor: pointer;
-  transition: all 0.2s;
-  overflow: hidden;
-}
-
-.data-item:hover {
-  background: var(--hover-bg);
-}
-
-.data-item.expanded {
-  background: var(--active-bg);
-}
-
-.data-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 14px;
-  gap: 8px;
-}
-
-.data-header-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-.data-key {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-color);
-  font-family: monospace;
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.expand-icon {
-  flex-shrink: 0;
-  color: var(--text-secondary);
-  transition: transform 0.2s;
-}
-
-.expand-icon.rotated {
-  transform: rotate(90deg);
-}
-
-.data-content {
-  padding: 0 14px 14px;
-  border-top: 1px solid var(--divider-color);
-}
-
-.data-meta {
-  display: flex;
-  gap: 16px;
-  margin-top: 12px;
-  margin-bottom: 12px;
-  flex-wrap: wrap;
-}
-
-.data-meta-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-}
-
-.data-meta-item .label {
-  color: var(--text-secondary);
-  font-weight: 500;
-}
-
-.data-meta-item .value {
-  color: var(--text-color);
-  font-family: monospace;
-}
-
-.data-meta-item .value.type-badge {
-  padding: 2px 8px;
-  border-radius: 12px;
-  font-size: 11px;
-  font-weight: 600;
-  font-family:
-    system-ui,
-    -apple-system,
-    sans-serif;
-}
-
-.data-meta-item .value.type-badge.type-document {
-  background: var(--primary-light-bg);
-  color: var(--primary-color);
-}
-
-.data-meta-item .value.type-badge.type-attachment {
-  background: var(--purple-light-bg);
-  color: var(--purple-color);
-}
-
-.doc-type-badge {
-  padding: 2px 8px;
-  border-radius: 12px;
-  font-size: 11px;
-  font-weight: 600;
-  flex-shrink: 0;
-}
-
-.doc-type-badge.type-document {
-  background: var(--primary-light-bg);
-  color: var(--primary-color);
-}
-
-.doc-type-badge.type-attachment {
-  background: var(--purple-light-bg);
-  color: var(--purple-color);
-}
-
-.data-json {
-  background: var(--bg-color);
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  padding: 12px;
-  overflow-x: auto;
-}
-
-.data-json pre {
-  margin: 0;
-  font-family: 'Monaco', 'Menlo', monospace;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--text-color);
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-
-/* 展开/收起动画 */
-.expand-enter-active,
-.expand-leave-active {
-  transition:
-    max-height 0.3s ease,
-    opacity 0.2s ease;
-  max-height: 500px;
-  overflow: hidden;
-}
-
-.expand-enter-from,
-.expand-leave-to {
-  max-height: 0;
-  opacity: 0;
 }
 </style>

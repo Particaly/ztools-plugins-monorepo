@@ -136,7 +136,7 @@ onUnmounted(() => {
 <script lang="ts">
 export default {
   name: 'AdaptiveIcon',
-  inheritAttrs: false
+  inheritAttrs: false,
 }
 </script>
 

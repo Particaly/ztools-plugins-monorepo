@@ -71,28 +71,26 @@ export function createCustomEnvironmentId(): string {
 }
 
 function normalizeCustomEnvironment(env: StoredEnvironment): Environment {
-  const normalizedName = typeof env.name === 'string' && env.name.trim()
-    ? env.name.trim()
-    : '新配置'
+  const normalizedName =
+    typeof env.name === 'string' && env.name.trim() ? env.name.trim() : '新配置'
 
   return {
-    id: typeof env.id === 'string' && env.id
-      ? env.id
-      : createCustomEnvironmentId(),
+    id: typeof env.id === 'string' && env.id ? env.id : createCustomEnvironmentId(),
     name: normalizedName,
     type: 'custom',
     enabled: false,
     editMode: 'source',
-    header: typeof env.header === 'string' && env.header.trim()
-      ? env.header
-      : buildGroupHeader(normalizedName),
-    endMarker: typeof env.endMarker === 'string' && env.endMarker.trim()
-      ? env.endMarker
-      : buildGroupEndMarker(normalizedName),
+    header:
+      typeof env.header === 'string' && env.header.trim()
+        ? env.header
+        : buildGroupHeader(normalizedName),
+    endMarker:
+      typeof env.endMarker === 'string' && env.endMarker.trim()
+        ? env.endMarker
+        : buildGroupEndMarker(normalizedName),
     lines: Array.isArray(env.lines) ? env.lines : [],
-    updatedAt: typeof env.updatedAt === 'string' && env.updatedAt
-      ? env.updatedAt
-      : new Date().toISOString(),
+    updatedAt:
+      typeof env.updatedAt === 'string' && env.updatedAt ? env.updatedAt : new Date().toISOString(),
   }
 }
 
@@ -102,7 +100,10 @@ function isEnvironmentStoreLike(value: unknown): value is EnvironmentStoreLike {
   return Array.isArray(store.activeEnvironmentIds) && Array.isArray(store.environments)
 }
 
-function ensureInitialEnvironments(store: EnvironmentStore, initialized: boolean): EnvironmentStore {
+function ensureInitialEnvironments(
+  store: EnvironmentStore,
+  initialized: boolean
+): EnvironmentStore {
   if (initialized) {
     return {
       ...store,
@@ -113,8 +114,8 @@ function ensureInitialEnvironments(store: EnvironmentStore, initialized: boolean
   const environments = [...store.environments]
   for (const preset of INITIAL_ENVIRONMENTS) {
     const presetHeader = buildGroupHeader(preset.name)
-    const exists = environments.some(env =>
-      env.type === 'custom' && (env.name === preset.name || env.header === presetHeader),
+    const exists = environments.some(
+      (env) => env.type === 'custom' && (env.name === preset.name || env.header === presetHeader)
     )
     if (!exists) {
       environments.push(createInitialEnvironment(preset.id, preset.name))
@@ -131,8 +132,8 @@ function ensureInitialEnvironments(store: EnvironmentStore, initialized: boolean
 export function normalizeStore(storeLike: EnvironmentStoreLike): EnvironmentStore {
   const baseStore = isEnvironmentStoreLike(storeLike) ? storeLike : createEmptyStore()
   const publicDefaults = createPublicEnvironment()
-  const existingPublic = baseStore.environments.find(env =>
-    env && typeof env === 'object' && (env as StoredEnvironment).type === 'public',
+  const existingPublic = baseStore.environments.find(
+    (env) => env && typeof env === 'object' && (env as StoredEnvironment).type === 'public'
   ) as StoredEnvironment | undefined
 
   const publicEnvironment: Environment = {
@@ -146,38 +147,49 @@ export function normalizeStore(storeLike: EnvironmentStoreLike): EnvironmentStor
     header: publicDefaults.header,
     endMarker: '',
     lines: Array.isArray(existingPublic?.lines) ? existingPublic.lines : publicDefaults.lines,
-    updatedAt: typeof existingPublic?.updatedAt === 'string' && existingPublic.updatedAt
-      ? existingPublic.updatedAt
-      : publicDefaults.updatedAt,
+    updatedAt:
+      typeof existingPublic?.updatedAt === 'string' && existingPublic.updatedAt
+        ? existingPublic.updatedAt
+        : publicDefaults.updatedAt,
   }
 
   const customEnvironments = baseStore.environments
-    .filter((env): env is StoredEnvironment => !!env && typeof env === 'object' && (env as StoredEnvironment).type !== 'public')
+    .filter(
+      (env): env is StoredEnvironment =>
+        !!env && typeof env === 'object' && (env as StoredEnvironment).type !== 'public'
+    )
     .map(normalizeCustomEnvironment)
 
-  const seededStore = ensureInitialEnvironments({
-    initialized: baseStore.initialized === true,
-    activeEnvironmentIds: Array.isArray(baseStore.activeEnvironmentIds)
-      ? baseStore.activeEnvironmentIds.filter((id): id is string => typeof id === 'string')
-      : ['env-public'],
-    environments: [publicEnvironment, ...customEnvironments],
-  }, baseStore.initialized === true)
+  const seededStore = ensureInitialEnvironments(
+    {
+      initialized: baseStore.initialized === true,
+      activeEnvironmentIds: Array.isArray(baseStore.activeEnvironmentIds)
+        ? baseStore.activeEnvironmentIds.filter((id): id is string => typeof id === 'string')
+        : ['env-public'],
+      environments: [publicEnvironment, ...customEnvironments],
+    },
+    baseStore.initialized === true
+  )
 
-  const validIds = new Set(seededStore.environments.map(env => env.id))
-  const activeEnvironmentIds = Array.from(new Set([
-    'env-public',
-    ...seededStore.activeEnvironmentIds.filter(id => id !== 'env-public' && validIds.has(id)),
-  ]))
+  const validIds = new Set(seededStore.environments.map((env) => env.id))
+  const activeEnvironmentIds = Array.from(
+    new Set([
+      'env-public',
+      ...seededStore.activeEnvironmentIds.filter((id) => id !== 'env-public' && validIds.has(id)),
+    ])
+  )
 
-  const normalizedEnvironments = seededStore.environments
-    .map(env => env.type === 'public'
+  const normalizedEnvironments = seededStore.environments.map((env) =>
+    env.type === 'public'
       ? { ...env, enabled: true }
-      : { ...env, enabled: activeEnvironmentIds.includes(env.id) })
+      : { ...env, enabled: activeEnvironmentIds.includes(env.id) }
+  )
 
-  const publicEnvironmentEntry = normalizedEnvironments.find(env => env.type === 'public') ?? publicEnvironment
+  const publicEnvironmentEntry =
+    normalizedEnvironments.find((env) => env.type === 'public') ?? publicEnvironment
   const environments = [
     publicEnvironmentEntry,
-    ...normalizedEnvironments.filter(env => env.type !== 'public'),
+    ...normalizedEnvironments.filter((env) => env.type !== 'public'),
   ]
 
   return {

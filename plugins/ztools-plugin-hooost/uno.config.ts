@@ -8,7 +8,7 @@ import transformerDirectives from '@unocss/transformer-directives'
 export default defineConfig({
   // 扫描文件配置
   content: {
-    filesystem: ['src/**/*.{vue,js,ts}']
+    filesystem: ['src/**/*.{vue,js,ts}'],
   },
   presets: [
     // 基础预设 - 提供所有基础工具类（包含 Tailwind CSS 兼容的类名）
@@ -31,20 +31,20 @@ export default defineConfig({
               .replace(/(<svg.*?fill=)"(?!none)(.*?)"/, '$1"currentColor"')
               .replace(/(<svg.*?stroke=)"(?!none)(.*?)"/, '$1"currentColor"')
           }
-        )
+        ),
       },
       // 启用常用图标集合
       extraProperties: {
         display: 'inline-block',
-        'vertical-align': 'middle'
-      }
-    })
+        'vertical-align': 'middle',
+      },
+    }),
   ],
   transformers: [
     // @apply 支持
-    transformerDirectives()
+    transformerDirectives(),
   ],
   theme: {},
   // 快捷方式
-  shortcuts: {}
+  shortcuts: {},
 })

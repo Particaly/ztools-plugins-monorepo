@@ -74,7 +74,7 @@ const tagClass = computed(() => {
           :class="[
             command.match?.fileType === 'directory' ? 'i-z-folder' : 'i-z-file',
             'tag-icon',
-            'font-size-12px'
+            'font-size-12px',
           ]"
         />
       </template>

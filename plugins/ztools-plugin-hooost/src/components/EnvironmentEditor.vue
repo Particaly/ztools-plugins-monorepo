@@ -18,11 +18,11 @@ const emit = defineEmits<{
   cancelDraft: [envId: string]
 }>()
 
-const editorContent = computed(() => (
+const editorContent = computed(() =>
   props.environment.type === 'public'
     ? (props.publicReadonlyContent ?? '')
     : renderLinesToSource(props.environment.lines)
-))
+)
 
 function onSourceChange(content: string) {
   emit('sourceChange', props.environment.id, content)
@@ -51,8 +51,22 @@ function onSourceChange(content: string) {
     />
 
     <div v-if="environment.type !== 'public'" class="editor-footer">
-      <button class="btn" type="button" :disabled="!hasPendingChanges" @click="emit('cancelDraft', environment.id)">取消</button>
-      <button class="btn btn-solid" type="button" :disabled="!hasPendingChanges" @click="emit('saveDraft', environment.id)">确认</button>
+      <button
+        class="btn"
+        type="button"
+        :disabled="!hasPendingChanges"
+        @click="emit('cancelDraft', environment.id)"
+      >
+        取消
+      </button>
+      <button
+        class="btn btn-solid"
+        type="button"
+        :disabled="!hasPendingChanges"
+        @click="emit('saveDraft', environment.id)"
+      >
+        确认
+      </button>
     </div>
   </div>
 </template>

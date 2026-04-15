@@ -6,7 +6,7 @@ export interface UseHistoryStateOptions {
 }
 
 const defaultUseHistoryStateOptions: UseHistoryStateOptions = {
-  cleanState: true
+  cleanState: true,
 }
 
 /**

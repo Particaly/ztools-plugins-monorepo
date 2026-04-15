@@ -12,7 +12,7 @@
     "noEmit": true,
     "jsx": "preserve",
     "strict": false,
-    "noImplicitAny": false,
+    "noImplicitAny": true,
     "types": ["@ztools-center/ztools-api-types"],
     "paths": {
       "@/*": ["./src/*"]

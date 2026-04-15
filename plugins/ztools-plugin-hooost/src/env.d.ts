@@ -7,6 +7,13 @@ declare module '*.vue' {
   export default component
 }
 
+declare module 'ace-builds/src-noconflict/ace' {
+  import ace from 'ace-builds'
+  export default ace
+}
+
+declare module 'ace-builds/src-noconflict/*'
+
 interface ApplyResult {
   success: boolean
   error?: string
@@ -19,36 +26,112 @@ interface RestoreResult {
   error?: string
 }
 
+interface BackupInfo {
+  filename: string
+  path: string
+  createdAt: string
+}
+
 interface ThemeInfo {
   isDark: boolean
-  primaryColor: string
-  customColor: string
+  primaryColor?: string
+  customColor?: string
   windowMaterial: string
+}
+
+interface SystemInfo {
+  platform: 'win32' | 'darwin' | 'linux'
+  hostsPath: string
+  dataDir: string
+}
+
+interface Services {
+  getSystemInfo(): SystemInfo
+  getThemeInfo(): ThemeInfo
+  onThemeChange(callback: (theme: ThemeInfo) => void): void
+  readHosts(): string
+  listBackups(): BackupInfo[]
+  applyHosts(content: string, envName?: string): ApplyResult
+  restoreBackup(backupPath: string): RestoreResult
+}
+
+interface ImageAnalysisResult {
+  isSimpleIcon: boolean
+  mainColor: string | null
+  isDark: boolean
+  needsAdaptation: boolean
+}
+
+interface ZToolsReadmeResult {
+  success: boolean
+  content?: string
+  error?: string
+}
+
+interface ZToolsOperationResult {
+  success: boolean
+  error?: string
+}
+
+interface ZToolsDocItem {
+  key: string
+  type: 'document' | 'attachment'
+}
+
+interface ZToolsDocResult {
+  success: boolean
+  data?: Record<string, unknown> | null
+  type?: 'document' | 'attachment'
+  error?: string
+}
+
+interface ZToolsDocKeysResult {
+  success: boolean
+  data?: ZToolsDocItem[]
+  error?: string
+}
+
+interface ZToolsMemoryInfo {
+  private: number
+  shared: number
+  total: number
+}
+
+interface ZToolsMemoryInfoResult {
+  success: boolean
+  data?: ZToolsMemoryInfo
+  error?: string
 }
 
 declare global {
   interface ZToolsInternalApi {
-    [key: string]: any
-    analyzeImage?(src: string): Promise<{
-      isSimpleIcon: boolean
-      mainColor: string | null
-      isDark: boolean
-      needsAdaptation: boolean
-    }>
+    analyzeImage?(src: string): Promise<ImageAnalysisResult>
     getPlatform?(): 'darwin' | 'win32' | 'linux' | string
-    startHotkeyRecording?(): Promise<{ success: boolean; error?: string }>
+    startHotkeyRecording?(): Promise<ZToolsOperationResult>
     onHotkeyRecorded?(callback: (shortcut: string) => void): void
-    dbGet?(key: string): Promise<any>
-    dbPut?(key: string, value: any): Promise<any>
-    getPluginReadme?(target: string): Promise<{ success: boolean; content?: string; error?: string }>
+    dbGet?(key: string): Promise<unknown>
+    dbPut?(key: string, value: unknown): Promise<unknown>
+    getPluginReadme?(target: string): Promise<ZToolsReadmeResult>
+    getPluginDocKeys?(pluginName: string): Promise<ZToolsDocKeysResult>
+    getPluginDoc?(pluginName: string, key: string): Promise<ZToolsDocResult>
+    clearPluginData?(pluginName: string): Promise<ZToolsOperationResult>
+    getPluginMemoryInfo?(pluginPath: string): Promise<ZToolsMemoryInfoResult>
   }
 
   interface ZToolsApi {
-    internal?: ZToolsInternalApi
+    internal: ZToolsInternalApi
+    dbStorage: {
+      getItem<T>(key: string): T | null
+      setItem(key: string, value: unknown): void
+    }
+    shellOpenExternal(url: string): void
+    onPluginEnter(callback: () => void): void
+    onPluginOut(callback: () => void): void
   }
 
   interface Window {
     services: Services
+    ztools: ZToolsApi
   }
 }
 

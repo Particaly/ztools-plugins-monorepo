@@ -60,7 +60,7 @@ const props = withDefaults(defineProps<Props>(), {
   title: '确认操作',
   type: 'info',
   confirmText: '确定',
-  cancelText: '取消'
+  cancelText: '取消',
 })
 
 const emit = defineEmits<{

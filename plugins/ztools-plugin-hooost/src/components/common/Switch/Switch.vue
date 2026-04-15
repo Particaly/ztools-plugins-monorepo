@@ -1,5 +1,8 @@
 <template>
-  <label class="switch" :class="{ 'switch--disabled': disabled, 'switch--with-text': activeText || inactiveText }">
+  <label
+    class="switch"
+    :class="{ 'switch--disabled': disabled, 'switch--with-text': activeText || inactiveText }"
+  >
     <input
       type="checkbox"
       class="switch__input"
@@ -8,7 +11,9 @@
       @change="handleChange"
     />
     <span class="switch__slider">
-      <span v-if="inactiveText" class="switch__text switch__text--inactive">{{ inactiveText }}</span>
+      <span v-if="inactiveText" class="switch__text switch__text--inactive">{{
+        inactiveText
+      }}</span>
       <span v-if="activeText" class="switch__text switch__text--active">{{ activeText }}</span>
       <span class="switch__thumb"></span>
     </span>

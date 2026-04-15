@@ -1,89 +1,90 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
-import type { Environment } from "@/types/hosts";
-import { VueDraggable } from "vue-draggable-plus";
-import ContextMenu from "./ContextMenu.vue";
-import type { ContextMenuItem } from "./ContextMenu.vue";
+import { computed, ref } from 'vue'
+import type { Environment } from '@/types/hosts'
+import { VueDraggable } from 'vue-draggable-plus'
+import ContextMenu from './ContextMenu.vue'
+import type { ContextMenuItem } from './ContextMenu.vue'
 
 const props = defineProps<{
-  environments: Environment[];
-  activeEnvironmentIds: string[];
-  selectedEnvironmentId: string | null;
-}>();
+  environments: Environment[]
+  activeEnvironmentIds: string[]
+  selectedEnvironmentId: string | null
+}>()
 
 const emit = defineEmits<{
-  select: [id: string];
-  apply: [id: string];
-  deactivate: [id: string];
-  delete: [id: string];
-  create: [];
-  reorder: [orderedIds: string[]];
-}>();
+  select: [id: string]
+  apply: [id: string]
+  deactivate: [id: string]
+  delete: [id: string]
+  create: []
+  reorder: [orderedIds: string[]]
+}>()
 
-const contextMenuVisible = ref(false);
-const contextMenuX = ref(0);
-const contextMenuY = ref(0);
-const contextMenuEnv = ref<Environment | null>(null);
+const contextMenuVisible = ref(false)
+const contextMenuX = ref(0)
+const contextMenuY = ref(0)
+const contextMenuEnv = ref<Environment | null>(null)
 
-const publicEnvironments = computed(() =>
-  props.environments.filter((env) => env.type === "public"),
-);
+const publicEnvironments = computed(() => props.environments.filter((env) => env.type === 'public'))
 const managedEnvironments = computed(() =>
-  props.environments.filter((env) => env.type === "custom"),
-);
+  props.environments.filter((env) => env.type === 'custom')
+)
 
 const contextMenuItems = computed<ContextMenuItem[]>(() => {
-  const env = contextMenuEnv.value;
-  if (!env || env.type === "public") return [];
-  const items: ContextMenuItem[] = [];
+  const env = contextMenuEnv.value
+  if (!env || env.type === 'public') return []
+  const items: ContextMenuItem[] = []
   if (props.activeEnvironmentIds.includes(env.id)) {
-    items.push({ label: "停用此配置", value: "deactivate" });
+    items.push({ label: '停用此配置', value: 'deactivate' })
   } else {
-    items.push({ label: "启用此配置", value: "apply" });
+    items.push({ label: '启用此配置', value: 'apply' })
   }
-  items.push({ label: "删除此配置", value: "delete", danger: true });
-  return items;
-});
+  items.push({ label: '删除此配置', value: 'delete', danger: true })
+  return items
+})
 
 function onItemDoubleClick(env: Environment) {
-  if (env.type === "public") return;
+  if (env.type === 'public') return
   if (props.activeEnvironmentIds.includes(env.id)) {
-    emit("deactivate", env.id);
-    return;
+    emit('deactivate', env.id)
+    return
   }
-  emit("apply", env.id);
+  emit('apply', env.id)
 }
 
 function onContextMenu(event: MouseEvent, env: Environment) {
-  if (env.type === "public") return;
-  contextMenuX.value = event.clientX;
-  contextMenuY.value = event.clientY;
-  contextMenuEnv.value = env;
-  contextMenuVisible.value = true;
+  if (env.type === 'public') return
+  contextMenuX.value = event.clientX
+  contextMenuY.value = event.clientY
+  contextMenuEnv.value = env
+  contextMenuVisible.value = true
 }
 
 function onContextMenuSelect(value: string) {
-  contextMenuVisible.value = false;
-  const env = contextMenuEnv.value;
-  if (!env) return;
-  if (value === "apply") emit("apply", env.id);
-  else if (value === "deactivate") emit("deactivate", env.id);
-  else if (value === "delete") emit("delete", env.id);
+  contextMenuVisible.value = false
+  const env = contextMenuEnv.value
+  if (!env) return
+  if (value === 'apply') emit('apply', env.id)
+  else if (value === 'deactivate') emit('deactivate', env.id)
+  else if (value === 'delete') emit('delete', env.id)
 }
 
 function onContextMenuClose() {
-  contextMenuVisible.value = false;
+  contextMenuVisible.value = false
 }
 
 function onManagedOrderChange(value: Environment[]) {
-  emit("reorder", value.map((env) => env.id));
+  emit(
+    'reorder',
+    value.map((env) => env.id)
+  )
 }
 
 function getItemClasses(env: Environment) {
   return [
-    { "env-item--selected": env.id === props.selectedEnvironmentId },
-    { "env-item--active": props.activeEnvironmentIds.includes(env.id) },
-  ];
+    { 'env-item--selected': env.id === props.selectedEnvironmentId },
+    { 'env-item--active': props.activeEnvironmentIds.includes(env.id) },
+  ]
 }
 </script>
 
@@ -105,7 +106,7 @@ function getItemClasses(env: Environment) {
       <span class="env-item-name">{{ env.name }}</span>
       <span v-if="env.editMode === 'source'" class="env-item-badge">源码</span>
       <span v-else class="env-item-count">{{
-        env.lines.filter((l) => l.type === "host" && l.enabled).length
+        env.lines.filter((l) => l.type === 'host' && l.enabled).length
       }}</span>
     </div>
 
@@ -138,7 +139,7 @@ function getItemClasses(env: Environment) {
         </span>
         <span class="env-item-name">{{ env.name }}</span>
         <span class="env-item-count">{{
-          env.lines.filter((l) => l.type === "host" && l.enabled).length
+          env.lines.filter((l) => l.type === 'host' && l.enabled).length
         }}</span>
       </div>
     </VueDraggable>
@@ -294,7 +295,9 @@ function getItemClasses(env: Environment) {
   color: var(--text-color-secondary, #888);
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.15s, color 0.15s;
+  transition:
+    opacity 0.15s,
+    color 0.15s;
 }
 
 .env-item--sortable:hover .env-item-handle,

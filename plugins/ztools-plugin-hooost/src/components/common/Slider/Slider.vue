@@ -35,7 +35,7 @@ const props = withDefaults(defineProps<Props>(), {
   min: 0,
   max: 100,
   step: 1,
-  formatter: (value: number) => `${Math.round(value)}`
+  formatter: (value: number) => `${Math.round(value)}`,
 })
 
 const emit = defineEmits<{

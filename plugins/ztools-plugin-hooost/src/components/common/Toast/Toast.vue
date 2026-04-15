@@ -42,7 +42,7 @@ interface Props {
 const props = withDefaults(defineProps<Props>(), {
   type: 'info',
   duration: 3000,
-  visible: false
+  visible: false,
 })
 
 const emit = defineEmits<{

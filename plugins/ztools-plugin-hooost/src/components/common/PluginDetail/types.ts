@@ -1,9 +1,25 @@
+export interface PluginCommandMatch {
+  match?: string
+  minLength?: number
+  maxLength?: number
+  extensions?: string[]
+  fileType?: 'file' | 'directory'
+}
+
+export interface PluginCommand {
+  text?: string
+  label?: string
+  name?: string
+  type?: 'text' | 'regex' | 'over' | 'img' | 'files' | 'window' | string
+  match?: PluginCommandMatch
+}
+
 export interface PluginFeature {
   code: string
   name?: string
   explain?: string
   icon?: string
-  cmds?: any[]
+  cmds?: PluginCommand[]
 }
 
 export interface PluginItem {
@@ -25,6 +41,14 @@ export interface PluginItem {
 export interface DocItem {
   key: string
   type: 'document' | 'attachment'
+}
+
+export type PluginDocContent = Record<string, unknown> | { error: string } | null
+
+export interface PluginMemoryInfo {
+  private: number
+  shared: number
+  total: number
 }
 
 export type TabId = 'detail' | 'commands' | 'data' | 'comments'

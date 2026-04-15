@@ -43,13 +43,16 @@ function adjustPosition() {
   }
 }
 
-watch(() => props.visible, (val) => {
-  if (val) {
-    adjustedX.value = props.x + 2
-    adjustedY.value = props.y + 2
-    nextTick(adjustPosition)
+watch(
+  () => props.visible,
+  (val) => {
+    if (val) {
+      adjustedX.value = props.x + 2
+      adjustedY.value = props.y + 2
+      nextTick(adjustPosition)
+    }
   }
-})
+)
 
 function onClickOutside(e: MouseEvent) {
   if (!props.visible) return
@@ -166,7 +169,9 @@ onBeforeUnmount(() => {
 /* Transition */
 .ctx-menu-enter-active,
 .ctx-menu-leave-active {
-  transition: opacity 0.15s ease, transform 0.15s ease;
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
 }
 
 .ctx-menu-enter-from,

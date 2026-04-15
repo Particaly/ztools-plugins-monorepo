@@ -1,4 +1,9 @@
-import type { SourceLine, Environment, EnvironmentType, ParsedEnvironmentBlock } from '../types/hosts'
+import type {
+  SourceLine,
+  Environment,
+  EnvironmentType,
+  ParsedEnvironmentBlock,
+} from '../types/hosts'
 
 const DEFAULT_PUBLIC_HEADER = '#-------- 公共配置 --------'
 const GROUP_HEADER_PATTERN = /^#--------\s*(.*?)\s*--------$/
@@ -26,9 +31,24 @@ const PUBLIC_GROUP = {
 
 const RESERVED_GROUPS = [
   PUBLIC_GROUP,
-  { name: '开发配置', markerName: '开发配置', header: '#-------- 开发配置 --------', endMarker: '#-------- 开发配置 结束 --------' },
-  { name: '测试配置', markerName: '测试配置', header: '#-------- 测试配置 --------', endMarker: '#-------- 测试配置 结束 --------' },
-  { name: '生产配置', markerName: '生产配置', header: '#-------- 生产配置 --------', endMarker: '#-------- 生产配置 结束 --------' },
+  {
+    name: '开发配置',
+    markerName: '开发配置',
+    header: '#-------- 开发配置 --------',
+    endMarker: '#-------- 开发配置 结束 --------',
+  },
+  {
+    name: '测试配置',
+    markerName: '测试配置',
+    header: '#-------- 测试配置 --------',
+    endMarker: '#-------- 测试配置 结束 --------',
+  },
+  {
+    name: '生产配置',
+    markerName: '生产配置',
+    header: '#-------- 生产配置 --------',
+    endMarker: '#-------- 生产配置 结束 --------',
+  },
 ]
 
 const RESERVED_MARKER_ALIASES: Record<string, string[]> = {
@@ -38,9 +58,13 @@ const RESERVED_MARKER_ALIASES: Record<string, string[]> = {
   生产配置: ['生产配置', '生产环境'],
 }
 
-const RESERVED_BY_HEADER = new Map(RESERVED_GROUPS.map(group => [group.header, group]))
+const RESERVED_BY_HEADER = new Map(RESERVED_GROUPS.map((group) => [group.header, group]))
 const RESERVED_BY_MARKER_NAME = new Map(
-  RESERVED_GROUPS.flatMap(group => (RESERVED_MARKER_ALIASES[group.name] ?? [group.markerName]).map(markerName => [markerName, group] as const)),
+  RESERVED_GROUPS.flatMap((group) =>
+    (RESERVED_MARKER_ALIASES[group.name] ?? [group.markerName]).map(
+      (markerName) => [markerName, group] as const
+    )
+  )
 )
 const PUBLIC_RESERVED_NAMES = new Set(['公共配置'])
 
@@ -78,7 +102,9 @@ function splitContentLines(content: string): string[] {
   return lines
 }
 
-function parseManagedMarker(line: string): { kind: 'start' | 'end'; name: string; header: string } | null {
+function parseManagedMarker(
+  line: string
+): { kind: 'start' | 'end'; name: string; header: string } | null {
   const header = line.trim()
   const match = header.match(GROUP_HEADER_PATTERN)
   if (!match) return null
@@ -114,7 +140,10 @@ function getGroupMeta(header: string): GroupMeta {
   const reservedByHeader = RESERVED_BY_HEADER.get(trimmedHeader)
   if (reservedByHeader) {
     return {
-      matchKey: buildGroupMatchKey(reservedByHeader.header === DEFAULT_PUBLIC_HEADER ? 'public' : 'custom', reservedByHeader.name),
+      matchKey: buildGroupMatchKey(
+        reservedByHeader.header === DEFAULT_PUBLIC_HEADER ? 'public' : 'custom',
+        reservedByHeader.name
+      ),
       name: reservedByHeader.name,
       type: reservedByHeader.header === DEFAULT_PUBLIC_HEADER ? 'public' : 'custom',
       header: reservedByHeader.header,
@@ -127,7 +156,10 @@ function getGroupMeta(header: string): GroupMeta {
   const reservedByName = RESERVED_BY_MARKER_NAME.get(groupName)
   if (reservedByName) {
     return {
-      matchKey: buildGroupMatchKey(reservedByName.header === DEFAULT_PUBLIC_HEADER ? 'public' : 'custom', reservedByName.name),
+      matchKey: buildGroupMatchKey(
+        reservedByName.header === DEFAULT_PUBLIC_HEADER ? 'public' : 'custom',
+        reservedByName.name
+      ),
       name: reservedByName.name,
       type: reservedByName.header === DEFAULT_PUBLIC_HEADER ? 'public' : 'custom',
       header: reservedByName.header,
@@ -144,7 +176,9 @@ function getGroupMeta(header: string): GroupMeta {
   }
 }
 
-function getExternalSectionStart(trimmedLine: string): { kind: ExternalSectionKind; endMarker: string } | null {
+function getExternalSectionStart(
+  trimmedLine: string
+): { kind: ExternalSectionKind; endMarker: string } | null {
   if (trimmedLine === TAILSCALE_SECTION_START) {
     return { kind: 'tailscale', endMarker: TAILSCALE_SECTION_END }
   }
@@ -159,7 +193,7 @@ function getExternalSectionStart(trimmedLine: string): { kind: ExternalSectionKi
 function isIpv4(value: string): boolean {
   if (!/^(\d{1,3}\.){3}\d{1,3}$/.test(value)) return false
   const parts = value.split('.').map(Number)
-  return parts.every(part => part >= 0 && part <= 255)
+  return parts.every((part) => part >= 0 && part <= 255)
 }
 
 function isIpv6(value: string): boolean {
@@ -185,7 +219,7 @@ export function parseSourceToLines(content: string): SourceLine[] {
   const lines = splitContentLines(content)
   if (lines.length === 0) return []
 
-  return lines.map(line => {
+  return lines.map((line) => {
     const trimmed = line.trim()
 
     if (!trimmed) {
@@ -228,14 +262,16 @@ export function parseSourceToLines(content: string): SourceLine[] {
 }
 
 export function renderLinesToSource(lines: SourceLine[]): string {
-  return lines.map(l => {
-    if (l.type === 'host' && (l.ip !== undefined || l.domain !== undefined)) {
-      const line = `${l.ip}\t${l.domain}`
-      const base = l.enabled ? line : `# ${line}`
-      return l.comment ? `${base} # ${l.comment}` : base
-    }
-    return l.raw
-  }).join('\n')
+  return lines
+    .map((l) => {
+      if (l.type === 'host' && (l.ip !== undefined || l.domain !== undefined)) {
+        const line = `${l.ip}\t${l.domain}`
+        const base = l.enabled ? line : `# ${line}`
+        return l.comment ? `${base} # ${l.comment}` : base
+      }
+      return l.raw
+    })
+    .join('\n')
 }
 
 function parseManagedHosts(fullHosts: string): {
@@ -353,27 +389,32 @@ export function normalizeManagedEnvironmentMarkers(fullHosts: string): string {
 export function parseEnvironmentBlocks(fullHosts: string): ParsedEnvironmentBlock[] {
   const parsed = parseManagedHosts(fullHosts)
 
-  return [{
-    type: 'public' as const,
-    name: 'hosts 文件',
-    header: DEFAULT_PUBLIC_HEADER,
-    endMarker: '',
-    lines: parseSourceToLines(parsed.publicLines.join('\n')),
-  }, ...Array.from(parsed.sections.values()).map(({ meta, lines }) => ({
-    type: meta.type,
-    name: meta.name,
-    header: meta.header,
-    endMarker: meta.endMarker,
-    lines: parseSourceToLines(lines.join('\n')),
-  }))]
+  return [
+    {
+      type: 'public' as const,
+      name: 'hosts 文件',
+      header: DEFAULT_PUBLIC_HEADER,
+      endMarker: '',
+      lines: parseSourceToLines(parsed.publicLines.join('\n')),
+    },
+    ...Array.from(parsed.sections.values()).map(({ meta, lines }) => ({
+      type: meta.type,
+      name: meta.name,
+      header: meta.header,
+      endMarker: meta.endMarker,
+      lines: parseSourceToLines(lines.join('\n')),
+    })),
+  ]
 }
 
 export function getEnabledEnvironmentTypesFromHosts(fullHosts: string): EnvironmentType[] {
-  return parseEnvironmentBlocks(fullHosts).map(env => env.type)
+  return parseEnvironmentBlocks(fullHosts).map((env) => env.type)
 }
 
 export function extractPublicContent(fullHosts: string): string {
-  return renderLinesToSource(parseSourceToLines(parseManagedHosts(fullHosts).publicLines.join('\n')))
+  return renderLinesToSource(
+    parseSourceToLines(parseManagedHosts(fullHosts).publicLines.join('\n'))
+  )
 }
 
 export function renderEnvironmentBlock(environments: Environment[]): string {
@@ -381,8 +422,8 @@ export function renderEnvironmentBlock(environments: Environment[]): string {
 
   for (const env of environments) {
     const lines = env.lines
-      .filter(l => l.type === 'host' && l.enabled && l.domain && l.ip)
-      .map(l => (l.comment ? `${l.ip}\t${l.domain} # ${l.comment}` : `${l.ip}\t${l.domain}`))
+      .filter((l) => l.type === 'host' && l.enabled && l.domain && l.ip)
+      .map((l) => (l.comment ? `${l.ip}\t${l.domain} # ${l.comment}` : `${l.ip}\t${l.domain}`))
 
     blocks.push(env.header || buildGroupHeader(env.name))
     if (lines.length > 0) {
@@ -406,9 +447,9 @@ export function validateEntry(entry: { ip: string; domain: string }): string | n
   const ipRegex = /^(\d{1,3}\.){3}\d{1,3}$/
   if (!ipRegex.test(entry.ip)) return 'IP 格式不正确'
   const parts = entry.ip.split('.').map(Number)
-  if (parts.some(p => p < 0 || p > 255)) return 'IP 格式不正确'
+  if (parts.some((p) => p < 0 || p > 255)) return 'IP 格式不正确'
 
   const domains = entry.domain.split(/\s+/).filter(Boolean)
-  if (domains.length === 0 || domains.some(domain => /\s/.test(domain))) return '域名格式不正确'
+  if (domains.length === 0 || domains.some((domain) => /\s/.test(domain))) return '域名格式不正确'
   return null
 }

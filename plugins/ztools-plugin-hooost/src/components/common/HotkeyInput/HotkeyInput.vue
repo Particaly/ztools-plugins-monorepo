@@ -16,7 +16,7 @@ interface Props {
 
 const props = withDefaults(defineProps<Props>(), {
   placeholder: '点击录制快捷键',
-  platform: 'darwin'
+  platform: 'darwin',
 })
 
 const emit = defineEmits<{
@@ -32,7 +32,7 @@ const MODIFIER_CODES = [
   'AltLeft',
   'AltRight',
   'ShiftLeft',
-  'ShiftRight'
+  'ShiftRight',
 ]
 
 // DOM e.code → Electron accelerator key name
@@ -83,7 +83,7 @@ const CODE_TO_ACCELERATOR: Record<string, string> = {
   NumpadSubtract: 'numsub',
   NumpadMultiply: 'nummult',
   NumpadDivide: 'numdiv',
-  NumpadEnter: 'Return'
+  NumpadEnter: 'Return',
 }
 
 const DOUBLE_TAP_INTERVAL = 400
@@ -317,7 +317,7 @@ onUnmounted(() => {
 })
 
 defineExpose({
-  stopRecording
+  stopRecording,
 })
 </script>
 

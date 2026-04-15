@@ -72,11 +72,11 @@ const {
   // 版本
   canUpgrade,
   // 操作
-  handleUninstall
+  handleUninstall,
 } = usePluginDetail({
   plugin: pluginRef,
   isRunning: isRunningRef,
-  showComments: props.showComments
+  showComments: props.showComments,
 })
 
 function onSwitchTab(tabId: TabId): void {

@@ -172,6 +172,6 @@ export function useZtoolsSubInput(
     register,
     onChanged: onChangedHook.on,
     onSearch: onSearchHook.on,
-    onClear: onClearHook.on
+    onClear: onClearHook.on,
   }
 }
