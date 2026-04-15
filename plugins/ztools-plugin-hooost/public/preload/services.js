@@ -1,9 +1,11 @@
 const fs = require('node:fs')
 const path = require('node:path')
 const os = require('node:os')
-const { execSync } = require('node:child_process')
+const { exec, execSync } = require('node:child_process')
+const { promisify } = require('node:util')
 
 const APP_DIR_NAME = 'hooost'
+const execAsync = promisify(exec)
 
 function escapePowerShellArg(value) {
   return String(value).replace(/'/g, "''")
@@ -11,6 +13,10 @@ function escapePowerShellArg(value) {
 
 function runCommand(command, options = {}) {
   execSync(command, { stdio: 'ignore', ...options })
+}
+
+async function runCommandAsync(command, options = {}) {
+  await execAsync(command, { windowsHide: true, ...options })
 }
 
 function ensureDir(dir) {
@@ -90,22 +96,54 @@ function copyFileElevatedOnWindows(sourcePath, targetPath) {
 }
 
 function copyFileWithPrivilege(sourcePath, targetPath) {
-  const platform = os.platform()
-
   try {
     fs.copyFileSync(sourcePath, targetPath)
     return
   } catch {
-    if (platform === 'win32') {
-      copyFileElevatedOnWindows(sourcePath, targetPath)
-      return
-    }
-
-    const shellCommand = `cp ${JSON.stringify(sourcePath)} ${JSON.stringify(targetPath)}`
-    const appleScript = `do shell script ${JSON.stringify(shellCommand)} with administrator privileges`
-
-    runCommand(`osascript -e ${JSON.stringify(appleScript)}`)
+    copyFileElevatedOnWindows(sourcePath, targetPath)
   }
+}
+
+function isWritable(filePath) {
+  try {
+    fs.accessSync(filePath, fs.constants.R_OK | fs.constants.W_OK)
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function ensureMacHostsWritable(hostsPath) {
+  if (isWritable(hostsPath)) return
+
+  const chmodCommand = `chmod go+w ${JSON.stringify(hostsPath)}`
+
+  try {
+    await runCommandAsync(chmodCommand)
+    return
+  } catch {
+    const appleScript = `do shell script ${JSON.stringify(chmodCommand)} with administrator privileges`
+    await runCommandAsync(`osascript -e ${JSON.stringify(appleScript)}`)
+  }
+}
+
+async function writeHostsContent(content, hostsPath, platform) {
+  if (platform === 'win32') {
+    const tmpFile = createTempHostsFile(content)
+
+    try {
+      copyFileWithPrivilege(tmpFile, hostsPath)
+    } finally {
+      removeTempFile(tmpFile)
+    }
+    return
+  }
+
+  if (platform === 'darwin') {
+    await ensureMacHostsWritable(hostsPath)
+  }
+
+  fs.writeFileSync(hostsPath, content, { encoding: 'utf-8' })
 }
 
 function flushDns(platform) {
@@ -115,7 +153,11 @@ function flushDns(platform) {
       return
     }
 
-    runCommand('dscacheutil -flushcache; sudo killall -HUP mDNSResponder')
+    if (platform === 'darwin') {
+      runCommand('dscacheutil -flushcache')
+      runCommand('killall -HUP mDNSResponder')
+      return
+    }
   } catch {
     // ignore
   }
@@ -171,15 +213,14 @@ window.services = {
     return getBackupEntries()
   },
 
-  applyHosts(content, envName) {
+  async applyHosts(content, envName) {
     const hostsPath = getHostsPath()
     const platform = os.platform()
+    const normalizedContent = platform === 'win32' ? content : content.replace(/\r\n/g, '\n')
     const backupPath = backupCurrentHosts(envName)
-    const tmpFile = createTempHostsFile(content)
 
     try {
-      copyFileWithPrivilege(tmpFile, hostsPath)
-      removeTempFile(tmpFile)
+      await writeHostsContent(normalizedContent, hostsPath, platform)
       flushDns(platform)
       return { success: true, backupPath }
     } catch (error) {
@@ -187,18 +228,18 @@ window.services = {
         success: false,
         error: error instanceof Error ? error.message : String(error),
         backupPath,
-        tmpFile,
       }
     }
   },
 
-  restoreBackup(backupPath) {
+  async restoreBackup(backupPath) {
     if (!fs.existsSync(backupPath)) {
       return { success: false, error: '备份文件不存在' }
     }
 
     const hostsPath = getHostsPath()
     const platform = os.platform()
+    const content = fs.readFileSync(backupPath, { encoding: 'utf-8' })
 
     try {
       backupCurrentHosts('pre-restore')
@@ -207,7 +248,7 @@ window.services = {
     }
 
     try {
-      copyFileWithPrivilege(backupPath, hostsPath)
+      await writeHostsContent(content, hostsPath, platform)
       flushDns(platform)
       return { success: true }
     } catch (error) {

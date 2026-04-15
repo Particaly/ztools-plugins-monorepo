@@ -255,7 +255,7 @@ function syncEnvironmentsFromHosts(fullHosts: string): void {
     : (store.value.environments[0]?.id ?? null)
 }
 
-function loadHostsStateFromSystem(repairMarkers = false): void {
+async function loadHostsStateFromSystem(repairMarkers = false): Promise<void> {
   let currentHosts = window.services.readHosts()
 
   if (repairMarkers) {
@@ -264,7 +264,7 @@ function loadHostsStateFromSystem(repairMarkers = false): void {
       const repairedHosts = normalizedHosts.endsWith('\n')
         ? normalizedHosts
         : `${normalizedHosts}\n`
-      const repairResult = window.services.applyHosts(repairedHosts, 'normalize')
+      const repairResult = await window.services.applyHosts(repairedHosts, 'normalize')
 
       if (repairResult.success) {
         currentHosts = window.services.readHosts()
@@ -279,10 +279,10 @@ function loadHostsStateFromSystem(repairMarkers = false): void {
   publicReadonlyContent.value = currentHosts
 }
 
-function loadAll(): void {
+async function loadAll(): Promise<void> {
   try {
     store.value = loadStore()
-    loadHostsStateFromSystem(true)
+    await loadHostsStateFromSystem(true)
     draftEnvironments.value = {}
   } catch (error) {
     showError(`加载数据失败: ${getErrorMessage(error)}`)
@@ -312,7 +312,7 @@ function updateName(envId: string, name: string): void {
   environment.endMarker = buildGroupEndMarker(normalizedName)
 }
 
-function saveEnvironmentDraft(envId: string): void {
+async function saveEnvironmentDraft(envId: string): Promise<void> {
   if (isPublicEnvironment(envId)) return
 
   const draft = draftEnvironments.value[envId]
@@ -335,7 +335,7 @@ function saveEnvironmentDraft(envId: string): void {
   store.value.environments[environmentIndex] = savedEnvironment
 
   if (store.value.activeEnvironmentIds.includes(envId)) {
-    runServiceAction({
+    await runServiceAction({
       run: () => window.services.applyHosts(getMergedContent(), savedEnvironment.name),
       failureMessage: '保存配置失败',
       successMessage: `已保存配置「${savedEnvironment.name}」`,
@@ -430,23 +430,23 @@ function getMergedContent(nextActiveIds = store.value.activeEnvironmentIds): str
   return `${mergeHostsContent(baseContent, activeEnvironments).trimEnd()}\n`
 }
 
-function runServiceAction(options: {
-  run: () => ServiceActionResult
+async function runServiceAction(options: {
+  run: () => Promise<ServiceActionResult>
   failureMessage: string
   successMessage: string
   onSuccess?: () => void
-}): boolean {
+}): Promise<boolean> {
   loading.value = true
 
   try {
-    const result = options.run()
+    const result = await options.run()
     if (!result.success) {
       showError(`${options.failureMessage}: ${result.error || '未知错误'}`)
       return false
     }
 
     options.onSuccess?.()
-    loadHostsStateFromSystem()
+    await loadHostsStateFromSystem()
     success(options.successMessage)
     return true
   } catch (error) {
@@ -474,7 +474,7 @@ async function deleteEnvironment(envId: string): Promise<void> {
   if (!confirmed) return
 
   const nextActiveIds = store.value.activeEnvironmentIds.filter((activeId) => activeId !== envId)
-  runServiceAction({
+  await runServiceAction({
     run: () =>
       window.services.applyHosts(
         getMergedContent(nextActiveIds),
@@ -494,7 +494,7 @@ async function deleteEnvironment(envId: string): Promise<void> {
   })
 }
 
-function applyEnvironment(envId: string): void {
+async function applyEnvironment(envId: string): Promise<void> {
   const environment = store.value.environments.find((item) => item.id === envId)
   if (!environment || environment.type === 'public') return
 
@@ -510,7 +510,7 @@ function applyEnvironment(envId: string): void {
     ? store.value.activeEnvironmentIds
     : [...store.value.activeEnvironmentIds, envId]
 
-  runServiceAction({
+  await runServiceAction({
     run: () => window.services.applyHosts(getMergedContent(nextActiveIds), environment.name),
     failureMessage: '写入 hosts 失败',
     successMessage: `已启用配置「${environment.name}」`,
@@ -535,7 +535,7 @@ async function deactivateEnvironment(envId: string): Promise<void> {
   if (!confirmed) return
 
   const nextActiveIds = store.value.activeEnvironmentIds.filter((activeId) => activeId !== envId)
-  runServiceAction({
+  await runServiceAction({
     run: () => window.services.applyHosts(getMergedContent(nextActiveIds), 'deactivate'),
     failureMessage: '停用失败',
     successMessage: `已停用配置「${environment.name}」`,
@@ -588,10 +588,10 @@ onMounted(() => {
   applyOsClass(window.services.getSystemInfo().platform)
 
   window.ztools.onPluginEnter(() => {
-    loadAll()
+    void loadAll()
   })
 
-  loadAll()
+  void loadAll()
 })
 </script>
 

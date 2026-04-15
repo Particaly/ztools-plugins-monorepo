@@ -51,8 +51,8 @@ interface Services {
   onThemeChange(callback: (theme: ThemeInfo) => void): void
   readHosts(): string
   listBackups(): BackupInfo[]
-  applyHosts(content: string, envName?: string): ApplyResult
-  restoreBackup(backupPath: string): RestoreResult
+  applyHosts(content: string, envName?: string): Promise<ApplyResult>
+  restoreBackup(backupPath: string): Promise<RestoreResult>
 }
 
 interface ImageAnalysisResult {

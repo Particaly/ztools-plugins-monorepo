@@ -95,7 +95,7 @@ hooost 不会简单覆盖整个 hosts 文件。
 修改系统 hosts 需要管理员权限。
 
 - **Windows**：优先直接写入；失败时通过 PowerShell 提权复制
-- **macOS**：直接写入失败时请求系统管理员授权
+- **macOS**：优先直接写入；不可写时先申请授权调整 `/etc/hosts` 权限，再由插件自身写入
 
 每次应用配置前，hooost 都会先自动备份当前 hosts 文件。
 
