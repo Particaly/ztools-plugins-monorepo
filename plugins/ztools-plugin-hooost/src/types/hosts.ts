@@ -1,5 +1,4 @@
-export type BuiltinEnvironmentType = 'public' | 'dev' | 'test' | 'prod'
-export type EnvironmentType = BuiltinEnvironmentType | 'custom'
+export type EnvironmentType = 'public' | 'custom'
 export type EditMode = 'source'
 
 export interface SourceLine {
@@ -19,25 +18,25 @@ export interface Environment {
   enabled: boolean // public is always true and normalized in storage
   editMode: EditMode
   header: string
+  endMarker: string
   lines: SourceLine[]
   updatedAt: string
 }
 
 export interface EnvironmentStore {
+  initialized: boolean
   activeEnvironmentIds: string[]
   environments: Environment[]
 }
 
-// Legacy types kept for migration / merge-hosts interop
-export interface HostEntry {
-  id: string
-  ip: string
-  domain: string
-  comment?: string
-  enabled: boolean
+export interface ParsedEnvironmentBlock {
+  type: EnvironmentType
+  name: string
+  header: string
+  endMarker: string
+  lines: SourceLine[]
 }
 
-// Public environment stores the original hosts content (read-only)
 export interface PublicContent {
   content: string // original hosts without managed block
   hash: string // for change detection
@@ -54,5 +53,4 @@ export interface BackupInfo {
   filename: string
   path: string
   createdAt: string
-  presetName?: string
 }

@@ -19,11 +19,6 @@ interface RestoreResult {
   error?: string
 }
 
-interface PresetStoreLegacy {
-  activePresetId: string | null
-  presets: any[]
-}
-
 interface ThemeInfo {
   isDark: boolean
   primaryColor: string

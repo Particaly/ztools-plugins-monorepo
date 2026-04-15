@@ -33,10 +33,10 @@ function onSourceChange(content: string) {
   <div class="env-editor">
     <div class="editor-header">
       <input
-        v-if="environment.type !== 'public'"
+        v-if="environment.type === 'custom'"
         class="editor-name"
         :value="environment.name"
-        placeholder="环境名称"
+        placeholder="配置名称"
         @change="(e) => emit('updateName', environment.id, (e.target as HTMLInputElement).value)"
       />
       <span v-else class="editor-name editor-name--readonly">{{ environment.name }}</span>
@@ -107,6 +107,5 @@ function onSourceChange(content: string) {
   justify-content: flex-end;
   gap: 8px;
   padding-top: 8px;
-  border-top: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
 }
 </style>

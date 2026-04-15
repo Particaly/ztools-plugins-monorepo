@@ -132,7 +132,6 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 8px;
   padding: 6px 12px;
-  cursor: pointer;
   font-size: 12px;
   color: var(--text-color, #333);
   transition: background 0.15s;

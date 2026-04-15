@@ -2,7 +2,7 @@
   "$schema": "node_modules/@ztools-center/ztools-api-types/resource/ztools.schema.json",
   "name": "hooost",
   "title": "hooost",
-  "description": "本地 hosts 环境管理，支持预设切换、备份与回滚",
+  "description": "本地 hosts 配置管理，支持预设切换、备份与回滚",
   "author": "皮皮虾我们走",
   "version": "1.0.0",
   "main": "index.html",
@@ -14,7 +14,7 @@
   "features": [
     {
       "code": "hosts",
-      "explain": "管理本地 hosts 文件，支持预设环境切换",
+      "explain": "管理本地 hosts 文件，支持预设配置切换",
       "icon": "logo.png",
       "cmds": ["hosts", "切换hosts", "管理hosts"]
     }

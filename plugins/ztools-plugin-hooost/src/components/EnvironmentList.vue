@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, computed } from "vue";
+import { computed, ref } from "vue";
 import type { Environment } from "@/types/hosts";
+import { VueDraggable } from "vue-draggable-plus";
 import ContextMenu from "./ContextMenu.vue";
 import type { ContextMenuItem } from "./ContextMenu.vue";
 
@@ -16,9 +17,9 @@ const emit = defineEmits<{
   deactivate: [id: string];
   delete: [id: string];
   create: [];
+  reorder: [orderedIds: string[]];
 }>();
 
-// Context menu state
 const contextMenuVisible = ref(false);
 const contextMenuX = ref(0);
 const contextMenuY = ref(0);
@@ -27,8 +28,8 @@ const contextMenuEnv = ref<Environment | null>(null);
 const publicEnvironments = computed(() =>
   props.environments.filter((env) => env.type === "public"),
 );
-const customEnvironments = computed(() =>
-  props.environments.filter((env) => env.type !== "public"),
+const managedEnvironments = computed(() =>
+  props.environments.filter((env) => env.type === "custom"),
 );
 
 const contextMenuItems = computed<ContextMenuItem[]>(() => {
@@ -36,11 +37,11 @@ const contextMenuItems = computed<ContextMenuItem[]>(() => {
   if (!env || env.type === "public") return [];
   const items: ContextMenuItem[] = [];
   if (props.activeEnvironmentIds.includes(env.id)) {
-    items.push({ label: "停用此环境", value: "deactivate" });
+    items.push({ label: "停用此配置", value: "deactivate" });
   } else {
-    items.push({ label: "启用此环境", value: "apply" });
+    items.push({ label: "启用此配置", value: "apply" });
   }
-  items.push({ label: "删除此环境", value: "delete", danger: true });
+  items.push({ label: "删除此配置", value: "delete", danger: true });
   return items;
 });
 
@@ -73,42 +74,83 @@ function onContextMenuSelect(value: string) {
 function onContextMenuClose() {
   contextMenuVisible.value = false;
 }
+
+function onManagedOrderChange(value: Environment[]) {
+  emit("reorder", value.map((env) => env.id));
+}
+
+function getItemClasses(env: Environment) {
+  return [
+    { "env-item--selected": env.id === props.selectedEnvironmentId },
+    { "env-item--active": props.activeEnvironmentIds.includes(env.id) },
+  ];
+}
 </script>
 
 <template>
   <aside class="env-list">
-    <div class="env-list-header">实际环境</div>
-    <div v-for="env in publicEnvironments" :key="env.id" class="env-item" :class="[
-      { 'env-item--selected': env.id === selectedEnvironmentId },
-      { 'env-item--active': activeEnvironmentIds.includes(env.id) },
-    ]" @click="emit('select', env.id)" @dblclick="onItemDoubleClick(env)"
-      @contextmenu.prevent="onContextMenu($event, env)">
-      <span class="env-item-status"></span>
+    <div class="env-list-header">实际配置</div>
+    <div
+      v-for="env in publicEnvironments"
+      :key="env.id"
+      class="env-item"
+      :class="getItemClasses(env)"
+      @click="emit('select', env.id)"
+      @dblclick="onItemDoubleClick(env)"
+      @contextmenu.prevent="onContextMenu($event, env)"
+    >
+      <span class="env-item-leading">
+        <span class="env-item-status"></span>
+      </span>
       <span class="env-item-name">{{ env.name }}</span>
-      <span v-if="env.type === 'public' && env.editMode === 'source'" class="env-item-badge">源码</span>
+      <span v-if="env.editMode === 'source'" class="env-item-badge">源码</span>
       <span v-else class="env-item-count">{{
         env.lines.filter((l) => l.type === "host" && l.enabled).length
       }}</span>
     </div>
 
     <div class="env-list-section-header env-list-header--section">
-      <div class="env-list-header">自定义</div>
+      <div class="env-list-header">配置列表</div>
       <button class="env-list-add" type="button" @click="emit('create')">新增</button>
     </div>
-    <div v-for="env in customEnvironments" :key="env.id" class="env-item" :class="[
-      { 'env-item--selected': env.id === selectedEnvironmentId },
-      { 'env-item--active': activeEnvironmentIds.includes(env.id) },
-    ]" @click="emit('select', env.id)" @dblclick="onItemDoubleClick(env)"
-      @contextmenu.prevent="onContextMenu($event, env)">
-      <span class="env-item-status"></span>
-      <span class="env-item-name">{{ env.name }}</span>
-      <span v-if="env.type === 'public' && env.editMode === 'source'" class="env-item-badge">源码</span>
-      <span v-else class="env-item-count">{{
-        env.lines.filter((l) => l.type === "host" && l.enabled).length
-      }}</span>
-    </div>
-    <ContextMenu :visible="contextMenuVisible" :x="contextMenuX" :y="contextMenuY" :items="contextMenuItems"
-      @close="onContextMenuClose" @select="onContextMenuSelect" />
+
+    <VueDraggable
+      class="env-list-items env-list-draggable"
+      tag="div"
+      :model-value="managedEnvironments"
+      :animation="150"
+      chosen-class="env-item--dragging"
+      ghost-class="env-item--ghost"
+      @update:model-value="onManagedOrderChange"
+    >
+      <div
+        v-for="env in managedEnvironments"
+        :key="env.id"
+        class="env-item env-item--sortable"
+        :class="getItemClasses(env)"
+        @click="emit('select', env.id)"
+        @dblclick="onItemDoubleClick(env)"
+        @contextmenu.prevent="onContextMenu($event, env)"
+      >
+        <span class="env-item-leading">
+          <span class="env-item-handle i-z-order" title="拖拽排序"></span>
+          <span class="env-item-status"></span>
+        </span>
+        <span class="env-item-name">{{ env.name }}</span>
+        <span class="env-item-count">{{
+          env.lines.filter((l) => l.type === "host" && l.enabled).length
+        }}</span>
+      </div>
+    </VueDraggable>
+
+    <ContextMenu
+      :visible="contextMenuVisible"
+      :x="contextMenuX"
+      :y="contextMenuY"
+      :items="contextMenuItems"
+      @close="onContextMenuClose"
+      @select="onContextMenuSelect"
+    />
   </aside>
 </template>
 
@@ -160,12 +202,13 @@ function onContextMenuClose() {
 }
 
 .env-item {
+  position: relative;
   display: flex;
   align-items: center;
   padding: 10px 12px;
   gap: 10px;
   margin-bottom: 6px;
-  cursor: pointer;
+  cursor: default;
   transition: all 0.2s;
   color: var(--text-color);
   border-radius: 8px;
@@ -185,26 +228,36 @@ function onContextMenuClose() {
   font-weight: 500;
 }
 
+.env-item--dragging {
+  opacity: 0.55;
+}
+
+.env-item--ghost {
+  opacity: 0.35;
+}
+
+.env-item-leading {
+  position: relative;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
 .env-item-status {
+  position: absolute;
+  inset: 50% auto auto 50%;
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background-color: transparent;
   box-shadow: none;
-  flex-shrink: 0;
+  transform: translate(-50%, -50%);
+  transition: opacity 0.15s;
 }
 
 .env-item--active .env-item-status {
   background-color: var(--primary-color);
   box-shadow: 0 0 6px var(--primary-color);
-}
-
-.env-item-info {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex: 1;
-  min-width: 0;
 }
 
 .env-item-name {
@@ -230,5 +283,34 @@ function onContextMenuClose() {
 
 .env-item--selected .env-item-badge {
   background: color-mix(in srgb, var(--primary-color) 12%, transparent);
+}
+
+.env-item-handle {
+  position: absolute;
+  inset: 0;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--text-color-secondary, #888);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s, color 0.15s;
+}
+
+.env-item--sortable:hover .env-item-handle,
+.env-item--sortable.env-item--dragging .env-item-handle,
+.env-item--sortable.env-item--ghost .env-item-handle {
+  opacity: 1;
+}
+
+.env-item--sortable:hover .env-item-status,
+.env-item--sortable.env-item--dragging .env-item-status,
+.env-item--sortable.env-item--ghost .env-item-status {
+  opacity: 0;
+}
+
+.env-item--sortable:hover .env-item-handle,
+.env-item--sortable.env-item--dragging .env-item-handle {
+  color: var(--primary-color);
 }
 </style>

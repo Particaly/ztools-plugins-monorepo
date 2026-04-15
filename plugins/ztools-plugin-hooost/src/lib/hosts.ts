@@ -1,60 +1,159 @@
-import type { SourceLine, HostEntry, Environment, EnvironmentType, BuiltinEnvironmentType } from '../types/hosts'
+import type { SourceLine, Environment, EnvironmentType, ParsedEnvironmentBlock } from '../types/hosts'
 
 const DEFAULT_PUBLIC_HEADER = '#-------- 公共配置 --------'
 const GROUP_HEADER_PATTERN = /^#--------\s*(.*?)\s*--------$/
+const TAILSCALE_SECTION_START = '# TailscaleHostsSectionStart'
+const TAILSCALE_SECTION_END = '# TailscaleHostsSectionEnd'
+const DOCKER_SECTION_START = '# Added by Docker Desktop'
+const DOCKER_SECTION_END = '# End of section'
 
-const BUILTIN_GROUPS: Array<{ type: BuiltinEnvironmentType; name: string; header: string; id: string }> = [
-  { type: 'public', name: 'hosts 文件', header: DEFAULT_PUBLIC_HEADER, id: 'env-public' },
-  { type: 'dev', name: '开发环境', header: '#-------- 开发环境 --------', id: 'env-dev' },
-  { type: 'test', name: '测试环境', header: '#-------- 测试环境 --------', id: 'env-test' },
-  { type: 'prod', name: '生产环境', header: '#-------- 生产环境 --------', id: 'env-prod' },
+type ExternalSectionKind = 'tailscale' | 'docker'
+
+interface GroupMeta {
+  matchKey: string
+  name: string
+  type: EnvironmentType
+  header: string
+  endMarker: string
+}
+
+const PUBLIC_GROUP = {
+  name: 'hosts 文件',
+  markerName: '公共配置',
+  header: DEFAULT_PUBLIC_HEADER,
+  endMarker: '',
+}
+
+const RESERVED_GROUPS = [
+  PUBLIC_GROUP,
+  { name: '开发配置', markerName: '开发配置', header: '#-------- 开发配置 --------', endMarker: '#-------- 开发配置 结束 --------' },
+  { name: '测试配置', markerName: '测试配置', header: '#-------- 测试配置 --------', endMarker: '#-------- 测试配置 结束 --------' },
+  { name: '生产配置', markerName: '生产配置', header: '#-------- 生产配置 --------', endMarker: '#-------- 生产配置 结束 --------' },
 ]
 
-const BUILTIN_BY_HEADER = new Map(BUILTIN_GROUPS.map(group => [group.header, group]))
-const BUILTIN_BY_TYPE = new Map(BUILTIN_GROUPS.map(group => [group.type, group]))
+const RESERVED_MARKER_ALIASES: Record<string, string[]> = {
+  [PUBLIC_GROUP.name]: ['公共配置'],
+  开发配置: ['开发配置', '开发环境'],
+  测试配置: ['测试配置', '测试环境'],
+  生产配置: ['生产配置', '生产环境'],
+}
+
+const RESERVED_BY_HEADER = new Map(RESERVED_GROUPS.map(group => [group.header, group]))
+const RESERVED_BY_MARKER_NAME = new Map(
+  RESERVED_GROUPS.flatMap(group => (RESERVED_MARKER_ALIASES[group.name] ?? [group.markerName]).map(markerName => [markerName, group] as const)),
+)
+const PUBLIC_RESERVED_NAMES = new Set(['公共配置'])
+
+function buildGroupMatchKey(type: EnvironmentType, name: string): string {
+  return type === 'public' ? 'public' : `custom:${name.trim()}`
+}
 
 function generateLineId(): string {
   return Date.now().toString(36) + Math.random().toString(36).substring(2, 8)
-}
-
-function normalizeGroupId(name: string): string {
-  const normalized = name
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, '-')
-    .replace(/[^\p{L}\p{N}-]+/gu, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '')
-  return normalized || 'group'
 }
 
 export function buildGroupHeader(name: string): string {
   return `#-------- ${name.trim()} --------`
 }
 
+export function buildGroupEndMarker(name: string): string {
+  return `#-------- ${name.trim()} 结束 --------`
+}
+
 export function normalizeHostsContent(content: string): string {
   return content.replace(/^\uFEFF/, '')
 }
 
-function getGroupMeta(header: string) {
-  const builtin = BUILTIN_BY_HEADER.get(header)
-  if (builtin) {
+export function isReservedEnvironmentName(name: string): boolean {
+  const normalizedName = name.trim()
+  return normalizedName ? PUBLIC_RESERVED_NAMES.has(normalizedName) : false
+}
+
+function splitContentLines(content: string): string[] {
+  if (content === '') return []
+  const lines = content.split(/\r?\n/)
+  if (content.endsWith('\n')) {
+    lines.pop()
+  }
+  return lines
+}
+
+function parseManagedMarker(line: string): { kind: 'start' | 'end'; name: string; header: string } | null {
+  const header = line.trim()
+  const match = header.match(GROUP_HEADER_PATTERN)
+  if (!match) return null
+
+  const markerName = match[1]?.trim()
+  if (!markerName) return null
+
+  if (markerName.startsWith('/')) {
     return {
-      id: builtin.id,
-      name: builtin.name,
-      type: builtin.type as EnvironmentType,
-      header: builtin.header,
+      kind: 'end',
+      name: markerName.slice(1).trim(),
+      header,
     }
   }
 
-  const match = header.match(GROUP_HEADER_PATTERN)
-  const name = match?.[1]?.trim() || '自定义分组'
+  if (markerName.endsWith(' 结束')) {
+    return {
+      kind: 'end',
+      name: markerName.slice(0, -3).trim(),
+      header,
+    }
+  }
+
   return {
-    id: `env-${normalizeGroupId(name)}`,
-    name,
-    type: 'custom' as const,
+    kind: 'start',
+    name: markerName,
     header,
   }
+}
+
+function getGroupMeta(header: string): GroupMeta {
+  const trimmedHeader = header.trim()
+  const reservedByHeader = RESERVED_BY_HEADER.get(trimmedHeader)
+  if (reservedByHeader) {
+    return {
+      matchKey: buildGroupMatchKey(reservedByHeader.header === DEFAULT_PUBLIC_HEADER ? 'public' : 'custom', reservedByHeader.name),
+      name: reservedByHeader.name,
+      type: reservedByHeader.header === DEFAULT_PUBLIC_HEADER ? 'public' : 'custom',
+      header: reservedByHeader.header,
+      endMarker: reservedByHeader.endMarker,
+    }
+  }
+
+  const marker = parseManagedMarker(trimmedHeader)
+  const groupName = marker?.name || '自定义分组'
+  const reservedByName = RESERVED_BY_MARKER_NAME.get(groupName)
+  if (reservedByName) {
+    return {
+      matchKey: buildGroupMatchKey(reservedByName.header === DEFAULT_PUBLIC_HEADER ? 'public' : 'custom', reservedByName.name),
+      name: reservedByName.name,
+      type: reservedByName.header === DEFAULT_PUBLIC_HEADER ? 'public' : 'custom',
+      header: reservedByName.header,
+      endMarker: reservedByName.endMarker,
+    }
+  }
+
+  return {
+    matchKey: buildGroupMatchKey('custom', groupName),
+    name: groupName,
+    type: 'custom',
+    header: trimmedHeader,
+    endMarker: buildGroupEndMarker(groupName),
+  }
+}
+
+function getExternalSectionStart(trimmedLine: string): { kind: ExternalSectionKind; endMarker: string } | null {
+  if (trimmedLine === TAILSCALE_SECTION_START) {
+    return { kind: 'tailscale', endMarker: TAILSCALE_SECTION_END }
+  }
+
+  if (trimmedLine === DOCKER_SECTION_START) {
+    return { kind: 'docker', endMarker: DOCKER_SECTION_END }
+  }
+
+  return null
 }
 
 function isIpv4(value: string): boolean {
@@ -75,15 +174,17 @@ function parseHostLine(line: string) {
 
   if (parts.length < 2) return null
 
-  const [ip, domain] = parts
+  const ip = parts[0]
+  const domain = parts.slice(1).join(' ')
   if (!isIpv4(ip) && !isIpv6(ip)) return null
 
   return { ip, domain, comment: inlineComment }
 }
 
-/** Parse every line of source content into SourceLine[], preserving comments and blank lines */
 export function parseSourceToLines(content: string): SourceLine[] {
-  const lines = content.split('\n')
+  const lines = splitContentLines(content)
+  if (lines.length === 0) return []
+
   return lines.map(line => {
     const trimmed = line.trim()
 
@@ -126,7 +227,6 @@ export function parseSourceToLines(content: string): SourceLine[] {
   })
 }
 
-/** Render SourceLine[] back to a string — faithful round-trip */
 export function renderLinesToSource(lines: SourceLine[]): string {
   return lines.map(l => {
     if (l.type === 'host' && (l.ip !== undefined || l.domain !== undefined)) {
@@ -138,88 +238,133 @@ export function renderLinesToSource(lines: SourceLine[]): string {
   }).join('\n')
 }
 
-/** Get only host-type lines as HostEntry[] (for merge / apply interop) */
-export function linesToHostEntries(lines: SourceLine[]): HostEntry[] {
-  return lines
-    .filter(l => l.type === 'host')
-    .map(l => ({
-      id: l.id,
-      ip: l.ip ?? '',
-      domain: l.domain ?? '',
-      comment: l.comment,
-      enabled: l.enabled ?? true,
-    }))
-}
-
-// --- Legacy helpers kept for backward compat & migration ---
-
-/** @deprecated use parseSourceToLines instead */
-export function parseSourceToEntries(content: string): HostEntry[] {
-  return linesToHostEntries(parseSourceToLines(content))
-}
-
-/** @deprecated use renderLinesToSource instead */
-export function renderEntriesToSource(entries: HostEntry[]): string {
-  return entries
-    .map(e => {
-      const line = `${e.ip}\t${e.domain}`
-      return e.enabled ? line : `# ${line}`
-    })
-    .join('\n')
-}
-
-export function parseEnvironmentBlocks(fullHosts: string): Environment[] {
+function parseManagedHosts(fullHosts: string): {
+  publicLines: string[]
+  sections: Map<string, { meta: GroupMeta; lines: string[] }>
+  normalizedContent: string
+} {
   const normalized = normalizeHostsContent(fullHosts)
-  const sections = new Map<string, { meta: ReturnType<typeof getGroupMeta>; lines: string[] }>()
-  let currentHeader: string | null = null
+  const newline = normalized.includes('\r\n') ? '\r\n' : '\n'
+  const hasTrailingNewline = normalized.endsWith('\n')
+  const sections = new Map<string, { meta: GroupMeta; lines: string[] }>()
   const publicLines: string[] = []
+  const normalizedLines: string[] = []
+  const lines = splitContentLines(normalized)
+  let managedState: { meta: GroupMeta; lines: string[] } | null = null
+  let externalState: { kind: ExternalSectionKind; endMarker: string } | null = null
 
-  for (const line of normalized.split('\n')) {
-    const trimmed = line.trim()
-    const match = trimmed.match(GROUP_HEADER_PATTERN)
-    if (match) {
-      if (trimmed === DEFAULT_PUBLIC_HEADER) {
-        currentHeader = DEFAULT_PUBLIC_HEADER
+  const storeManagedState = (appendImplicitEndMarker: boolean) => {
+    if (!managedState) return
+
+    const section = sections.get(managedState.meta.matchKey)
+    if (section) {
+      section.lines.push(...managedState.lines)
+    } else {
+      sections.set(managedState.meta.matchKey, {
+        meta: managedState.meta,
+        lines: [...managedState.lines],
+      })
+    }
+
+    if (appendImplicitEndMarker) {
+      normalizedLines.push(managedState.meta.endMarker)
+    }
+
+    managedState = null
+  }
+
+  for (const line of lines) {
+    let pendingLine: string | null = line
+
+    while (pendingLine !== null) {
+      const currentLine = pendingLine
+      pendingLine = null
+      const trimmed = currentLine.trim()
+      const marker = parseManagedMarker(trimmed)
+      const markerMeta = marker ? getGroupMeta(marker.header) : null
+      const externalStart = getExternalSectionStart(trimmed)
+
+      if (externalState) {
+        publicLines.push(currentLine)
+        normalizedLines.push(currentLine)
+        if (trimmed === externalState.endMarker) {
+          externalState = null
+        }
         continue
       }
 
-      currentHeader = trimmed
-      if (!sections.has(currentHeader)) {
-        sections.set(currentHeader, {
-          meta: getGroupMeta(currentHeader),
-          lines: [],
-        })
+      if (managedState) {
+        if (marker?.kind === 'end' && markerMeta?.matchKey === managedState.meta.matchKey) {
+          normalizedLines.push(currentLine)
+          storeManagedState(false)
+          continue
+        }
+
+        if (marker || externalStart) {
+          storeManagedState(true)
+          pendingLine = currentLine
+          continue
+        }
+
+        managedState.lines.push(currentLine)
+        normalizedLines.push(currentLine)
+        continue
       }
-      continue
-    }
 
-    if (!currentHeader || currentHeader === DEFAULT_PUBLIC_HEADER) {
-      publicLines.push(line)
-      continue
-    }
+      if (externalStart) {
+        publicLines.push(currentLine)
+        normalizedLines.push(currentLine)
+        externalState = externalStart
+        continue
+      }
 
-    const section = sections.get(currentHeader)
-    if (section) section.lines.push(line)
+      if (marker?.kind === 'start') {
+        if (markerMeta?.type === 'public') {
+          normalizedLines.push(currentLine)
+          continue
+        }
+
+        managedState = {
+          meta: markerMeta ?? getGroupMeta(marker.header),
+          lines: [],
+        }
+        normalizedLines.push(currentLine)
+        continue
+      }
+
+      publicLines.push(currentLine)
+      normalizedLines.push(currentLine)
+    }
   }
 
+  storeManagedState(true)
+
+  return {
+    publicLines,
+    sections,
+    normalizedContent: normalizedLines.join(newline) + (hasTrailingNewline ? newline : ''),
+  }
+}
+
+export function normalizeManagedEnvironmentMarkers(fullHosts: string): string {
+  return parseManagedHosts(fullHosts).normalizedContent
+}
+
+export function parseEnvironmentBlocks(fullHosts: string): ParsedEnvironmentBlock[] {
+  const parsed = parseManagedHosts(fullHosts)
+
   return [{
-    id: 'env-public',
-    name: 'hosts 文件',
     type: 'public' as const,
-    enabled: true,
-    editMode: 'source' as const,
+    name: 'hosts 文件',
     header: DEFAULT_PUBLIC_HEADER,
-    lines: parseSourceToLines(publicLines.join('\n').trim()),
-    updatedAt: new Date().toISOString(),
-  }, ...Array.from(sections.values()).map(({ meta, lines }) => ({
-    id: meta.id,
-    name: meta.name,
+    endMarker: '',
+    lines: parseSourceToLines(parsed.publicLines.join('\n')),
+  }, ...Array.from(parsed.sections.values()).map(({ meta, lines }) => ({
     type: meta.type,
-    enabled: false,
-    editMode: 'source' as const,
+    name: meta.name,
     header: meta.header,
-    lines: parseSourceToLines(lines.join('\n').trim()),
-    updatedAt: new Date().toISOString(),
+    endMarker: meta.endMarker,
+    lines: parseSourceToLines(lines.join('\n')),
   }))]
 }
 
@@ -227,21 +372,9 @@ export function getEnabledEnvironmentTypesFromHosts(fullHosts: string): Environm
   return parseEnvironmentBlocks(fullHosts).map(env => env.type)
 }
 
-export function splitHostsByEnvironment(fullHosts: string): Record<string, string> {
-  return Object.fromEntries(
-    parseEnvironmentBlocks(fullHosts).map(env => [env.id, renderLinesToSource(env.lines)])
-  )
-}
-
-// --- Public content extraction ---
-
 export function extractPublicContent(fullHosts: string): string {
-  return parseEnvironmentBlocks(fullHosts).find(env => env.type === 'public')
-    ? renderLinesToSource(parseEnvironmentBlocks(fullHosts).find(env => env.type === 'public')!.lines)
-    : ''
+  return renderLinesToSource(parseSourceToLines(parseManagedHosts(fullHosts).publicLines.join('\n')))
 }
-
-// --- Managed block rendering (for apply / merge) ---
 
 export function renderEnvironmentBlock(environments: Environment[]): string {
   const blocks: string[] = []
@@ -251,10 +384,11 @@ export function renderEnvironmentBlock(environments: Environment[]): string {
       .filter(l => l.type === 'host' && l.enabled && l.domain && l.ip)
       .map(l => (l.comment ? `${l.ip}\t${l.domain} # ${l.comment}` : `${l.ip}\t${l.domain}`))
 
-    blocks.push(env.header || BUILTIN_BY_TYPE.get(env.type as BuiltinEnvironmentType)?.header || buildGroupHeader(env.name))
+    blocks.push(env.header || buildGroupHeader(env.name))
     if (lines.length > 0) {
       blocks.push(...lines)
     }
+    blocks.push(env.endMarker || buildGroupEndMarker(env.name))
   }
 
   return blocks.join('\n')
@@ -273,6 +407,8 @@ export function validateEntry(entry: { ip: string; domain: string }): string | n
   if (!ipRegex.test(entry.ip)) return 'IP 格式不正确'
   const parts = entry.ip.split('.').map(Number)
   if (parts.some(p => p < 0 || p > 255)) return 'IP 格式不正确'
-  if (!entry.domain || /\s/.test(entry.domain)) return '域名格式不正确'
+
+  const domains = entry.domain.split(/\s+/).filter(Boolean)
+  if (domains.length === 0 || domains.some(domain => /\s/.test(domain))) return '域名格式不正确'
   return null
 }

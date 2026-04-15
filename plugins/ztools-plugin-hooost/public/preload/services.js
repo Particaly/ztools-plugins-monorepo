@@ -43,10 +43,6 @@ function getBackupsDir() {
   return dir
 }
 
-function getPresetsPath() {
-  return path.join(getDataDir(), 'presets.json')
-}
-
 function getTmpDir() {
   const dir = path.join(getDataDir(), 'tmp')
   ensureDir(dir)
@@ -68,19 +64,6 @@ window.services = {
     return fs.readFileSync(getHostsPath(), { encoding: 'utf-8' })
   },
 
-  // Keep loadPresets for migration from old preset-based storage
-  loadPresets() {
-    const filePath = getPresetsPath()
-    if (!fs.existsSync(filePath)) {
-      return { activePresetId: null, presets: [] }
-    }
-    try {
-      return JSON.parse(fs.readFileSync(filePath, { encoding: 'utf-8' }))
-    } catch {
-      return { activePresetId: null, presets: [] }
-    }
-  },
-
   listBackups() {
     const dir = getBackupsDir()
     const files = fs.readdirSync(dir).filter(f => f.endsWith('.hosts')).sort().reverse()
@@ -94,7 +77,6 @@ window.services = {
         filename: f,
         path: fullPath,
         createdAt: stat ? stat.mtime.toISOString() : '',
-        presetName: presetMatch ? presetMatch[1] : undefined,
       }
     })
   },
