@@ -9,12 +9,11 @@
     "sourceMap": true,
     "baseUrl": "./",
     "paths": {
-      "@/*": ["src/*"],
-      "@@/*": ["src/.umi/*"]
+      "@/*": ["src/*"]
     },
     "allowSyntheticDefaultImports": true
   },
-  "include": ["mock/**/*", "src/**/*", "config/**/*", ".umirc.ts", "typings.d.ts"],
+  "include": ["src/**/*", "typings.d.ts", "vite.config.ts"],
   "exclude": [
     "node_modules",
     "lib",

@@ -19,9 +19,9 @@ export function debounce(fn: (...args: any[]) => any, delay = 200): (...args: an
  */
 export function onSystemReady() {
   return new Promise((resolve: any) => {
-    const { utools } = window as any;
-    if (utools) {
-      utools.onPluginReady(() => resolve());
+    const { ztools } = window as any;
+    if (ztools) {
+      ztools.onPluginReady(() => resolve());
     } else {
       resolve();
     }

@@ -1,8 +1,8 @@
 {
-  "pluginName": "IP 地址切换",
+  "name": "IP 地址切换",
   "version": "0.0.5",
   "description": "快捷修改本机 IP 地址，保存多套 IP 方案，一键切换。",
-  "author": "焚霜",
+  "author": "皮皮虾我们走",
   "main": "index.html",
   "preload": "preload.js",
   "logo": "logo.png",
@@ -15,7 +15,7 @@
     }
   ],
   "development": {
-    "main": "http://localhost:8000/index.html",
+    "main": "http://localhost:8000/",
     "preload": "../public/preload.js"
   }
 }

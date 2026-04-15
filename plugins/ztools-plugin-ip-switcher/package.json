@@ -1,12 +1,9 @@
 {
   "private": true,
   "scripts": {
-    "start": "umi dev",
-    "build": "umi build",
-    "postinstall": "umi generate tmp",
-    "prettier": "prettier --write '**/*.{js,jsx,tsx,ts,less,md,json}'",
-    "test": "umi-test",
-    "test:coverage": "umi-test --coverage"
+    "dev": "vite",
+    "build": "vite build",
+    "prettier": "prettier --write '**/*.{js,jsx,tsx,ts,less,md,json}'"
   },
   "gitHooks": {
     "pre-commit": "lint-staged"
@@ -22,18 +19,20 @@
   "dependencies": {
     "@ant-design/icons": "^4.6.2",
     "@ant-design/pro-layout": "^6.5.0",
-    "@umijs/preset-react": "1.x",
-    "umi": "^3.5.0"
+    "antd": "^4.6.2"
   },
   "devDependencies": {
     "@types/react": "^17.0.0",
     "@types/react-dom": "^17.0.0",
-    "@umijs/test": "^3.5.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "@ztools-center/ztools-api-types": "^1.0.3",
+    "less": "^4.2.0",
     "lint-staged": "^10.0.7",
     "prettier": "^2.2.0",
     "react": "17.x",
     "react-dom": "17.x",
     "typescript": "^4.1.2",
+    "vite": "^5.4.11",
     "yorkie": "^2.0.0"
   }
 }

@@ -18,7 +18,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { GlobalOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 
-import styles from './index.less';
+import './index.less';
 
 const ipRegExp = /^((2(5[0-5]|[0-4]\d))|[0-1]?\d{1,2})(\.((2(5[0-5]|[0-4]\d))|[0-1]?\d{1,2})){3}$/;
 
@@ -27,10 +27,28 @@ const {
   netshSetAddressDhcp,
   netshShowAddress,
   networkInterfaces,
-  utools: { isWindows, dbStorage },
+  ztools: { isWindows, dbStorage },
 } = window as any;
 
 const localStorage = dbStorage;
+
+const normalizeScheme = (item: any) => ({
+  ...item,
+  address: item?.address || '',
+  netmask: item?.netmask || '',
+  gateway: item?.gateway || '',
+  dns: item?.dns || '',
+  dns2: item?.dns2 || '',
+  remark: item?.remark || '',
+});
+
+const isSameScheme = (left: any, right: any) =>
+  left.address === right.address &&
+  left.netmask === right.netmask &&
+  left.gateway === right.gateway &&
+  left.dns === right.dns &&
+  left.dns2 === right.dns2 &&
+  left.remark === right.remark;
 
 export default function IndexPage() {
   const [tabKey, setTabKey] = useState('');
@@ -128,7 +146,7 @@ export default function IndexPage() {
       if (_data) {
         const arr = JSON.parse(_data);
         if (Array.isArray(arr)) {
-          setData(arr);
+          setData(arr.map(normalizeScheme));
           return;
         }
       }
@@ -140,7 +158,7 @@ export default function IndexPage() {
     (record?: any) => {
       form.resetFields();
       if (!!record) {
-        form.setFieldsValue(record);
+        form.setFieldsValue(normalizeScheme(record));
       }
       setEditKey(record ? record.key : undefined);
       setIsModalVisible(true);
@@ -150,16 +168,18 @@ export default function IndexPage() {
 
   const handleOk = useCallback(async () => {
     try {
-      const values = await form.validateFields();
-      const index = data.findIndex(
-        (item) =>
-          item.address === values.address &&
-          item.netmask === values.netmask &&
-          item.gateway === values.gateway &&
-          item.dns === values.dns &&
-          item.remark === values.remark,
-      );
-      if (index !== -1) {
+      const values = normalizeScheme(await form.validateFields());
+      if (!values.address && !values.netmask && !values.dns && !values.dns2) {
+        message.info('请至少填写 IP 信息或 DNS 信息');
+        return;
+      }
+      if ((values.address && !values.netmask) || (!values.address && values.netmask)) {
+        message.info('IP 地址和子网掩码需要同时填写');
+        return;
+      }
+
+      const index = data.findIndex((item) => isSameScheme(item, values));
+      if (index !== -1 && data[index].key !== editKey) {
         message.info('当前方案已经存在');
         return;
       }
@@ -191,14 +211,7 @@ export default function IndexPage() {
   const handleDelete = useCallback(
     (record: any) => {
       try {
-        const index = data.findIndex(
-          (item) =>
-            item.address === record.address &&
-            item.netmask === record.netmask &&
-            item.gateway === record.gateway &&
-            item.dns === record.dns &&
-            item.remark === record.remark,
-        );
+        const index = data.findIndex((item) => isSameScheme(item, record));
         if (index === -1) {
           message.info('当前方案不存在');
           return;
@@ -213,7 +226,7 @@ export default function IndexPage() {
         message.error('方案删除失败');
       }
     },
-    [data],
+    [data, tabKey],
   );
 
   const handleTabChange = useCallback((key: string) => {
@@ -227,8 +240,15 @@ export default function IndexPage() {
         isLoading.current = true;
         setCurrent({});
 
-        const { address, netmask, gateway, dns } = record;
-        await netshSetAddress(current.tab, address, netmask, gateway, dns);
+        const { address, netmask, gateway, dns, dns2 } = normalizeScheme(record);
+        await netshSetAddress(
+          current.tab,
+          address,
+          netmask,
+          gateway || 'none',
+          dns || 'none',
+          dns2 || '',
+        );
 
         const newData = data.map((d) => ({ ...d, status: +(d.key === record.key) }));
         localStorage.setItem(tabKey, JSON.stringify(newData));
@@ -248,7 +268,7 @@ export default function IndexPage() {
         }
       }
     },
-    [current, data],
+    [current, data, tabKey],
   );
 
   const handleSetDhcp = useCallback(async () => {
@@ -276,11 +296,23 @@ export default function IndexPage() {
         message.error('自动获取设置失败');
       }
     }
-  }, [current, data]);
+  }, [current, data, tabKey]);
 
   const columns = [
-    { title: 'IP 地址', dataIndex: 'address', key: 'address', ellipsis: true },
-    { title: '子网掩码', dataIndex: 'netmask', key: 'netmask', ellipsis: true },
+    {
+      title: 'IP 地址',
+      dataIndex: 'address',
+      key: 'address',
+      ellipsis: true,
+      render: (val) => val || '--',
+    },
+    {
+      title: '子网掩码',
+      dataIndex: 'netmask',
+      key: 'netmask',
+      ellipsis: true,
+      render: (val) => val || '--',
+    },
     {
       title: '网关地址',
       dataIndex: 'gateway',
@@ -292,6 +324,13 @@ export default function IndexPage() {
       title: 'DNS 地址',
       dataIndex: 'dns',
       key: 'dns',
+      ellipsis: true,
+      render: (val) => val || '--',
+    },
+    {
+      title: '备用 DNS',
+      dataIndex: 'dns2',
+      key: 'dns2',
       ellipsis: true,
       render: (val) => val || '--',
     },
@@ -370,7 +409,7 @@ export default function IndexPage() {
     <ConfigProvider locale={zhCN}>
       {tabList.length ? (
         <Card
-          className={styles.container}
+          className="container"
           bordered={false}
           tabList={tabList}
           activeTabKey={tabKey}
@@ -410,7 +449,7 @@ export default function IndexPage() {
           <Table size="small" columns={columns} dataSource={data} />
         </Card>
       ) : (
-        <div className={styles.loading}>
+        <div className="loading">
           <Spin size="large" tip="网卡信息获取中..." />
         </div>
       )}
@@ -425,20 +464,14 @@ export default function IndexPage() {
           <Form.Item
             name="address"
             label="IP 地址"
-            rules={[
-              { required: true, message: '请输入 IP 地址' },
-              { pattern: ipRegExp, message: '请输入正确的 IP 地址' },
-            ]}
+            rules={[{ pattern: ipRegExp, message: '请输入正确的 IP 地址' }]}
           >
             <Input placeholder="请输入 IP 地址" />
           </Form.Item>
           <Form.Item
             name="netmask"
             label="子网掩码"
-            rules={[
-              { required: true, message: '请输入子网掩码' },
-              { pattern: ipRegExp, message: '请输入正确的子网掩码' },
-            ]}
+            rules={[{ pattern: ipRegExp, message: '请输入正确的子网掩码' }]}
           >
             <Input placeholder="请输入子网掩码" />
           </Form.Item>
@@ -455,6 +488,13 @@ export default function IndexPage() {
             rules={[{ pattern: ipRegExp, message: '请输入正确的 DNS 地址' }]}
           >
             <Input placeholder="请输入 DNS 地址" />
+          </Form.Item>
+          <Form.Item
+            name="dns2"
+            label="备用 DNS"
+            rules={[{ pattern: ipRegExp, message: '请输入正确的备用 DNS 地址' }]}
+          >
+            <Input placeholder="请输入备用 DNS 地址" />
           </Form.Item>
           <Form.Item
             name="remark"
