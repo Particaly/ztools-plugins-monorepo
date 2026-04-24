@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/@ztools-center/ztools-api-types/resource/ztools.schema.json",
+  "name": "icon-creator",
+  "title": "icon creator",
+  "description": "A ZTools plugin",
+  "author": "皮皮虾我们走",
+  "version": "1.0.0",
+  "main": "index.html",
+  "preload": "preload/services.js",
+  "logo": "logo.png",
+  "development": {
+    "main": "http://localhost:5173"
+  },
+  "features": [
+    {
+      "code": "icon-creator",
+      "explain": "这是插件应用的第一个功能",
+      "icon": "logo.png",
+      "cmds": ["图标"]
+    }
+  ]
+}
