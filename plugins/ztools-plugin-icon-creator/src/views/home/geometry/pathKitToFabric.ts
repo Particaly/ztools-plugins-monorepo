@@ -3,9 +3,10 @@ import type { FabricBooleanStyleSnapshot } from './fabricToPathKit'
 import type { PathKitBounds, PathKitPath } from './pathkit'
 
 export type PathKitToFabricOptions = {
-  name: string
+  name?: string
   shapeId?: string
   style: FabricBooleanStyleSnapshot
+  preview?: boolean
 }
 
 type AnyFabricPath = Path & Record<string, any>
@@ -47,12 +48,14 @@ export function pathKitToFabricPath(path: PathKitPath, options: PathKitToFabricO
     })
 
     const custom = result as AnyFabricPath
-    custom.name = options.name
+    custom.name = options.preview ? '布尔预览' : (options.name || '')
     custom.lastFill = options.style.lastFill
     custom.lastStroke = options.style.lastStroke
     custom.lastStrokeWidth = options.style.lastStrokeWidth
-    custom.shapeId = options.shapeId || 'boolean-result'
-    custom.booleanEligible = true
+    custom.shapeId = options.preview ? 'boolean-preview' : (options.shapeId || 'boolean-result')
+    custom.booleanEligible = !options.preview
+    custom.booleanPreview = !!options.preview
+    custom.excludeFromExport = !!options.preview
     result.setCoords()
     return result
   } finally {

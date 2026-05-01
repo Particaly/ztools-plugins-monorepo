@@ -4,12 +4,30 @@ import { getPathKit, type PathKitPath } from './pathkit'
 import { pathKitToFabricPath } from './pathKitToFabric'
 
 export type BooleanOperation = 'union' | 'intersect' | 'subtract' | 'xor'
+export type SubtractDirection = 'forward' | 'reverse'
 
 type ApplyOptions = {
   canvas: Canvas
   operation: BooleanOperation
   objects: FabricObject[]
   makeName: (label: string) => string
+  subtractDirection?: SubtractDirection
+}
+
+type ComputeOptions = {
+  canvas: Canvas
+  operation: BooleanOperation
+  objects: FabricObject[]
+  subtractDirection?: SubtractDirection
+  includePreviewRemovedPath?: boolean
+}
+
+export type ComputedBooleanResult = {
+  orderedObjects: FabricObject[]
+  baseObject: FabricObject
+  style: FabricBooleanStyleSnapshot
+  path: PathKitPath
+  removedPath?: PathKitPath | null
 }
 
 type ConvertedBooleanObject = FabricToPathKitResult & {
@@ -52,8 +70,8 @@ function applyPathOp(target: PathKitPath, source: PathKitPath, op: unknown) {
   return !!target.op(source, op)
 }
 
-export async function applyBooleanOperation(options: ApplyOptions): Promise<{ result?: FabricObject; error?: string }> {
-  const { canvas, operation, objects, makeName } = options
+export async function computeBooleanResult(options: ComputeOptions): Promise<{ result?: ComputedBooleanResult; error?: string }> {
+  const { canvas, operation, objects, subtractDirection = 'forward', includePreviewRemovedPath = false } = options
   if (objects.length < 2) return { error: '请至少选择 2 个对象' }
 
   const canvasObjects = canvas.getObjects()
@@ -67,6 +85,7 @@ export async function applyBooleanOperation(options: ApplyOptions): Promise<{ re
   const converted: ConvertedBooleanObject[] = []
   let accumulator: PathKitPath | null = null
   let cutter: PathKitPath | null = null
+  let removedPreviewPath: PathKitPath | null = null
 
   try {
     for (const obj of ordered) {
@@ -80,14 +99,25 @@ export async function applyBooleanOperation(options: ApplyOptions): Promise<{ re
       converted.push(convertedObject)
     }
 
-    const base = ordered[0]
-    const donor = converted[0]
+    if (includePreviewRemovedPath) {
+      removedPreviewPath = converted[0].path.copy()
+      for (let i = 1; i < converted.length; i++) {
+        if (!applyPathOp(removedPreviewPath, converted[i].path, pathKit.PathOp.UNION)) return { error: '布尔运算失败' }
+      }
+    }
+
+    const reverseSubtract = operation === 'subtract' && subtractDirection === 'reverse' && ordered.length === 2
+    const baseIndex = reverseSubtract ? 1 : 0
+    const base = ordered[baseIndex]
+    const donor = converted[baseIndex]
     accumulator = donor.path.copy()
 
     if (operation === 'subtract') {
-      cutter = converted[1].path.copy()
-      for (let i = 2; i < converted.length; i++) {
-        if (!applyPathOp(cutter, converted[i].path, pathKit.PathOp.UNION)) return { error: '布尔运算失败' }
+      cutter = converted[reverseSubtract ? 0 : 1].path.copy()
+      if (!reverseSubtract) {
+        for (let i = 2; i < converted.length; i++) {
+          if (!applyPathOp(cutter, converted[i].path, pathKit.PathOp.UNION)) return { error: '布尔运算失败' }
+        }
       }
       if (!applyPathOp(accumulator, cutter, pathKit.PathOp.DIFFERENCE)) return { error: '布尔运算失败' }
     } else {
@@ -104,20 +134,59 @@ export async function applyBooleanOperation(options: ApplyOptions): Promise<{ re
     if (!accumulator.simplify()) return { error: '布尔运算失败' }
     if (isEmptyPath(accumulator)) return { error: '运算结果为空' }
 
-    const result = pathKitToFabricPath(accumulator, {
-      name: makeName(labelForOperation(operation)),
-      shapeId: 'boolean-result',
-      style: donor.style
-    })
-    if (!result) return { error: '运算结果为空' }
+    if (removedPreviewPath) {
+      if (!applyPathOp(removedPreviewPath, accumulator, pathKit.PathOp.DIFFERENCE)) return { error: '布尔运算失败' }
+      if (!removedPreviewPath.simplify()) return { error: '布尔运算失败' }
+      if (isEmptyPath(removedPreviewPath)) {
+        removedPreviewPath.delete()
+        removedPreviewPath = null
+      }
+    }
 
-    replaceObjects(canvas, ordered, base, result)
-    return { result }
+    const path = accumulator
+    const previewRemovedPath = removedPreviewPath
+    accumulator = null
+    removedPreviewPath = null
+    return {
+      result: {
+        orderedObjects: ordered,
+        baseObject: base,
+        style: donor.style,
+        path,
+        removedPath: previewRemovedPath
+      }
+    }
   } catch (error: any) {
     return { error: error?.message || '布尔运算失败' }
   } finally {
     converted.forEach((item) => item.path.delete())
     cutter?.delete()
     accumulator?.delete()
+    removedPreviewPath?.delete()
+  }
+}
+
+export async function applyBooleanOperation(options: ApplyOptions): Promise<{ result?: FabricObject; error?: string }> {
+  const { canvas, operation, objects, makeName, subtractDirection } = options
+  const { result: computed, error } = await computeBooleanResult({
+    canvas,
+    operation,
+    objects,
+    subtractDirection
+  })
+  if (error || !computed) return { error: error || '布尔运算失败' }
+
+  try {
+    const result = pathKitToFabricPath(computed.path, {
+      name: makeName(labelForOperation(operation)),
+      shapeId: 'boolean-result',
+      style: computed.style
+    })
+    if (!result) return { error: '运算结果为空' }
+
+    replaceObjects(canvas, computed.orderedObjects, computed.baseObject, result)
+    return { result }
+  } finally {
+    computed.path.delete()
   }
 }

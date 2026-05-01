@@ -154,10 +154,31 @@
             </div>
           </div>
           <div class="prop-actions boolean-actions">
-            <button class="tb-btn" @click="runBooleanOperation('union')" :disabled="!canBoolean">并集</button>
-            <button class="tb-btn" @click="runBooleanOperation('intersect')" :disabled="!canBoolean">交集</button>
-            <button class="tb-btn" @click="runBooleanOperation('subtract')" :disabled="!canBoolean">差集</button>
-            <button class="tb-btn" @click="runBooleanOperation('xor')" :disabled="!canBoolean">异或</button>
+            <button class="tb-btn" @mouseenter="showBooleanPreview('union')" @mouseleave="clearBooleanPreview" @click="runBooleanOperation('union')" :disabled="!canBoolean">并集</button>
+            <button class="tb-btn" @mouseenter="showBooleanPreview('intersect')" @mouseleave="clearBooleanPreview" @click="runBooleanOperation('intersect')" :disabled="!canBoolean">交集</button>
+            <ZPopover
+              v-if="canBoolean"
+              :show="subtractPopoverVisible"
+              trigger="hover"
+              placement="top"
+              :to="false"
+              show-arrow
+              keep-alive-on-hover
+              @update:show="handleSubtractPopoverShowChange"
+            >
+              <template #trigger>
+                <button class="tb-btn" @mouseenter="showBooleanPreview('subtract')" @click="runBooleanOperation('subtract')">差集</button>
+              </template>
+              <div class="boolean-preview-menu">
+                <template v-if="canDirectionalSubtract">
+                  <button class="tb-btn sm boolean-preview-option" @mouseenter="showBooleanPreview('subtract', 'forward')" @click="runBooleanOperation('subtract', 'forward')">A - B</button>
+                  <button class="tb-btn sm boolean-preview-option" @mouseenter="showBooleanPreview('subtract', 'reverse')" @click="runBooleanOperation('subtract', 'reverse')">B - A</button>
+                </template>
+                <div v-else class="boolean-preview-note">多对象差集预览当前默认结果</div>
+              </div>
+            </ZPopover>
+            <button v-else class="tb-btn" disabled>差集</button>
+            <button class="tb-btn" @mouseenter="showBooleanPreview('xor')" @mouseleave="clearBooleanPreview" @click="runBooleanOperation('xor')" :disabled="!canBoolean">异或</button>
             <span v-if="booleanBusy" class="boolean-status">处理中...</span>
             <span v-if="booleanError" class="boolean-error">{{ booleanError }}</span>
           </div>
@@ -236,18 +257,23 @@
 
 <script setup lang="ts">
 import { ref, shallowRef, triggerRef, reactive, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
-import { ZInput, ZSelect, ZColorPicker, ZSwitch, ZSlider } from 'ztools-ui'
+import { ZInput, ZSelect, ZColorPicker, ZSwitch, ZSlider, ZPopover } from 'ztools-ui'
 import { Icon } from '@iconify/vue'
 import { Canvas, FabricObject, Textbox, Group, ActiveSelection, FabricImage } from 'fabric'
 import { basicShapes, textPresets, canvasPresets } from './editorCatalog'
 import type { ShapeLibraryItem, TextLibraryItem } from './editorCatalog'
 import { createShape } from './fabric/shapeFactories'
-import { isBooleanCandidate } from './geometry/fabricToPathKit'
-import { applyBooleanOperation } from './geometry/booleanOps'
-import type { BooleanOperation } from './geometry/booleanOps'
+import { isBooleanCandidate, type FabricBooleanStyleSnapshot } from './geometry/fabricToPathKit'
+import { applyBooleanOperation, computeBooleanResult } from './geometry/booleanOps'
+import type { BooleanOperation, SubtractDirection } from './geometry/booleanOps'
+import { pathKitToFabricPath } from './geometry/pathKitToFabric'
 
 // ── 类型工具 ──
 type AnyFabricObject = FabricObject & Record<string, any>
+type BooleanPreviewHiddenObject = {
+  object: FabricObject
+  visible: boolean
+}
 
 // ── refs ──
 const canvasElRef = ref<HTMLCanvasElement | null>(null)
@@ -292,6 +318,10 @@ const shapePreviewPaths: Record<ShapeLibraryItem['id'], string> = {
 }
 const booleanBusy = ref(false)
 const booleanError = ref('')
+const subtractPopoverVisible = ref(false)
+const booleanPreviewObjects = shallowRef<FabricObject[]>([])
+const booleanPreviewHiddenObjects = shallowRef<BooleanPreviewHiddenObject[]>([])
+let booleanPreviewToken = 0
 
 const objProps = reactive({
   left: 0, top: 0, width: 0, height: 0,
@@ -353,6 +383,157 @@ const canBoolean = computed(() => {
   return !booleanBusy.value && selectedObjects.value.length >= 2 && selectedObjects.value.every(isBooleanCandidate)
 })
 
+const canDirectionalSubtract = computed(() => {
+  return canBoolean.value && selectedObjects.value.length === 2
+})
+
+function isBooleanPreviewObject(obj: FabricObject | null | undefined): obj is AnyFabricObject {
+  return !!obj && !!(obj as AnyFabricObject).booleanPreview
+}
+
+function getBooleanPreviewStrokeColor(style: FabricBooleanStyleSnapshot) {
+  const candidates = [style.stroke, style.lastStroke, style.fill, style.lastFill]
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string') continue
+    const normalized = candidate.trim().toLowerCase()
+    if (normalized && normalized !== 'none' && normalized !== 'transparent') return candidate
+  }
+  return '#1e6fff'
+}
+
+function getBooleanPreviewStrokeWidth(style: FabricBooleanStyleSnapshot) {
+  const width = Number(style.strokeWidth || 0)
+  if (!Number.isFinite(width) || width <= 0) return 2
+  return Math.max(2, Math.min(width, 4))
+}
+
+function applyBooleanPreviewStyle(preview: FabricObject, kind: 'kept' | 'removed', style: FabricBooleanStyleSnapshot) {
+  const strokeWidth = getBooleanPreviewStrokeWidth(style)
+  const stroke = getBooleanPreviewStrokeColor(style)
+  preview.set({
+    fill: 'transparent',
+    stroke,
+    strokeWidth,
+    strokeDashArray: kind === 'removed' ? [strokeWidth * 3, strokeWidth * 2] : null,
+    opacity: 1,
+    selectable: false,
+    evented: false,
+    hasControls: false,
+    hasBorders: false
+  })
+  ;(preview as AnyFabricObject).booleanPreview = true
+}
+
+function restoreBooleanPreviewSourceObjects() {
+  const hiddenObjects = booleanPreviewHiddenObjects.value
+  booleanPreviewHiddenObjects.value = []
+  hiddenObjects.forEach(({ object, visible }) => {
+    object.set('visible', visible)
+    object.setCoords()
+  })
+  return hiddenObjects.length > 0
+}
+
+function hideBooleanPreviewSourceObjects(objects: FabricObject[]) {
+  restoreBooleanPreviewSourceObjects()
+  const uniqueObjects = Array.from(new Set(objects))
+  booleanPreviewHiddenObjects.value = uniqueObjects.map((object) => ({
+    object,
+    visible: object.visible !== false
+  }))
+  uniqueObjects.forEach((object) => {
+    object.set('visible', false)
+    object.setCoords()
+  })
+}
+
+function nextBooleanPreviewToken() {
+  booleanPreviewToken += 1
+  return booleanPreviewToken
+}
+
+function handleSubtractPopoverShowChange(show: boolean) {
+  subtractPopoverVisible.value = show
+  if (!show) clearBooleanPreview()
+}
+
+function clearBooleanPreview(invalidate: boolean | Event = true) {
+  const shouldInvalidate = typeof invalidate === 'boolean' ? invalidate : true
+  if (shouldInvalidate) nextBooleanPreviewToken()
+  const previews = booleanPreviewObjects.value
+  const restoredSources = restoreBooleanPreviewSourceObjects()
+  booleanPreviewObjects.value = []
+  if (!fabricCanvas) return
+  previews.forEach((preview) => {
+    if (fabricCanvas.getObjects().includes(preview)) {
+      fabricCanvas.remove(preview as AnyFabricObject)
+    }
+  })
+  if (previews.length || restoredSources) {
+    fabricCanvas.requestRenderAll()
+  }
+}
+
+async function showBooleanPreview(operation: BooleanOperation, subtractDirection: SubtractDirection = 'forward') {
+  if (!fabricCanvas || !canBoolean.value || booleanBusy.value) {
+    clearBooleanPreview()
+    return
+  }
+
+  const token = nextBooleanPreviewToken()
+  const objects = fabricCanvas.getActiveObjects()
+  const { result: computed, error } = await computeBooleanResult({
+    canvas: fabricCanvas,
+    operation,
+    objects,
+    subtractDirection,
+    includePreviewRemovedPath: true
+  })
+  if (token !== booleanPreviewToken) {
+    computed?.removedPath?.delete()
+    computed?.path.delete()
+    return
+  }
+  if (error || !computed) {
+    clearBooleanPreview(false)
+    return
+  }
+
+  try {
+    const previews: FabricObject[] = []
+    if (computed.removedPath) {
+      const removedPreview = pathKitToFabricPath(computed.removedPath, {
+        style: computed.style,
+        preview: true
+      })
+      if (removedPreview) {
+        applyBooleanPreviewStyle(removedPreview, 'removed', computed.style)
+        previews.push(removedPreview)
+      }
+    }
+
+    const keptPreview = pathKitToFabricPath(computed.path, {
+      style: computed.style,
+      preview: true
+    })
+    if (keptPreview) {
+      applyBooleanPreviewStyle(keptPreview, 'kept', computed.style)
+      previews.push(keptPreview)
+    }
+
+    if (token !== booleanPreviewToken) return
+    clearBooleanPreview(false)
+    if (!previews.length || !fabricCanvas) return
+    hideBooleanPreviewSourceObjects(objects)
+    previews.forEach((preview) => fabricCanvas.add(preview as AnyFabricObject))
+    booleanPreviewObjects.value = previews
+    fabricCanvas.requestRenderAll()
+  } finally {
+    computed.removedPath?.delete()
+    computed.path.delete()
+  }
+}
+
 interface LayerItem { id: number; name: string; obj: FabricObject }
 const filteredLayers = computed(() => {
   void layerVersion.value
@@ -362,6 +543,7 @@ const filteredLayers = computed(() => {
   const items: LayerItem[] = []
   for (let i = objects.length - 1; i >= 0; i--) {
     const obj = objects[i]
+    if (isBooleanPreviewObject(obj)) continue
     const name = (obj as any).name || obj.type || '对象'
     if (!q || name.toLowerCase().includes(q)) {
       items.push({ id: i, name, obj })
@@ -742,12 +924,14 @@ async function onImageFileChosen(e: Event) {
 // ── 导出 ──
 function exportSVG() {
   if (!fabricCanvas) return
+  clearBooleanPreview()
   const svg = fabricCanvas.toSVG()
   window.services?.writeSvgFile?.(svg)
 }
 
 function exportPNG() {
   if (!fabricCanvas) return
+  clearBooleanPreview()
   const currentZoom = fabricCanvas.getZoom()
   fabricCanvas.setZoom(1)
   fabricCanvas.setDimensions({ width: canvasWidth.value, height: canvasHeight.value })
@@ -763,6 +947,7 @@ function exportPNG() {
 // ── 新建 ──
 function newDoc() {
   if (!fabricCanvas) return
+  clearBooleanPreview()
   skipSnapshot = true
   fabricCanvas.clear()
   skipSnapshot = false
@@ -851,8 +1036,10 @@ function ungroupObject() {
   fabricCanvas.requestRenderAll()
 }
 
-async function runBooleanOperation(operation: BooleanOperation) {
+async function runBooleanOperation(operation: BooleanOperation, subtractDirection: SubtractDirection = 'forward') {
   if (!fabricCanvas || booleanBusy.value) return
+  clearBooleanPreview()
+  subtractPopoverVisible.value = false
   const objects = fabricCanvas.getActiveObjects()
   if (objects.length < 2) {
     booleanError.value = '请至少选择 2 个对象'
@@ -867,7 +1054,8 @@ async function runBooleanOperation(operation: BooleanOperation) {
       canvas: fabricCanvas,
       operation,
       objects,
-      makeName: nextName
+      makeName: nextName,
+      subtractDirection
     })
     if (error || !result) {
       booleanError.value = error || '布尔运算失败'
@@ -972,30 +1160,46 @@ function setupCanvasEvents() {
   if (!fabricCanvas) return
 
   fabricCanvas.on('selection:created', () => {
+    clearBooleanPreview()
     syncActiveObject(fabricCanvas!.getActiveObject() ?? null)
   })
   fabricCanvas.on('selection:updated', () => {
+    clearBooleanPreview()
     syncActiveObject(fabricCanvas!.getActiveObject() ?? null)
   })
   fabricCanvas.on('selection:cleared', () => {
+    clearBooleanPreview()
     syncActiveObject(null)
   })
-  fabricCanvas.on('object:modified', () => {
+  fabricCanvas.on('object:modified', (event) => {
+    if (isBooleanPreviewObject(event.target ?? null)) return
+    clearBooleanPreview()
     snapshot()
     syncObjProps()
     refreshLayers()
   })
   // Real-time sync during drag interactions
-  fabricCanvas.on('object:scaling', () => syncObjProps())
-  fabricCanvas.on('object:moving', () => syncObjProps())
-  fabricCanvas.on('object:rotating', () => syncObjProps())
+  fabricCanvas.on('object:scaling', () => {
+    clearBooleanPreview()
+    syncObjProps()
+  })
+  fabricCanvas.on('object:moving', () => {
+    clearBooleanPreview()
+    syncObjProps()
+  })
+  fabricCanvas.on('object:rotating', () => {
+    clearBooleanPreview()
+    syncObjProps()
+  })
 
   // 对象添加/删除时快照
-  fabricCanvas.on('object:added', () => {
+  fabricCanvas.on('object:added', (event) => {
+    if (isBooleanPreviewObject(event.target ?? null)) return
     refreshLayers()
     snapshot()
   })
-  fabricCanvas.on('object:removed', () => {
+  fabricCanvas.on('object:removed', (event) => {
+    if (isBooleanPreviewObject(event.target ?? null)) return
     refreshLayers()
     snapshot()
   })
@@ -1028,6 +1232,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener('resize', fitCanvasInView)
   window.removeEventListener('keydown', handleKeydown)
+  clearBooleanPreview()
   fabricCanvas?.dispose()
 })
 </script>
@@ -1319,6 +1524,22 @@ $panel-bg: #fff;
 .boolean-actions {
   border-bottom: $border;
   margin-top: 0;
+}
+.boolean-preview-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 120px;
+}
+.boolean-preview-option {
+  width: 100%;
+  justify-content: flex-start;
+}
+.boolean-preview-note {
+  font-size: 12px;
+  color: #666;
+  line-height: 1.4;
+  max-width: 180px;
 }
 .boolean-status,
 .boolean-error {
