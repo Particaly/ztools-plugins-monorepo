@@ -64,7 +64,7 @@
 
       <!-- 中间画布区 -->
       <main class="canvas-area" ref="canvasAreaRef">
-        <div class="canvas-wrapper" ref="canvasWrapperRef">
+        <div class="canvas-wrapper" :class="{ 'transparent-bg': isCanvasBgTransparent }" ref="canvasWrapperRef">
           <canvas ref="canvasElRef"></canvas>
         </div>
       </main>
@@ -211,11 +211,20 @@
           </div>
           <div class="prop-group">
             <label>背景</label>
-            <ZColorPicker
-              size="small"
-              :model-value="canvasBg"
-              @change="setCanvasBg(String($event))"
-            />
+            <div class="canvas-bg-picker">
+              <ZButton
+                class="transparent-swatch"
+                :class="{ active: isCanvasBgTransparent }"
+                title="透明"
+                @click="setCanvasBg('transparent')"
+              />
+              <ZColorPicker
+                size="small"
+                :show-input="false"
+                :model-value="canvasBgPickerValue"
+                @change="setCanvasBg(String($event))"
+              />
+            </div>
           </div>
         </template>
 
@@ -257,7 +266,7 @@
 
 <script setup lang="ts">
 import { ref, shallowRef, triggerRef, reactive, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
-import { ZInput, ZSelect, ZColorPicker, ZSwitch, ZSlider, ZPopover } from 'ztools-ui'
+import { ZInput, ZSelect, ZColorPicker, ZSwitch, ZSlider, ZPopover, ZButton } from 'ztools-ui'
 import { Icon } from '@iconify/vue'
 import { Canvas, FabricObject, Textbox, Group, ActiveSelection, FabricImage } from 'fabric'
 import { basicShapes, textPresets, canvasPresets } from './editorCatalog'
@@ -290,8 +299,11 @@ const activeObject = shallowRef<FabricObject | null>(null)
 const canvasWidth = ref(800)
 const canvasHeight = ref(600)
 const canvasBg = ref('#ffffff')
+const lastOpaqueCanvasBg = ref('#ffffff')
 const canvasPresetValue = ref('')
 const canvasPresetOptions = computed(() => canvasPresets.map(({ label, value }) => ({ label, value })))
+const isCanvasBgTransparent = computed(() => isTransparentCanvasBg(canvasBg.value))
+const canvasBgPickerValue = computed(() => (isCanvasBgTransparent.value ? lastOpaqueCanvasBg.value : canvasBg.value))
 const shapePreviewPaths: Record<ShapeLibraryItem['id'], string> = {
   'base-rectangle': 'M 8 20 H 56 V 44 H 8 Z',
   'base-square': 'M 14 14 H 50 V 50 H 14 Z',
@@ -562,6 +574,34 @@ function snapshot() {
   canRedo.value = false
 }
 
+function isTransparentCanvasBg(value: unknown) {
+  if (value == null) return true
+  if (typeof value !== 'string') return false
+  const normalized = value.trim().toLowerCase()
+  return normalized === '' || normalized === 'none' || normalized === 'transparent'
+}
+
+function normalizeCanvasBg(value: unknown) {
+  return isTransparentCanvasBg(value) ? 'transparent' : String(value)
+}
+
+function applyCanvasBgToFabric(value: string) {
+  if (!fabricCanvas) return
+  fabricCanvas.backgroundColor = isTransparentCanvasBg(value) ? '' : value
+}
+
+function syncCanvasBgFromFabric() {
+  if (!fabricCanvas) return
+  const bg = fabricCanvas.backgroundColor
+  if (isTransparentCanvasBg(bg)) {
+    canvasBg.value = 'transparent'
+    return
+  }
+  const next = String(bg)
+  canvasBg.value = next
+  lastOpaqueCanvasBg.value = next
+}
+
 function undo() {
   if (undoStack.length <= 1 || !fabricCanvas) return
   redoStack.push(undoStack.pop()!)
@@ -570,6 +610,7 @@ function undo() {
   fabricCanvas.loadFromJSON(undoStack[undoStack.length - 1]).then(() => {
     fabricCanvas!.discardActiveObject()
     syncActiveObject(null)
+    syncCanvasBgFromFabric()
     fabricCanvas!.requestRenderAll()
     skipSnapshot = false
     refreshLayers()
@@ -585,6 +626,7 @@ function redo() {
   fabricCanvas.loadFromJSON(json).then(() => {
     fabricCanvas!.discardActiveObject()
     syncActiveObject(null)
+    syncCanvasBgFromFabric()
     fabricCanvas!.requestRenderAll()
     skipSnapshot = false
     refreshLayers()
@@ -802,8 +844,10 @@ function applyCanvasSize() {
 
 function setCanvasBg(color: string) {
   if (!fabricCanvas) return
-  canvasBg.value = color
-  fabricCanvas.backgroundColor = color
+  const next = normalizeCanvasBg(color)
+  canvasBg.value = next
+  if (!isTransparentCanvasBg(next)) lastOpaqueCanvasBg.value = next
+  applyCanvasBgToFabric(next)
   fabricCanvas.requestRenderAll()
   refreshLayers()
   snapshot()
@@ -951,7 +995,7 @@ function newDoc() {
   skipSnapshot = true
   fabricCanvas.clear()
   skipSnapshot = false
-  fabricCanvas.backgroundColor = canvasBg.value
+  applyCanvasBgToFabric(canvasBg.value)
   fabricCanvas.requestRenderAll()
   syncActiveObject(null)
   refreshLayers()
@@ -1211,7 +1255,7 @@ onMounted(() => {
   fabricCanvas = new Canvas(canvasElRef.value, {
     width: canvasWidth.value,
     height: canvasHeight.value,
-    backgroundColor: canvasBg.value,
+    backgroundColor: isTransparentCanvasBg(canvasBg.value) ? '' : canvasBg.value,
     preserveObjectStacking: true,
     selection: true
   })
@@ -1411,8 +1455,57 @@ $panel-bg: #fff;
 }
 .canvas-wrapper {
   box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+  background: #fff;
+  &.transparent-bg {
+    background-color: #fff;
+    background-image:
+      linear-gradient(45deg, rgba(0, 0, 0, 0.08) 25%, transparent 25%, transparent 75%, rgba(0, 0, 0, 0.08) 75%, rgba(0, 0, 0, 0.08)),
+      linear-gradient(45deg, rgba(0, 0, 0, 0.08) 25%, transparent 25%, transparent 75%, rgba(0, 0, 0, 0.08) 75%, rgba(0, 0, 0, 0.08));
+    background-position: 0 0, 8px 8px;
+    background-size: 16px 16px;
+  }
   :deep(canvas) {
     display: block;
+  }
+}
+
+.canvas-bg-picker {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  :deep(.zt-color-picker) {
+    display: inline-flex;
+    flex: 0 0 auto;
+  }
+}
+
+.transparent-swatch {
+  position: relative;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  overflow: hidden;
+  padding: 0;
+  box-sizing: border-box;
+  background-color: #fafafa;
+  background-image:
+    linear-gradient(45deg, rgba(0, 0, 0, 0.07) 25%, transparent 25%, transparent 75%, rgba(0, 0, 0, 0.07) 75%, rgba(0, 0, 0, 0.07)),
+    linear-gradient(45deg, rgba(0, 0, 0, 0.07) 25%, transparent 25%, transparent 75%, rgba(0, 0, 0, 0.07) 75%, rgba(0, 0, 0, 0.07));
+  background-position: 0 0, 6px 6px;
+  background-size: 12px 12px;
+  box-shadow: none;
+  overflow: hidden;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+
+  &:hover:not(:disabled) {
+    background-color: #fafafa;
+    background-image:
+      linear-gradient(45deg, rgba(0, 0, 0, 0.07) 25%, transparent 25%, transparent 75%, rgba(0, 0, 0, 0.07) 75%, rgba(0, 0, 0, 0.07)),
+      linear-gradient(45deg, rgba(0, 0, 0, 0.07) 25%, transparent 25%, transparent 75%, rgba(0, 0, 0, 0.07) 75%, rgba(0, 0, 0, 0.07));
+    background-position: 0 0, 6px 6px;
+    background-size: 12px 12px;
   }
 }
 
