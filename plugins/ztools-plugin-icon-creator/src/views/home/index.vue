@@ -153,6 +153,28 @@
               <span class="val-label">{{ Math.round(objProps.opacity * 100) }}%</span>
             </div>
           </div>
+          <div v-if="hasEditablePoints" class="prop-section">
+            <div v-if="!hasSelectedPoint" class="prop-group style-color-row">
+              <label>圆角</label>
+              <ZInput
+                size="small"
+                type="text"
+                :model-value="objProps.cornerRadiusInput"
+                @update:model-value="objProps.cornerRadiusInput = String($event)"
+                @change="setCornerRadiusFromInput"
+              />
+            </div>
+            <div v-else class="prop-group style-color-row">
+              <label>点圆角</label>
+              <ZInput
+                size="small"
+                type="text"
+                :model-value="objProps.pointCornerRadiusInput"
+                @update:model-value="objProps.pointCornerRadiusInput = String($event)"
+                @change="setSelectedPointCornerRadiusFromInput"
+              />
+            </div>
+          </div>
           <div class="prop-actions boolean-actions">
             <button class="tb-btn" @mouseenter="showBooleanPreview('union')" @mouseleave="clearBooleanPreview" @click="runBooleanOperation('union')" :disabled="!canBoolean">并集</button>
             <button class="tb-btn" @mouseenter="showBooleanPreview('intersect')" @mouseleave="clearBooleanPreview" @click="runBooleanOperation('intersect')" :disabled="!canBoolean">交集</button>
@@ -244,7 +266,7 @@
             v-for="item in filteredLayers" :key="item.id"
             class="layer-item"
             :class="{ active: isLayerActive(item.obj) }"
-            @click="selectLayer(item.obj)"
+            @click="selectLayer(item.obj, $event)"
           >
             <span class="layer-name">{{ item.name }}</span>
             <button class="layer-icon-btn" @click.stop="toggleVisible(item.obj)">
@@ -268,7 +290,7 @@
 import { ref, shallowRef, triggerRef, reactive, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { ZInput, ZSelect, ZColorPicker, ZSwitch, ZSlider, ZPopover, ZButton } from 'ztools-ui'
 import { Icon } from '@iconify/vue'
-import { Canvas, FabricObject, Textbox, Group, ActiveSelection, FabricImage } from 'fabric'
+import { Canvas, Control, FabricObject, Textbox, Group, ActiveSelection, FabricImage, Point, util } from 'fabric'
 import { basicShapes, textPresets, canvasPresets } from './editorCatalog'
 import type { ShapeLibraryItem, TextLibraryItem } from './editorCatalog'
 import { createShape } from './fabric/shapeFactories'
@@ -276,9 +298,21 @@ import { isBooleanCandidate, type FabricBooleanStyleSnapshot } from './geometry/
 import { applyBooleanOperation, computeBooleanResult } from './geometry/booleanOps'
 import type { BooleanOperation, SubtractDirection } from './geometry/booleanOps'
 import { pathKitToFabricPath } from './geometry/pathKitToFabric'
+import {
+  editablePointToLocalObjectPoint,
+  getPointRadius,
+  getSelectableEditablePoints,
+  isEditablePathObject,
+  moveEditablePoint,
+  setObjectCornerRadius,
+  setPointCornerRadius,
+  setPointsCornerRadius,
+  type EditablePathObject
+} from './geometry/editablePath'
 
 // ── 类型工具 ──
 type AnyFabricObject = FabricObject & Record<string, any>
+type FabricControls = Record<string, Control>
 type BooleanPreviewHiddenObject = {
   object: FabricObject
   visible: boolean
@@ -287,6 +321,7 @@ type BooleanPreviewHiddenObject = {
 // ── refs ──
 const canvasElRef = ref<HTMLCanvasElement | null>(null)
 const canvasAreaRef = ref<HTMLElement | null>(null)
+const canvasWrapperRef = ref<HTMLElement | null>(null)
 const imgInputRef = ref<HTMLInputElement | null>(null)
 
 // ── 状态 ──
@@ -339,8 +374,15 @@ const objProps = reactive({
   left: 0, top: 0, width: 0, height: 0,
   scaleX: 1, scaleY: 1, angle: 0,
   fill: '#000000', fillEnabled: true,
-  stroke: '#000000', strokeEnabled: true, strokeWidth: 0, opacity: 1
+  stroke: '#000000', strokeEnabled: true, strokeWidth: 0, opacity: 1,
+  cornerRadius: 0,
+  pointCornerRadius: 0,
+  cornerRadiusInput: '0',
+  pointCornerRadiusInput: '0'
 })
+const selectedPointIndices = ref<number[]>([])
+const pointControlsOwner = shallowRef<EditablePathObject | null>(null)
+const originalControlsMap = new WeakMap<FabricObject, FabricControls>()
 const sizeRatioLocked = ref(false)
 const lockedAspectRatio = ref(1)
 
@@ -367,6 +409,23 @@ function nextName(type: string) {
 // 模板事件值辅助
 function uiNum(value: string | number): number {
   return Number(value)
+}
+
+function normalizeInputValue(value: string | number) {
+  return String(value).trim()
+}
+
+function commitNumericInput(
+  value: string | number,
+  fallback: number,
+  apply: (next: number) => void,
+  reflect: (next: string) => void
+) {
+  const normalized = normalizeInputValue(value)
+  const parsed = Number(normalized)
+  const next = normalized === '' || !Number.isFinite(parsed) ? fallback : parsed
+  reflect(String(next))
+  apply(next)
 }
 function evNum(e: Event): number {
   return +(e.target as HTMLInputElement).value
@@ -399,6 +458,22 @@ const canDirectionalSubtract = computed(() => {
   return canBoolean.value && selectedObjects.value.length === 2
 })
 
+const activeEditablePathObject = computed(() => {
+  const obj = activeObject.value
+  return obj && isEditablePathObject(obj) ? obj : null
+})
+
+const hasEditablePoints = computed(() => {
+  const obj = activeEditablePathObject.value
+  return !!obj && getSelectableEditablePoints(obj).length > 0
+})
+
+const selectedPointIndex = computed(() => (
+  selectedPointIndices.value.length === 1 ? selectedPointIndices.value[0] : null
+))
+
+const hasSelectedPoint = computed(() => selectedPointIndices.value.length > 0)
+
 function isBooleanPreviewObject(obj: FabricObject | null | undefined): obj is AnyFabricObject {
   return !!obj && !!(obj as AnyFabricObject).booleanPreview
 }
@@ -417,6 +492,122 @@ function getBooleanPreviewStrokeWidth(style: FabricBooleanStyleSnapshot) {
   const width = Number(style.strokeWidth || 0)
   if (!Number.isFinite(width) || width <= 0) return 2
   return Math.max(2, Math.min(width, 4))
+}
+
+function getViewportPointForEditablePoint(obj: EditablePathObject, pointIndex: number) {
+  return editablePointToLocalObjectPoint(obj, pointIndex).transform(
+    util.multiplyTransformMatrices(obj.getViewportTransform(), obj.calcTransformMatrix())
+  )
+}
+
+function getLocalPointFromCanvas(obj: EditablePathObject, x: number, y: number) {
+  return new Point(x, y)
+    .transform(util.invertTransform(obj.calcOwnMatrix()))
+    .add(obj.pathOffset)
+}
+
+function restorePointControls() {
+  const owner = pointControlsOwner.value
+  if (!owner) return
+  const original = originalControlsMap.get(owner)
+  if (original) {
+    owner.controls = original
+    originalControlsMap.delete(owner)
+  }
+  pointControlsOwner.value = null
+}
+
+function isMultiSelectModifierPressed(
+  event?: Partial<Pick<MouseEvent, 'ctrlKey' | 'shiftKey' | 'metaKey'>> | null
+) {
+  return !!event && !!(event.ctrlKey || event.shiftKey || event.metaKey)
+}
+
+function normalizeSelectedPointIndices(obj: EditablePathObject, indices: number[]) {
+  const selectable = new Set(getSelectableEditablePoints(obj).map(({ index }) => index))
+  return Array.from(new Set(indices))
+    .filter((index) => selectable.has(index))
+    .sort((a, b) => a - b)
+}
+
+function clearSelectedPoint() {
+  selectedPointIndices.value = []
+}
+
+function clearPointEditing() {
+  clearSelectedPoint()
+  restorePointControls()
+}
+
+function setSelectedEditablePoints(obj: EditablePathObject, indices: number[]) {
+  selectedPointIndices.value = normalizeSelectedPointIndices(obj, indices)
+  syncObjProps()
+  obj.canvas?.requestRenderAll()
+}
+
+function selectEditablePoint(obj: EditablePathObject, pointIndex: number, multi = false) {
+  if (!multi) {
+    setSelectedEditablePoints(obj, [pointIndex])
+    return
+  }
+  const next = selectedPointIndices.value.includes(pointIndex)
+    ? selectedPointIndices.value.filter((index) => index !== pointIndex)
+    : [...selectedPointIndices.value, pointIndex]
+  setSelectedEditablePoints(obj, next)
+}
+
+function renderPointControl(ctx: CanvasRenderingContext2D, left: number, top: number) {
+  const key = (this as Control & { pointIndex?: number }).pointIndex
+  const selected = key != null && selectedPointIndices.value.includes(key)
+  ctx.save()
+  ctx.beginPath()
+  ctx.arc(left, top, selected ? 5 : 4, 0, Math.PI * 2)
+  ctx.fillStyle = selected ? '#1e6fff' : '#ffffff'
+  ctx.strokeStyle = '#1e6fff'
+  ctx.lineWidth = 2
+  ctx.fill()
+  ctx.stroke()
+  ctx.restore()
+}
+
+function attachPointControls(obj: FabricObject | null) {
+  restorePointControls()
+  if (!obj || !isEditablePathObject(obj) || getSelectableEditablePoints(obj).length === 0) return
+  const editable = obj
+  originalControlsMap.set(editable, editable.controls as FabricControls)
+  const controls: FabricControls = { ...(editable.controls as FabricControls) }
+  getSelectableEditablePoints(editable).forEach(({ index }) => {
+    controls[`ep${index}`] = new Control({
+      actionName: 'modifyEditablePath',
+      cursorStyle: 'crosshair',
+      sizeX: 10,
+      sizeY: 10,
+      touchSizeX: 18,
+      touchSizeY: 18,
+      pointIndex: index,
+      positionHandler: () => getViewportPointForEditablePoint(editable, index),
+      mouseDownHandler: (eventData) => {
+        selectEditablePoint(editable, index, isMultiSelectModifierPressed(eventData))
+        return false
+      },
+      actionHandler: (_eventData, _transform, x, y) => {
+        if (!selectedPointIndices.value.includes(index)) {
+          setSelectedEditablePoints(editable, [index])
+        }
+        moveEditablePoint(editable, index, getLocalPointFromCanvas(editable, x, y))
+        syncObjProps()
+        return true
+      },
+      mouseUpHandler: () => {
+        snapshot()
+        return false
+      },
+      render: renderPointControl
+    } as Partial<Control> & { pointIndex: number })
+  })
+  editable.controls = controls
+  pointControlsOwner.value = editable
+  editable.setCoords()
 }
 
 function applyBooleanPreviewStyle(preview: FabricObject, kind: 'kept' | 'removed', style: FabricBooleanStyleSnapshot) {
@@ -567,7 +758,7 @@ const filteredLayers = computed(() => {
 // ── 快照（撤销重做） ──
 function snapshot() {
   if (skipSnapshot || !fabricCanvas) return
-  undoStack.push(JSON.stringify((fabricCanvas as any).toObject(['name', 'strokeUniform', 'lastFill', 'lastStroke', 'lastStrokeWidth', 'shapeId', 'booleanEligible', 'fillRule'])))
+  undoStack.push(JSON.stringify((fabricCanvas as any).toObject(['name', 'strokeUniform', 'lastFill', 'lastStroke', 'lastStrokeWidth', 'shapeId', 'booleanEligible', 'fillRule', 'editablePath', 'cornerRadius', 'cornerRadiusOverrides', 'editablePathVersion'])))
   if (undoStack.length > 60) undoStack.shift()
   redoStack.length = 0
   canUndo.value = undoStack.length > 1
@@ -604,6 +795,7 @@ function syncCanvasBgFromFabric() {
 
 function undo() {
   if (undoStack.length <= 1 || !fabricCanvas) return
+  clearPointEditing()
   redoStack.push(undoStack.pop()!)
   canRedo.value = true
   skipSnapshot = true
@@ -620,6 +812,7 @@ function undo() {
 
 function redo() {
   if (!redoStack.length || !fabricCanvas) return
+  clearPointEditing()
   const json = redoStack.pop()!
   undoStack.push(json)
   skipSnapshot = true
@@ -638,6 +831,39 @@ function redo() {
 // ── 对象样式辅助 ──
 function getStyleTargets(obj: FabricObject) {
   return obj instanceof Group ? obj.getObjects() : [obj]
+}
+
+function getSelectedPointRadiusState(obj: EditablePathObject) {
+  const indices = normalizeSelectedPointIndices(obj, selectedPointIndices.value)
+  if (!indices.length) {
+    return { hasSelection: false, mixed: false, value: 0 }
+  }
+  const value = getPointRadius(obj, indices[0])
+  const mixed = indices.some((index) => Math.abs(getPointRadius(obj, index) - value) > 0.0001)
+  return { hasSelection: true, mixed, value }
+}
+
+function applyActiveObjectsSelection(objects: FabricObject[], event?: MouseEvent) {
+  if (!fabricCanvas) return
+  const uniqueObjects = Array.from(new Set(objects))
+    .filter((obj) => fabricCanvas!.getObjects().includes(obj))
+  if (!uniqueObjects.length) {
+    fabricCanvas.discardActiveObject(event)
+    syncActiveObject(null)
+    fabricCanvas.requestRenderAll()
+    return
+  }
+  if (uniqueObjects.length === 1) {
+    fabricCanvas.setActiveObject(uniqueObjects[0], event)
+    syncActiveObject(fabricCanvas.getActiveObject() ?? uniqueObjects[0])
+    fabricCanvas.requestRenderAll()
+    return
+  }
+  const orderedObjects = fabricCanvas.getObjects().filter((obj) => uniqueObjects.includes(obj))
+  const selection = new ActiveSelection(orderedObjects, { canvas: fabricCanvas })
+  fabricCanvas.setActiveObject(selection, event)
+  syncActiveObject(fabricCanvas.getActiveObject() ?? selection)
+  fabricCanvas.requestRenderAll()
 }
 
 function isFillEnabled(fill: unknown) {
@@ -709,6 +935,23 @@ function syncObjProps() {
       : '#333333'
   objProps.strokeWidth = first?.strokeWidth ?? (first as AnyFabricObject | undefined)?.lastStrokeWidth ?? 0
   objProps.strokeEnabled = isStrokeEnabled(first?.stroke, first?.strokeWidth)
+
+  if (isEditablePathObject(obj)) {
+    objProps.cornerRadius = obj.cornerRadius ?? 0
+    const pointRadiusState = getSelectedPointRadiusState(obj)
+    objProps.pointCornerRadius = pointRadiusState.value
+    objProps.cornerRadiusInput = String(Math.round(objProps.cornerRadius))
+    objProps.pointCornerRadiusInput = pointRadiusState.hasSelection
+      ? pointRadiusState.mixed
+        ? ''
+        : String(Math.round(pointRadiusState.value))
+      : '0'
+  } else {
+    objProps.cornerRadius = 0
+    objProps.pointCornerRadius = 0
+    objProps.cornerRadiusInput = '0'
+    objProps.pointCornerRadiusInput = '0'
+  }
 }
 
 // ── 属性设置 ──
@@ -751,6 +994,53 @@ function setObjProp(prop: string, value: any) {
   refreshLayers()
   snapshot()
   syncObjProps()
+}
+
+function setCornerRadius(value: number) {
+  const obj = activeEditablePathObject.value
+  if (!obj || !fabricCanvas) return
+  setObjectCornerRadius(obj, value)
+  fabricCanvas.requestRenderAll()
+  refreshLayers()
+  snapshot()
+  syncObjProps()
+}
+
+function setCornerRadiusFromInput(value: string | number) {
+  commitNumericInput(
+    value,
+    objProps.cornerRadius,
+    setCornerRadius,
+    (next) => { objProps.cornerRadiusInput = next }
+  )
+}
+
+function setSelectedPointCornerRadius(value: number) {
+  const obj = activeEditablePathObject.value
+  const pointIndices = normalizeSelectedPointIndices(obj!, selectedPointIndices.value)
+  if (!obj || !pointIndices.length || !fabricCanvas) return
+  if (pointIndices.length === 1) {
+    setPointCornerRadius(obj, pointIndices[0], value)
+  } else {
+    setPointsCornerRadius(obj, pointIndices, value)
+  }
+  fabricCanvas.requestRenderAll()
+  refreshLayers()
+  snapshot()
+  syncObjProps()
+}
+
+function setSelectedPointCornerRadiusFromInput(value: string | number) {
+  if (normalizeInputValue(value) === '' && selectedPointIndices.value.length > 1) {
+    syncObjProps()
+    return
+  }
+  commitNumericInput(
+    value,
+    objProps.pointCornerRadius,
+    setSelectedPointCornerRadius,
+    (next) => { objProps.pointCornerRadiusInput = next }
+  )
 }
 
 function toggleFill(enabled: boolean) {
@@ -889,8 +1179,10 @@ function setZoom(value: number) {
 }
 
 function syncActiveObject(obj: FabricObject | null) {
+  clearPointEditing()
   activeObject.value = obj
   booleanError.value = ''
+  attachPointControls(obj)
   refreshLayers()
   if (obj) {
     if (sizeRatioLocked.value) {
@@ -992,6 +1284,7 @@ function exportPNG() {
 function newDoc() {
   if (!fabricCanvas) return
   clearBooleanPreview()
+  clearPointEditing()
   skipSnapshot = true
   fabricCanvas.clear()
   skipSnapshot = false
@@ -1010,6 +1303,7 @@ function deleteObjects(objects?: FabricObject[]) {
   if (!targets.length) return
   const shouldClearSelection = !objects || targets.some((obj) => selectedObjects.includes(obj))
   if (shouldClearSelection) {
+    clearPointEditing()
     fabricCanvas.discardActiveObject()
     syncActiveObject(null)
   }
@@ -1083,6 +1377,7 @@ function ungroupObject() {
 async function runBooleanOperation(operation: BooleanOperation, subtractDirection: SubtractDirection = 'forward') {
   if (!fabricCanvas || booleanBusy.value) return
   clearBooleanPreview()
+  clearPointEditing()
   subtractPopoverVisible.value = false
   const objects = fabricCanvas.getActiveObjects()
   if (objects.length < 2) {
@@ -1119,11 +1414,20 @@ function isLayerActive(obj: FabricObject) {
   return fabricCanvas?.getActiveObjects().includes(obj) ?? false
 }
 
-function selectLayer(obj: FabricObject) {
+function selectLayer(obj: FabricObject, event?: MouseEvent) {
   if (!fabricCanvas) return
-  fabricCanvas.setActiveObject(obj)
-  syncActiveObject(obj)
-  fabricCanvas.requestRenderAll()
+  clearPointEditing()
+  if (!isMultiSelectModifierPressed(event)) {
+    fabricCanvas.setActiveObject(obj, event)
+    syncActiveObject(fabricCanvas.getActiveObject() ?? obj)
+    fabricCanvas.requestRenderAll()
+    return
+  }
+  const selectedObjects = fabricCanvas.getActiveObjects()
+  const nextSelection = selectedObjects.includes(obj)
+    ? selectedObjects.filter((item) => item !== obj)
+    : [...selectedObjects, obj]
+  applyActiveObjectsSelection(nextSelection, event)
 }
 
 function layerUp() {
@@ -1257,7 +1561,8 @@ onMounted(() => {
     height: canvasHeight.value,
     backgroundColor: isTransparentCanvasBg(canvasBg.value) ? '' : canvasBg.value,
     preserveObjectStacking: true,
-    selection: true
+    selection: true,
+    selectionKey: ['shiftKey', 'ctrlKey']
   })
 
   setupCanvasEvents()
@@ -1277,6 +1582,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', fitCanvasInView)
   window.removeEventListener('keydown', handleKeydown)
   clearBooleanPreview()
+  clearPointEditing()
   fabricCanvas?.dispose()
 })
 </script>

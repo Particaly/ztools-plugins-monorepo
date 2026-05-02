@@ -1,5 +1,14 @@
 import { Path } from 'fabric'
+import type { TSimplePathData } from 'fabric'
 import type { FabricBooleanStyleSnapshot } from './fabricToPathKit'
+import {
+  createEditablePathObject,
+  editablePathFromPathData,
+  collapseRoundedCorners,
+  rebuildEditablePathObject,
+  type EditablePathModel,
+  type EditablePathObject
+} from './editablePath'
 import type { PathKitBounds, PathKitPath } from './pathkit'
 
 export type PathKitToFabricOptions = {
@@ -7,9 +16,15 @@ export type PathKitToFabricOptions = {
   shapeId?: string
   style: FabricBooleanStyleSnapshot
   preview?: boolean
+  sourceCornerRadius?: number | null
 }
 
 type AnyFabricPath = Path & Record<string, any>
+
+type EditableCornerRadiusState = {
+  cornerRadius: number
+  overrides: Array<number | null>
+}
 
 function getPathBounds(path: PathKitPath): PathKitBounds | null {
   const bounds = path.computeTightBounds?.() || path.getBounds()
@@ -23,6 +38,84 @@ function translatePath(path: PathKitPath, tx: number, ty: number) {
   return path
 }
 
+function normalizePositiveRadius(value: number | null | undefined) {
+  return Number.isFinite(value) && value! > 0 ? value! : null
+}
+
+function radiusTolerance(radius: number) {
+  return Math.max(0.75, radius * 0.15)
+}
+
+function getCollapsedCornerRadii(
+  model: EditablePathModel,
+  overridesByContour: Map<number, Map<number, number>>
+) {
+  const radii: Array<number | null> = []
+  model.contours.forEach((contour, contourIndex) => {
+    const contourOverrides = overridesByContour.get(contourIndex)
+    contour.points.forEach((_point, pointIndex) => {
+      radii.push(normalizePositiveRadius(contourOverrides?.get(pointIndex)))
+    })
+  })
+  return radii
+}
+
+function resolveEditableCornerRadiusState(
+  radii: Array<number | null>,
+  hintedRadius: number | null | undefined
+): EditableCornerRadiusState {
+  const positiveRadii = radii.filter((value): value is number => value != null && value > 0)
+  if (!positiveRadii.length) {
+    return {
+      cornerRadius: 0,
+      overrides: radii.map(() => null)
+    }
+  }
+
+  const hint = normalizePositiveRadius(hintedRadius)
+  let cornerRadius = 0
+
+  if (hint && positiveRadii.every((value) => Math.abs(value - hint) <= radiusTolerance(Math.max(value, hint)))) {
+    cornerRadius = hint
+  } else {
+    const baseline = positiveRadii[0]
+    if (positiveRadii.every((value) => Math.abs(value - baseline) <= radiusTolerance(Math.max(value, baseline)))) {
+      cornerRadius = positiveRadii.reduce((sum, value) => sum + value, 0) / positiveRadii.length
+    }
+  }
+
+  return {
+    cornerRadius,
+    overrides: radii.map((value) => {
+      if (value == null || value <= 0) return cornerRadius > 0 ? 0 : null
+      if (cornerRadius > 0 && Math.abs(value - cornerRadius) <= radiusTolerance(Math.max(value, cornerRadius))) {
+        return null
+      }
+      return value
+    })
+  }
+}
+
+function createEditableBooleanResult(
+  svgPath: string,
+  sourceCornerRadius: number | null | undefined
+): EditablePathObject | null {
+  const parsed = editablePathFromPathData(new Path(svgPath).path as TSimplePathData)
+  if (!parsed) return null
+
+  const collapsed = collapseRoundedCorners(parsed, sourceCornerRadius ?? 0)
+  const result = createEditablePathObject(collapsed.model, 0)
+  const radiusState = resolveEditableCornerRadiusState(
+    getCollapsedCornerRadii(collapsed.model, collapsed.overridesByContour),
+    sourceCornerRadius
+  )
+
+  result.cornerRadius = radiusState.cornerRadius
+  result.cornerRadiusOverrides = radiusState.overrides
+  rebuildEditablePathObject(result)
+  return result
+}
+
 export function pathKitToFabricPath(path: PathKitPath, options: PathKitToFabricOptions) {
   const bounds = getPathBounds(path)
   if (!bounds) return null
@@ -34,7 +127,7 @@ export function pathKitToFabricPath(path: PathKitPath, options: PathKitToFabricO
     if (!svgPath.trim()) return null
 
     const fillRule = path.getFillTypeString?.() || options.style.fillRule || 'nonzero'
-    const result = new Path(svgPath, {
+    const pathOptions = {
       left: bounds.fLeft,
       top: bounds.fTop,
       originX: 'left',
@@ -45,7 +138,14 @@ export function pathKitToFabricPath(path: PathKitPath, options: PathKitToFabricO
       strokeUniform: options.style.strokeUniform,
       fillRule,
       opacity: options.style.opacity ?? 1
-    })
+    } as const
+
+    const result = !options.preview
+      ? createEditableBooleanResult(svgPath, options.sourceCornerRadius)
+      : new Path(svgPath)
+    if (!result) return null
+
+    result.set(pathOptions)
 
     const custom = result as AnyFabricPath
     custom.name = options.preview ? '布尔预览' : (options.name || '')

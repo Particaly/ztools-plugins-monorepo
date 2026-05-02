@@ -28,6 +28,7 @@ export type ComputedBooleanResult = {
   style: FabricBooleanStyleSnapshot
   path: PathKitPath
   removedPath?: PathKitPath | null
+  sourceCornerRadius?: number | null
 }
 
 type ConvertedBooleanObject = FabricToPathKitResult & {
@@ -147,13 +148,26 @@ export async function computeBooleanResult(options: ComputeOptions): Promise<{ r
     const previewRemovedPath = removedPreviewPath
     accumulator = null
     removedPreviewPath = null
+
+    // 提取源对象的 cornerRadius
+    const AnyFabricObject = FabricObject as { new(...args: any[]): FabricObject & Record<string, any> }
+    let sourceCornerRadius: number | null = null
+    for (const obj of ordered) {
+      const typedObj = obj as AnyFabricObject
+      if (typeof typedObj.cornerRadius === 'number' && typedObj.cornerRadius > 0) {
+        sourceCornerRadius = typedObj.cornerRadius
+        break
+      }
+    }
+
     return {
       result: {
         orderedObjects: ordered,
         baseObject: base,
         style: donor.style,
         path,
-        removedPath: previewRemovedPath
+        removedPath: previewRemovedPath,
+        sourceCornerRadius
       }
     }
   } catch (error: any) {
@@ -180,7 +194,8 @@ export async function applyBooleanOperation(options: ApplyOptions): Promise<{ re
     const result = pathKitToFabricPath(computed.path, {
       name: makeName(labelForOperation(operation)),
       shapeId: 'boolean-result',
-      style: computed.style
+      style: computed.style,
+      sourceCornerRadius: computed.sourceCornerRadius
     })
     if (!result) return { error: '运算结果为空' }
 
