@@ -64,7 +64,7 @@
 
       <!-- 中间画布区 -->
       <main class="canvas-area" ref="canvasAreaRef">
-        <div class="canvas-wrapper" :class="{ 'transparent-bg': isCanvasBgTransparent }" ref="canvasWrapperRef">
+        <div class="canvas-wrapper" :class="{ 'transparent-bg': isCanvasBgTransparent }">
           <canvas ref="canvasElRef"></canvas>
         </div>
       </main>
@@ -137,6 +137,43 @@
             <div v-if="objProps.strokeEnabled" class="prop-group style-color-row">
               <label>描边宽</label>
               <ZInput size="small" type="text" :model-value="objProps.strokeWidth" @change="setObjProp('strokeWidth', uiNum($event))" />
+            </div>
+            <div v-if="objProps.strokeEnabled" class="prop-group">
+              <label>线型</label>
+              <div class="stroke-line-type-picker">
+                <button
+                  class="stroke-line-swatch solid"
+                  :class="{ active: objProps.strokeLineType === 'solid' }"
+                  title="实线"
+                  @click="setStrokeLineType('solid')"
+                />
+                <button
+                  class="stroke-line-swatch dashed"
+                  :class="{ active: objProps.strokeLineType === 'dashed' }"
+                  title="虚线"
+                  @click="setStrokeLineType('dashed')"
+                />
+              </div>
+            </div>
+            <div v-if="objProps.strokeEnabled && objProps.strokeLineType === 'dashed'" class="prop-group style-color-row">
+              <label>虚线线长</label>
+              <ZInput
+                size="small"
+                type="text"
+                :model-value="objProps.strokeDashLengthInput"
+                @update:model-value="objProps.strokeDashLengthInput = String($event)"
+                @change="setStrokeDashLengthFromInput"
+              />
+            </div>
+            <div v-if="objProps.strokeEnabled && objProps.strokeLineType === 'dashed'" class="prop-group style-color-row">
+              <label>虚线间隔</label>
+              <ZInput
+                size="small"
+                type="text"
+                :model-value="objProps.strokeDashGapInput"
+                @update:model-value="objProps.strokeDashGapInput = String($event)"
+                @change="setStrokeDashGapFromInput"
+              />
             </div>
           </div>
           <div class="prop-section">
@@ -291,6 +328,7 @@ import { ref, shallowRef, triggerRef, reactive, computed, onMounted, onBeforeUnm
 import { ZInput, ZSelect, ZColorPicker, ZSwitch, ZSlider, ZPopover, ZButton } from 'ztools-ui'
 import { Icon } from '@iconify/vue'
 import { Canvas, Control, FabricObject, Textbox, Group, ActiveSelection, FabricImage, Point, util } from 'fabric'
+import { AligningGuidelines } from '../../fabric-aligning-guidelines'
 import { basicShapes, textPresets, canvasPresets } from './editorCatalog'
 import type { ShapeLibraryItem, TextLibraryItem } from './editorCatalog'
 import { createShape } from './fabric/shapeFactories'
@@ -317,15 +355,16 @@ type BooleanPreviewHiddenObject = {
   object: FabricObject
   visible: boolean
 }
+type StrokeLineType = 'solid' | 'dashed'
 
 // ── refs ──
 const canvasElRef = ref<HTMLCanvasElement | null>(null)
 const canvasAreaRef = ref<HTMLElement | null>(null)
-const canvasWrapperRef = ref<HTMLElement | null>(null)
 const imgInputRef = ref<HTMLInputElement | null>(null)
 
 // ── 状态 ──
 let fabricCanvas: Canvas | null = null
+let aligningGuidelines: AligningGuidelines | null = null
 
 const leftTab = ref<'shape' | 'text'>('shape')
 const showRuler = ref(false)
@@ -374,7 +413,7 @@ const objProps = reactive({
   left: 0, top: 0, width: 0, height: 0,
   scaleX: 1, scaleY: 1, angle: 0,
   fill: '#000000', fillEnabled: true,
-  stroke: '#000000', strokeEnabled: true, strokeWidth: 0, opacity: 1,
+  stroke: '#000000', strokeEnabled: true, strokeWidth: 0, strokeLineType: 'solid' as StrokeLineType, strokeDashLength: 6, strokeDashGap: 4, strokeDashLengthInput: '6', strokeDashGapInput: '4', opacity: 1,
   cornerRadius: 0,
   pointCornerRadius: 0,
   cornerRadiusInput: '0',
@@ -432,6 +471,31 @@ function evNum(e: Event): number {
 }
 function evChecked(e: Event): boolean {
   return (e.target as HTMLInputElement).checked
+}
+
+function getDefaultStrokeDashArray(strokeWidth: unknown = 2): [number, number] {
+  const width = Number(strokeWidth)
+  const safeWidth = Number.isFinite(width) && width > 0 ? width : 2
+  return [Math.max(1, safeWidth * 3), Math.max(1, safeWidth * 2)]
+}
+
+function normalizeStrokeDashArray(
+  value: unknown,
+  fallback: [number, number] | null = null
+): [number, number] | null {
+  if (!Array.isArray(value)) return fallback
+  const numeric = value
+    .map((item) => Number(item))
+    .filter((item) => Number.isFinite(item) && item > 0)
+  if (!numeric.length) return fallback
+  return [numeric[0], numeric[1] ?? numeric[0]]
+}
+
+function getStrokeDashPair(target?: FabricObject | null) {
+  if (!target) return getDefaultStrokeDashArray(objProps.strokeWidth)
+  return normalizeStrokeDashArray(target.strokeDashArray)
+    ?? normalizeStrokeDashArray((target as AnyFabricObject).lastStrokeDashArray)
+    ?? getDefaultStrokeDashArray(target.strokeWidth ?? objProps.strokeWidth)
 }
 
 // ── 计算属性 ──
@@ -758,7 +822,7 @@ const filteredLayers = computed(() => {
 // ── 快照（撤销重做） ──
 function snapshot() {
   if (skipSnapshot || !fabricCanvas) return
-  undoStack.push(JSON.stringify((fabricCanvas as any).toObject(['name', 'strokeUniform', 'lastFill', 'lastStroke', 'lastStrokeWidth', 'shapeId', 'booleanEligible', 'fillRule', 'editablePath', 'cornerRadius', 'cornerRadiusOverrides', 'editablePathVersion'])))
+  undoStack.push(JSON.stringify((fabricCanvas as any).toObject(['name', 'strokeUniform', 'lastFill', 'lastStroke', 'lastStrokeWidth', 'lastStrokeDashArray', 'shapeId', 'booleanEligible', 'fillRule', 'editablePath', 'cornerRadius', 'cornerRadiusOverrides', 'editablePathVersion'])))
   if (undoStack.length > 60) undoStack.shift()
   redoStack.length = 0
   canUndo.value = undoStack.length > 1
@@ -889,6 +953,51 @@ function getObjectAspectRatio(obj: FabricObject) {
   return width / height
 }
 
+function collectAligningObjectsFromGroup(group: Group, objects: Set<FabricObject>, excludedObjects: Set<FabricObject>) {
+  group.getObjects().forEach((child) => {
+    if (excludedObjects.has(child) || child.visible === false || isBooleanPreviewObject(child)) return
+    if (child instanceof Group) {
+      collectAligningObjectsFromGroup(child, objects, excludedObjects)
+      return
+    }
+    objects.add(child)
+  })
+}
+
+function getAligningObjectsByTarget(target: FabricObject) {
+  const objects = new Set<FabricObject>()
+  const canvas = target.canvas
+  if (!canvas) return objects
+
+  const excludedObjects = new Set<FabricObject>(canvas.getActiveObjects())
+  excludedObjects.add(target)
+  if (target instanceof ActiveSelection) {
+    target.getObjects().forEach((obj) => excludedObjects.add(obj))
+  }
+
+  canvas.forEachObject((obj) => {
+    if (obj.visible === false || !obj.isOnScreen() || excludedObjects.has(obj) || isBooleanPreviewObject(obj)) return
+    if (obj instanceof Group) {
+      collectAligningObjectsFromGroup(obj, objects, excludedObjects)
+      return
+    }
+    objects.add(obj)
+  })
+
+  return objects
+}
+
+function initAligningGuidelines() {
+  if (!fabricCanvas) return
+  aligningGuidelines?.dispose()
+  aligningGuidelines = new AligningGuidelines(fabricCanvas, {
+    margin: 4,
+    width: 1,
+    color: 'rgba(30, 111, 255, 0.85)',
+    getObjectsByTarget: getAligningObjectsByTarget
+  })
+}
+
 function scaleObjectToDisplaySize(obj: FabricObject, width: number, height: number) {
   const currentWidth = obj.getScaledWidth()
   const currentHeight = obj.getScaledHeight()
@@ -935,6 +1044,13 @@ function syncObjProps() {
       : '#333333'
   objProps.strokeWidth = first?.strokeWidth ?? (first as AnyFabricObject | undefined)?.lastStrokeWidth ?? 0
   objProps.strokeEnabled = isStrokeEnabled(first?.stroke, first?.strokeWidth)
+  const currentStrokeDashArray = normalizeStrokeDashArray(first?.strokeDashArray)
+  const rememberedStrokeDashArray = getStrokeDashPair(first)
+  objProps.strokeLineType = currentStrokeDashArray ? 'dashed' : 'solid'
+  objProps.strokeDashLength = rememberedStrokeDashArray[0]
+  objProps.strokeDashGap = rememberedStrokeDashArray[1]
+  objProps.strokeDashLengthInput = String(rememberedStrokeDashArray[0])
+  objProps.strokeDashGapInput = String(rememberedStrokeDashArray[1])
 
   if (isEditablePathObject(obj)) {
     objProps.cornerRadius = obj.cornerRadius ?? 0
@@ -976,8 +1092,11 @@ function setObjProp(prop: string, value: any) {
     objProps.strokeEnabled = true
   } else if (prop === 'strokeWidth') {
     getStyleTargets(obj).forEach((target) => {
-      ;(target as AnyFabricObject).lastStrokeWidth = value
+      const typedTarget = target as AnyFabricObject
+      typedTarget.lastStrokeWidth = value
       target.set('strokeWidth', value)
+      typedTarget.lastStrokeDashArray = normalizeStrokeDashArray(typedTarget.lastStrokeDashArray)
+        ?? getDefaultStrokeDashArray(value)
       target.dirty = true
       target.setCoords()
     })
@@ -1043,6 +1162,82 @@ function setSelectedPointCornerRadiusFromInput(value: string | number) {
   )
 }
 
+function setStrokeLineType(value: string) {
+  const obj = activeObject.value
+  if (!obj || !fabricCanvas) return
+  const nextType: StrokeLineType = value === 'dashed' ? 'dashed' : 'solid'
+  getStyleTargets(obj).forEach((target) => {
+    const typedTarget = target as AnyFabricObject
+    if (nextType === 'solid') {
+      const activeDash = normalizeStrokeDashArray(target.strokeDashArray)
+      if (activeDash) typedTarget.lastStrokeDashArray = activeDash
+      target.set('strokeDashArray', null)
+    } else {
+      const nextDash = normalizeStrokeDashArray(typedTarget.lastStrokeDashArray)
+        ?? getDefaultStrokeDashArray(target.strokeWidth ?? objProps.strokeWidth)
+      typedTarget.lastStrokeDashArray = nextDash
+      target.set('strokeDashArray', nextDash)
+    }
+    target.dirty = true
+    target.setCoords()
+  })
+  if (obj instanceof Group) obj.triggerLayout()
+  obj.dirty = true
+  obj.setCoords()
+  fabricCanvas.requestRenderAll()
+  refreshLayers()
+  snapshot()
+  syncObjProps()
+}
+
+function setStrokeDashValue(index: 0 | 1, value: number) {
+  const obj = activeObject.value
+  if (!obj || !fabricCanvas) return
+  const nextValue = Number.isFinite(value) && value > 0 ? value : (index === 0 ? objProps.strokeDashLength : objProps.strokeDashGap)
+  getStyleTargets(obj).forEach((target) => {
+    const typedTarget = target as AnyFabricObject
+    const nextDash = [...getStrokeDashPair(target)] as [number, number]
+    nextDash[index] = nextValue
+    typedTarget.lastStrokeDashArray = nextDash
+    if (normalizeStrokeDashArray(target.strokeDashArray)) {
+      target.set('strokeDashArray', nextDash)
+    }
+    target.dirty = true
+    target.setCoords()
+  })
+  if (obj instanceof Group) obj.triggerLayout()
+  obj.dirty = true
+  obj.setCoords()
+  fabricCanvas.requestRenderAll()
+  refreshLayers()
+  snapshot()
+  syncObjProps()
+}
+
+function setStrokeDashLengthFromInput(value: string | number) {
+  commitNumericInput(
+    value,
+    objProps.strokeDashLength,
+    (next) => { setStrokeDashValue(0, Math.max(1, next)) },
+    (next) => {
+      const normalized = String(Math.max(1, Number(next) || objProps.strokeDashLength))
+      objProps.strokeDashLengthInput = normalized
+    }
+  )
+}
+
+function setStrokeDashGapFromInput(value: string | number) {
+  commitNumericInput(
+    value,
+    objProps.strokeDashGap,
+    (next) => { setStrokeDashValue(1, Math.max(1, next)) },
+    (next) => {
+      const normalized = String(Math.max(1, Number(next) || objProps.strokeDashGap))
+      objProps.strokeDashGapInput = normalized
+    }
+  )
+}
+
 function toggleFill(enabled: boolean) {
   const obj = activeObject.value
   if (!obj || !fabricCanvas) return
@@ -1076,6 +1271,8 @@ function toggleStroke(enabled: boolean) {
         stroke: t.lastStroke || objProps.stroke || '#333333',
         strokeWidth: (t.lastStrokeWidth ?? objProps.strokeWidth) || 2
       })
+      t.lastStrokeDashArray = normalizeStrokeDashArray(t.lastStrokeDashArray)
+        ?? getDefaultStrokeDashArray(t.lastStrokeWidth ?? objProps.strokeWidth)
     } else {
       if (isStrokeEnabled(target.stroke, target.strokeWidth)) {
         t.lastStroke = target.stroke
@@ -1154,28 +1351,27 @@ function applyCanvasPreset(val: string) {
 }
 
 // ── 缩放 ──
+function applyCanvasZoom(value: number) {
+  if (!fabricCanvas) return
+  zoom.value = Math.round(Math.max(0.1, Math.min(5, value)) * 100) / 100
+  fabricCanvas.setZoom(zoom.value)
+  fabricCanvas.setDimensions({
+    width: canvasWidth.value * zoom.value,
+    height: canvasHeight.value * zoom.value
+  })
+  fabricCanvas.requestRenderAll()
+}
+
 function fitCanvasInView() {
   if (!fabricCanvas || !canvasAreaRef.value) return
   const area = canvasAreaRef.value
   const scaleX = (area.clientWidth - 40) / canvasWidth.value
   const scaleY = (area.clientHeight - 40) / canvasHeight.value
-  const z = Math.min(scaleX, scaleY, 1)
-  zoom.value = Math.round(z * 100) / 100
-  fabricCanvas.setZoom(zoom.value)
-  fabricCanvas.setDimensions(
-    { width: canvasWidth.value * zoom.value, height: canvasHeight.value * zoom.value },
-    { cssOnly: true }
-  )
+  applyCanvasZoom(Math.min(scaleX, scaleY, 1))
 }
 
 function setZoom(value: number) {
-  if (!fabricCanvas) return
-  zoom.value = Math.round(Math.max(0.1, Math.min(5, value)) * 100) / 100
-  fabricCanvas.setZoom(zoom.value)
-  fabricCanvas.setDimensions(
-    { width: canvasWidth.value * zoom.value, height: canvasHeight.value * zoom.value },
-    { cssOnly: true }
-  )
+  applyCanvasZoom(value)
 }
 
 function syncActiveObject(obj: FabricObject | null) {
@@ -1565,6 +1761,7 @@ onMounted(() => {
     selectionKey: ['shiftKey', 'ctrlKey']
   })
 
+  initAligningGuidelines()
   setupCanvasEvents()
 
   // 延迟 fit，确保 DOM 已完成布局
@@ -1583,6 +1780,8 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleKeydown)
   clearBooleanPreview()
   clearPointEditing()
+  aligningGuidelines?.dispose()
+  aligningGuidelines = null
   fabricCanvas?.dispose()
 })
 </script>
@@ -1760,6 +1959,7 @@ $panel-bg: #fff;
   background: #e0e0e0;
 }
 .canvas-wrapper {
+  position: relative;
   box-shadow: 0 2px 12px rgba(0,0,0,0.15);
   background: #fff;
   &.transparent-bg {
@@ -1775,7 +1975,8 @@ $panel-bg: #fff;
   }
 }
 
-.canvas-bg-picker {
+.canvas-bg-picker,
+.stroke-line-type-picker {
   display: flex;
   flex: 1;
   align-items: center;
@@ -1787,7 +1988,8 @@ $panel-bg: #fff;
   }
 }
 
-.transparent-swatch {
+.transparent-swatch,
+.stroke-line-swatch {
   position: relative;
   flex: 0 0 28px;
   width: 28px;
@@ -1812,6 +2014,31 @@ $panel-bg: #fff;
       linear-gradient(45deg, rgba(0, 0, 0, 0.07) 25%, transparent 25%, transparent 75%, rgba(0, 0, 0, 0.07) 75%, rgba(0, 0, 0, 0.07));
     background-position: 0 0, 6px 6px;
     background-size: 12px 12px;
+  }
+}
+
+.stroke-line-swatch {
+  flex: 0 0 28px;
+  border: 1px solid rgba(128, 128, 128, 0.18);
+  border-radius: 6px;
+  background: #fafafa;
+
+  &::before {
+    content: '';
+    display: block;
+    width: 16px;
+    height: 0;
+    border-top: 2px solid #333;
+    margin: 0 auto;
+  }
+
+  &.dashed::before {
+    border-top-style: dashed;
+  }
+
+  &.active {
+    border-color: #1e6fff;
+    box-shadow: 0 0 0 2px rgba(30, 111, 255, 0.15);
   }
 }
 
@@ -1906,6 +2133,9 @@ $panel-bg: #fff;
     display: grid;
     grid-template-columns: 48px 1fr;
     column-gap: 8px;
+  }
+  .stroke-line-type-picker {
+    justify-self: end;
   }
   &.style-toggle-row {
     :deep(.zt-switch) {

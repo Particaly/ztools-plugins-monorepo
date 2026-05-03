@@ -8,12 +8,17 @@ type PointLike = { x: number; y: number }
 const DEFAULT_STROKE = '#333333'
 const DEFAULT_FILL = 'transparent'
 const DEFAULT_LAST_FILL = '#000000'
+const DEFAULT_STROKE_WIDTH = 2
+
+function getDefaultStrokeDashArray(strokeWidth: number): [number, number] {
+  return [Math.max(1, strokeWidth * 3), Math.max(1, strokeWidth * 2)]
+}
 
 function withDefaultStyles<T extends FabricObject>(obj: T, item: ShapeLibraryItem): T {
   const target = obj as AnyFabricObject
   obj.set({
     stroke: DEFAULT_STROKE,
-    strokeWidth: 2,
+    strokeWidth: DEFAULT_STROKE_WIDTH,
     strokeUniform: true,
     fill: DEFAULT_FILL,
     strokeLineCap: 'round' as CanvasLineCap,
@@ -22,6 +27,7 @@ function withDefaultStyles<T extends FabricObject>(obj: T, item: ShapeLibraryIte
     name: item.label
   })
   target.lastFill = DEFAULT_LAST_FILL
+  target.lastStrokeDashArray = getDefaultStrokeDashArray(DEFAULT_STROKE_WIDTH)
   target.shapeId = item.id
   target.booleanEligible = true
   obj.setCoords()

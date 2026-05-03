@@ -18,12 +18,14 @@ export type FabricBooleanStyleSnapshot = {
   fill: AnyFabricObject['fill']
   stroke: AnyFabricObject['stroke']
   strokeWidth: number
+  strokeDashArray?: number[] | null
   opacity: number
   strokeUniform: boolean
   fillRule: CanvasFillRule
   lastFill?: string
   lastStroke?: string
   lastStrokeWidth?: number
+  lastStrokeDashArray?: number[] | null
 }
 
 export type FabricToPathKitResult = {
@@ -232,6 +234,15 @@ function getLastStrokeWidth(obj: AnyFabricObject) {
   return Number.isFinite(lastStrokeWidth) ? lastStrokeWidth : undefined
 }
 
+function normalizeStrokeDashArray(value: unknown): number[] | null {
+  if (!Array.isArray(value)) return null
+  const numeric = value
+    .map((item) => Number(item))
+    .filter((item) => Number.isFinite(item) && item > 0)
+  if (!numeric.length) return null
+  return [numeric[0], numeric[1] ?? numeric[0]]
+}
+
 function getStyleSnapshot(obj: FabricObject): FabricBooleanStyleSnapshot {
   const target = obj as AnyFabricObject
   const hasVisibleFill = typeof obj.fill === 'string' && isVisiblePaint(obj.fill)
@@ -240,6 +251,7 @@ function getStyleSnapshot(obj: FabricObject): FabricBooleanStyleSnapshot {
     fill: obj.fill,
     stroke: obj.stroke,
     strokeWidth: Number(obj.strokeWidth || 0),
+    strokeDashArray: normalizeStrokeDashArray(obj.strokeDashArray),
     opacity: obj.opacity ?? 1,
     strokeUniform: obj.strokeUniform ?? false,
     fillRule: getCanvasFillRule(obj),
@@ -253,7 +265,8 @@ function getStyleSnapshot(obj: FabricObject): FabricBooleanStyleSnapshot {
       : hasVisibleStroke
         ? obj.stroke as string
         : undefined,
-    lastStrokeWidth: getLastStrokeWidth(target) ?? (hasVisibleStroke ? Number(obj.strokeWidth || 0) : undefined)
+    lastStrokeWidth: getLastStrokeWidth(target) ?? (hasVisibleStroke ? Number(obj.strokeWidth || 0) : undefined),
+    lastStrokeDashArray: normalizeStrokeDashArray(target.lastStrokeDashArray)
   }
 }
 
@@ -277,6 +290,10 @@ function createObjectPath(pathKit: PathKitApi, obj: FabricObject): FabricToPathK
 
   const created: PathKitPath[] = [localPath]
   const style = getStyleSnapshot(obj)
+  if (!closed && style.strokeDashArray?.length) {
+    localPath.delete()
+    return { error: '虚线描边暂不支持布尔运算，请先改为实线' }
+  }
   try {
     if (closed) {
       const contourPath = localPath.copy()

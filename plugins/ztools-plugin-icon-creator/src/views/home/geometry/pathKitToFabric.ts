@@ -135,6 +135,7 @@ export function pathKitToFabricPath(path: PathKitPath, options: PathKitToFabricO
       fill: (options.style.fill ?? 'transparent') as any,
       stroke: (options.style.stroke ?? 'transparent') as any,
       strokeWidth: Number.isFinite(options.style.strokeWidth) ? options.style.strokeWidth : 0,
+      strokeDashArray: options.style.strokeDashArray ? [...options.style.strokeDashArray] : null,
       strokeUniform: options.style.strokeUniform,
       fillRule,
       opacity: options.style.opacity ?? 1
@@ -152,6 +153,7 @@ export function pathKitToFabricPath(path: PathKitPath, options: PathKitToFabricO
     custom.lastFill = options.style.lastFill
     custom.lastStroke = options.style.lastStroke
     custom.lastStrokeWidth = options.style.lastStrokeWidth
+    custom.lastStrokeDashArray = options.style.lastStrokeDashArray ? [...options.style.lastStrokeDashArray] : undefined
     custom.shapeId = options.preview ? 'boolean-preview' : (options.shapeId || 'boolean-result')
     custom.booleanEligible = !options.preview
     custom.booleanPreview = !!options.preview
