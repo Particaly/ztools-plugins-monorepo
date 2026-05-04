@@ -15,6 +15,16 @@
         <button class="tb-btn" :disabled="!canRedo" @click="redo" title="重做">重做</button>
         <span class="tb-sep"></span>
         <button class="tb-btn" :class="{ active: showRuler }" @click="showRuler = !showRuler" title="标尺">标尺</button>
+        <span class="tb-sep"></span>
+        <button class="tb-btn sm" :class="{ active: selectionMode === 'shape' }" title="选择图形" @click="setSelectionMode('shape')">
+          <Icon icon="mdi:cursor-default-outline" />
+        </button>
+        <button class="tb-btn sm" :class="{ active: selectionMode === 'point' }" :disabled="!hasEditablePoints" title="选择点位" @click="setSelectionMode('point')">
+          <Icon icon="mdi:circle-outline" />
+        </button>
+        <button class="tb-btn sm" :class="{ active: selectionMode === 'segment' }" :disabled="!hasEditablePoints" title="选择线段" @click="setSelectionMode('segment')">
+          <Icon icon="mdi:minus" />
+        </button>
       </div>
       <div class="top-bar-right">
         <span class="zoom-label">{{ Math.round(zoom * 100) }}%</span>
@@ -212,6 +222,46 @@
               />
             </div>
           </div>
+          <div v-if="hasSelectedCurveSegment" class="prop-section">
+            <div class="prop-group style-toggle-row">
+              <label>曲线</label>
+              <ZSwitch size="small" :model-value="objProps.curveEnabled" @change="setSelectedSegmentCurveEnabled" />
+            </div>
+            <div class="prop-group bezier-group-row">
+              <label>CP1</label>
+              <ZInput
+                size="small"
+                type="text"
+                :model-value="objProps.curveCp1XInput"
+                @update:model-value="objProps.curveCp1XInput = String($event)"
+                @change="setSelectedSegmentControlPointCoordFromInput('cp1', 'x', $event)"
+              />
+              <ZInput
+                size="small"
+                type="text"
+                :model-value="objProps.curveCp1YInput"
+                @update:model-value="objProps.curveCp1YInput = String($event)"
+                @change="setSelectedSegmentControlPointCoordFromInput('cp1', 'y', $event)"
+              />
+            </div>
+            <div class="prop-group bezier-group-row">
+              <label>CP2</label>
+              <ZInput
+                size="small"
+                type="text"
+                :model-value="objProps.curveCp2XInput"
+                @update:model-value="objProps.curveCp2XInput = String($event)"
+                @change="setSelectedSegmentControlPointCoordFromInput('cp2', 'x', $event)"
+              />
+              <ZInput
+                size="small"
+                type="text"
+                :model-value="objProps.curveCp2YInput"
+                @update:model-value="objProps.curveCp2YInput = String($event)"
+                @change="setSelectedSegmentControlPointCoordFromInput('cp2', 'y', $event)"
+              />
+            </div>
+          </div>
           <div class="prop-actions boolean-actions">
             <button class="tb-btn" @mouseenter="showBooleanPreview('union')" @mouseleave="clearBooleanPreview" @click="runBooleanOperation('union')" :disabled="!canBoolean">并集</button>
             <button class="tb-btn" @mouseenter="showBooleanPreview('intersect')" @mouseleave="clearBooleanPreview" @click="runBooleanOperation('intersect')" :disabled="!canBoolean">交集</button>
@@ -265,8 +315,20 @@
           </div>
           <div class="prop-group">
             <label>宽高</label>
-            <ZInput size="small" type="text" :model-value="canvasWidth" @change="setCanvasSize('width', uiNum($event))" />
-            <ZInput size="small" type="text" :model-value="canvasHeight" @change="setCanvasSize('height', uiNum($event))" />
+            <ZInput
+              size="small"
+              type="text"
+              :model-value="canvasWidthInput"
+              @update:model-value="canvasWidthInput = String($event)"
+              @change="setCanvasSizeFromInput('width', $event)"
+            />
+            <ZInput
+              size="small"
+              type="text"
+              :model-value="canvasHeightInput"
+              @update:model-value="canvasHeightInput = String($event)"
+              @change="setCanvasSizeFromInput('height', $event)"
+            />
           </div>
           <div class="prop-group">
             <label>背景</label>
@@ -338,14 +400,24 @@ import type { BooleanOperation, SubtractDirection } from './geometry/booleanOps'
 import { pathKitToFabricPath } from './geometry/pathKitToFabric'
 import {
   editablePointToLocalObjectPoint,
+  getEditableSegmentByLocalPoint,
+  getEditableSegmentByPointSelection,
+  getEditableSegmentMidpoint,
+  getEditableSegments,
   getPointRadius,
   getSelectableEditablePoints,
   isEditablePathObject,
+  isSameEditableSegmentRef,
   moveEditablePoint,
+  resolveEditableSegmentRef,
+  setEditableSegmentControlPoint,
+  setEditableSegmentType,
   setObjectCornerRadius,
   setPointCornerRadius,
   setPointsCornerRadius,
-  type EditablePathObject
+  type EditablePathObject,
+  type EditablePoint,
+  type EditableSegmentRef
 } from './geometry/editablePath'
 
 // ── 类型工具 ──
@@ -356,6 +428,7 @@ type BooleanPreviewHiddenObject = {
   visible: boolean
 }
 type StrokeLineType = 'solid' | 'dashed'
+type CurveControlPointKey = 'cp1' | 'cp2'
 
 // ── refs ──
 const canvasElRef = ref<HTMLCanvasElement | null>(null)
@@ -365,6 +438,7 @@ const imgInputRef = ref<HTMLInputElement | null>(null)
 // ── 状态 ──
 let fabricCanvas: Canvas | null = null
 let aligningGuidelines: AligningGuidelines | null = null
+let restoreActiveObjectAfterSelectionClear = false
 
 const leftTab = ref<'shape' | 'text'>('shape')
 const showRuler = ref(false)
@@ -372,6 +446,8 @@ const zoom = ref(1)
 const activeObject = shallowRef<FabricObject | null>(null)
 const canvasWidth = ref(800)
 const canvasHeight = ref(600)
+const canvasWidthInput = ref(String(canvasWidth.value))
+const canvasHeightInput = ref(String(canvasHeight.value))
 const canvasBg = ref('#ffffff')
 const lastOpaqueCanvasBg = ref('#ffffff')
 const canvasPresetValue = ref('')
@@ -417,9 +493,16 @@ const objProps = reactive({
   cornerRadius: 0,
   pointCornerRadius: 0,
   cornerRadiusInput: '0',
-  pointCornerRadiusInput: '0'
+  pointCornerRadiusInput: '0',
+  curveEnabled: false,
+  curveCp1XInput: '0',
+  curveCp1YInput: '0',
+  curveCp2XInput: '0',
+  curveCp2YInput: '0'
 })
 const selectedPointIndices = ref<number[]>([])
+const selectedSegmentRef = shallowRef<EditableSegmentRef | null>(null)
+const selectionMode = ref<'shape' | 'point' | 'segment'>('shape')
 const pointControlsOwner = shallowRef<EditablePathObject | null>(null)
 const originalControlsMap = new WeakMap<FabricObject, FabricControls>()
 const sizeRatioLocked = ref(false)
@@ -538,6 +621,28 @@ const selectedPointIndex = computed(() => (
 
 const hasSelectedPoint = computed(() => selectedPointIndices.value.length > 0)
 
+function getLiveEditableSegmentRef(segmentRef: EditableSegmentRef | null) {
+  const obj = activeEditablePathObject.value
+  if (!obj) return null
+  return resolveEditableSegmentRef(obj, segmentRef)
+}
+
+function resolveSelectedEditableSegment() {
+  const obj = activeEditablePathObject.value
+  if (!obj) return null
+  if (selectionMode.value === 'segment') {
+    return getLiveEditableSegmentRef(selectedSegmentRef.value)
+  }
+  if (selectionMode.value === 'point') {
+    return getEditableSegmentByPointSelection(obj, selectedPointIndices.value)
+  }
+  return null
+}
+
+const selectedEditableSegment = computed(() => resolveSelectedEditableSegment())
+
+const hasSelectedCurveSegment = computed(() => !!selectedEditableSegment.value)
+
 function isBooleanPreviewObject(obj: FabricObject | null | undefined): obj is AnyFabricObject {
   return !!obj && !!(obj as AnyFabricObject).booleanPreview
 }
@@ -558,10 +663,56 @@ function getBooleanPreviewStrokeWidth(style: FabricBooleanStyleSnapshot) {
   return Math.max(2, Math.min(width, 4))
 }
 
+function getViewportPointForEditablePathPoint(obj: EditablePathObject, point: EditablePoint) {
+  return new Point(point.x, point.y)
+    .subtract(obj.pathOffset)
+    .transform(util.multiplyTransformMatrices(obj.getViewportTransform(), obj.calcTransformMatrix()))
+}
+
 function getViewportPointForEditablePoint(obj: EditablePathObject, pointIndex: number) {
   return editablePointToLocalObjectPoint(obj, pointIndex).transform(
     util.multiplyTransformMatrices(obj.getViewportTransform(), obj.calcTransformMatrix())
   )
+}
+
+function lerpEditablePoint(fromPoint: EditablePoint, toPoint: EditablePoint, amount: number): EditablePoint {
+  return {
+    x: fromPoint.x + (toPoint.x - fromPoint.x) * amount,
+    y: fromPoint.y + (toPoint.y - fromPoint.y) * amount
+  }
+}
+
+function getLiveEditableSegment(segmentRef: EditableSegmentRef | null) {
+  const liveSegmentRef = getLiveEditableSegmentRef(segmentRef)
+  if (!liveSegmentRef) return null
+  return liveSegmentRef.segment
+}
+
+function getEditableSegmentControlPoint(segmentRef: EditableSegmentRef, controlPoint: CurveControlPointKey): EditablePoint {
+  const liveSegmentRef = getLiveEditableSegmentRef(segmentRef)
+  if (!liveSegmentRef) {
+    return controlPoint === 'cp1'
+      ? lerpEditablePoint(segmentRef.fromPoint, segmentRef.toPoint, 1 / 3)
+      : lerpEditablePoint(segmentRef.fromPoint, segmentRef.toPoint, 2 / 3)
+  }
+  const liveSegment = liveSegmentRef.segment
+  if (liveSegment.type === 'cubic') return liveSegment[controlPoint]
+  if (liveSegment[controlPoint]) return liveSegment[controlPoint]
+  return controlPoint === 'cp1'
+    ? lerpEditablePoint(liveSegmentRef.fromPoint, liveSegmentRef.toPoint, 1 / 3)
+    : lerpEditablePoint(liveSegmentRef.fromPoint, liveSegmentRef.toPoint, 2 / 3)
+}
+
+function formatNumericInputValue(value: number) {
+  return String(Math.round(value * 100) / 100)
+}
+
+function resetCurveProps() {
+  objProps.curveEnabled = false
+  objProps.curveCp1XInput = '0'
+  objProps.curveCp1YInput = '0'
+  objProps.curveCp2XInput = '0'
+  objProps.curveCp2YInput = '0'
 }
 
 function getLocalPointFromCanvas(obj: EditablePathObject, x: number, y: number) {
@@ -598,13 +749,31 @@ function clearSelectedPoint() {
   selectedPointIndices.value = []
 }
 
-function clearPointEditing() {
+function clearSelectedSegment() {
+  selectedSegmentRef.value = null
+}
+
+function clearEditableAssistSelection() {
   clearSelectedPoint()
+  clearSelectedSegment()
+}
+
+function clearPointEditing() {
+  clearEditableAssistSelection()
   restorePointControls()
 }
 
 function setSelectedEditablePoints(obj: EditablePathObject, indices: number[]) {
+  selectedSegmentRef.value = null
   selectedPointIndices.value = normalizeSelectedPointIndices(obj, indices)
+  syncObjProps()
+  obj.canvas?.requestRenderAll()
+}
+
+function setSelectedEditableSegment(obj: EditablePathObject, segmentRef: EditableSegmentRef | null) {
+  clearSelectedPoint()
+  selectedSegmentRef.value = resolveEditableSegmentRef(obj, segmentRef)
+  updateCurveControls()
   syncObjProps()
   obj.canvas?.requestRenderAll()
 }
@@ -634,9 +803,122 @@ function renderPointControl(ctx: CanvasRenderingContext2D, left: number, top: nu
   ctx.restore()
 }
 
+function canEditPoints(editable: EditablePathObject) {
+  return activeEditablePathObject.value === editable && selectionMode.value === 'point'
+}
+
+function canEditSegments(editable: EditablePathObject) {
+  return activeEditablePathObject.value === editable && selectionMode.value === 'segment'
+}
+
+function getViewportPointForLocalEditablePoint(obj: EditablePathObject, point: EditablePoint) {
+  return getViewportPointForEditablePathPoint(obj, point)
+}
+
+function createSegmentSelectControl(editable: EditablePathObject, segmentRef: EditableSegmentRef) {
+  const segmentKey = `${segmentRef.contourIndex}:${segmentRef.segmentIndex}`
+  return new Control({
+    actionName: 'selectEditableSegment',
+    cursorStyle: 'pointer',
+    sizeX: 12,
+    sizeY: 12,
+    touchSizeX: 22,
+    touchSizeY: 22,
+    segmentKey,
+    positionHandler: () => {
+      const liveSegmentRef = resolveEditableSegmentRef(editable, segmentRef)
+      if (!liveSegmentRef) return new Point(0, 0)
+      return getViewportPointForLocalEditablePoint(editable, getEditableSegmentMidpoint(liveSegmentRef))
+    },
+    getVisibility: () => {
+      if (!canEditSegments(editable)) return false
+      // 隐藏当前已选中边的中点辅助器，由 cp1/cp2 等控件接管
+      if (isSameEditableSegmentRef(selectedSegmentRef.value, segmentRef)) return false
+      return !!resolveEditableSegmentRef(editable, segmentRef)
+    },
+    mouseDownHandler: () => {
+      if (!canEditSegments(editable)) return false
+      const liveSegmentRef = resolveEditableSegmentRef(editable, segmentRef)
+      if (!liveSegmentRef) return false
+      setSelectedEditableSegment(editable, liveSegmentRef)
+      return false
+    },
+    render: (ctx, left, top) => {
+      const isSelected = isSameEditableSegmentRef(selectedSegmentRef.value, segmentRef)
+      const size = isSelected ? 6 : 5
+      ctx.save()
+      ctx.beginPath()
+      ctx.rect(left - size, top - size, size * 2, size * 2)
+      ctx.fillStyle = isSelected ? '#1e6fff' : '#ffffff'
+      ctx.strokeStyle = '#1e6fff'
+      ctx.lineWidth = 1.5
+      ctx.fill()
+      ctx.stroke()
+      ctx.restore()
+    }
+  } as Partial<Control> & { segmentKey: string })
+}
+
+function createCurveHandleControl(editable: EditablePathObject, controlPoint: CurveControlPointKey) {
+  return new Control({
+    actionName: 'modifyEditableCurve',
+    cursorStyle: 'crosshair',
+    sizeX: 10,
+    sizeY: 10,
+    touchSizeX: 18,
+    touchSizeY: 18,
+    pointIndex: controlPoint,
+    positionHandler: () => {
+      const segmentRef = selectedEditableSegment.value
+      if (!segmentRef) return new Point(0, 0)
+      return getViewportPointForEditablePathPoint(editable, getEditableSegmentControlPoint(segmentRef, controlPoint))
+    },
+    getVisibility: () => canEditSegments(editable) && !!getLiveEditableSegment(selectedEditableSegment.value),
+    actionHandler: (_eventData, _transform, x, y) => {
+      if (!canEditSegments(editable)) return false
+      const segmentRef = selectedEditableSegment.value
+      if (!segmentRef) return false
+      setEditableSegmentControlPoint(editable, segmentRef, controlPoint, getLocalPointFromCanvas(editable, x, y))
+      // 拖动过程中保持 segmentRef 与最新模型同步
+      const liveSegmentRef = resolveEditableSegmentRef(editable, segmentRef)
+      if (liveSegmentRef) selectedSegmentRef.value = liveSegmentRef
+      syncObjProps()
+      fabricCanvas?.requestRenderAll()
+      return true
+    },
+    mouseUpHandler: () => {
+      snapshot()
+      return false
+    },
+    render: (ctx, left, top) => {
+      const segmentRef = selectedEditableSegment.value
+      const liveSegmentRef = getLiveEditableSegmentRef(segmentRef)
+      if (!liveSegmentRef) return
+      const anchorPoint = controlPoint === 'cp1' ? liveSegmentRef.fromPoint : liveSegmentRef.toPoint
+      const anchorViewportPoint = getViewportPointForEditablePathPoint(editable, anchorPoint)
+      ctx.save()
+      ctx.beginPath()
+      ctx.moveTo(anchorViewportPoint.x, anchorViewportPoint.y)
+      ctx.lineTo(left, top)
+      ctx.strokeStyle = 'rgba(255, 122, 0, 0.8)'
+      ctx.lineWidth = 1.5
+      ctx.stroke()
+      ctx.beginPath()
+      ctx.arc(left, top, 4, 0, Math.PI * 2)
+      ctx.fillStyle = '#ffffff'
+      ctx.strokeStyle = '#ff7a00'
+      ctx.lineWidth = 2
+      ctx.fill()
+      ctx.stroke()
+      ctx.restore()
+    }
+  } as Partial<Control> & { pointIndex: CurveControlPointKey })
+}
+
 function attachPointControls(obj: FabricObject | null) {
   restorePointControls()
   if (!obj || !isEditablePathObject(obj) || getSelectableEditablePoints(obj).length === 0) return
+  if (selectionMode.value === 'shape') return
   const editable = obj
   originalControlsMap.set(editable, editable.controls as FabricControls)
   const controls: FabricControls = { ...(editable.controls as FabricControls) }
@@ -651,14 +933,17 @@ function attachPointControls(obj: FabricObject | null) {
       pointIndex: index,
       positionHandler: () => getViewportPointForEditablePoint(editable, index),
       mouseDownHandler: (eventData) => {
+        if (!canEditPoints(editable)) return false
         selectEditablePoint(editable, index, isMultiSelectModifierPressed(eventData))
         return false
       },
       actionHandler: (_eventData, _transform, x, y) => {
+        if (!canEditPoints(editable)) return false
         if (!selectedPointIndices.value.includes(index)) {
           setSelectedEditablePoints(editable, [index])
         }
         moveEditablePoint(editable, index, getLocalPointFromCanvas(editable, x, y))
+        updateCurveControls()
         syncObjProps()
         return true
       },
@@ -669,6 +954,15 @@ function attachPointControls(obj: FabricObject | null) {
       render: renderPointControl
     } as Partial<Control> & { pointIndex: number })
   })
+  // 边选择模式下，新增每条边的中点辅助器，方便直接点击边来选中
+  if (selectionMode.value === 'segment') {
+    getEditableSegments(editable).forEach((segmentRef) => {
+      const key = `es${segmentRef.contourIndex}_${segmentRef.segmentIndex}`
+      controls[key] = createSegmentSelectControl(editable, segmentRef)
+    })
+  }
+  controls.curveCp1 = createCurveHandleControl(editable, 'cp1')
+  controls.curveCp2 = createCurveHandleControl(editable, 'cp2')
   editable.controls = controls
   pointControlsOwner.value = editable
   editable.setCoords()
@@ -1010,9 +1304,62 @@ function toggleSizeRatioLock() {
   if (sizeRatioLocked.value && activeObject.value) {
     lockedAspectRatio.value = getObjectAspectRatio(activeObject.value)
   }
+  if (fabricCanvas) {
+    fabricCanvas.uniformScaling = sizeRatioLocked.value
+  }
 }
 
 // ── 同步选中对象属性 ──
+function syncCanvasInteractionMode() {
+  if (!fabricCanvas) return
+  fabricCanvas.selection = selectionMode.value === 'shape'
+}
+
+function setSelectionMode(mode: 'shape' | 'point' | 'segment') {
+  const editable = activeEditablePathObject.value
+  if (mode === 'shape' || editable) {
+    selectionMode.value = mode
+  } else {
+    selectionMode.value = 'shape'
+  }
+  if (mode === 'shape') {
+    clearEditableAssistSelection()
+  } else if (mode === 'point') {
+    clearSelectedSegment()
+  } else {
+    clearSelectedPoint()
+  }
+  restoreActiveObjectAfterSelectionClear = false
+  syncCanvasInteractionMode()
+  if (fabricCanvas && activeObject.value) {
+    fabricCanvas.setActiveObject(activeObject.value)
+  }
+  updateCurveControls()
+  if (activeObject.value) {
+    syncObjProps()
+  }
+}
+
+function getSegmentPickTolerance(obj: EditablePathObject) {
+  const scaling = obj.getTotalObjectScaling()
+  const maxScale = Math.max(Math.abs(scaling.x), Math.abs(scaling.y), 1)
+  return 10 / maxScale
+}
+
+function handleSegmentPointerDown(sceneX: number, sceneY: number) {
+  const obj = activeEditablePathObject.value
+  if (!obj || selectionMode.value !== 'segment') return false
+  const segmentRef = getEditableSegmentByLocalPoint(
+    obj,
+    getLocalPointFromCanvas(obj, sceneX, sceneY),
+    getSegmentPickTolerance(obj)
+  )
+  if (!segmentRef) return false
+  setSelectedEditableSegment(obj, segmentRef)
+  updateCurveControls()
+  return true
+}
+
 function syncObjProps() {
   const obj = activeObject.value
   if (!obj) return
@@ -1053,6 +1400,13 @@ function syncObjProps() {
   objProps.strokeDashGapInput = String(rememberedStrokeDashArray[1])
 
   if (isEditablePathObject(obj)) {
+    if (selectionMode.value === 'shape') {
+      clearEditableAssistSelection()
+    } else if (selectionMode.value === 'point') {
+      clearSelectedSegment()
+    } else {
+      clearSelectedPoint()
+    }
     objProps.cornerRadius = obj.cornerRadius ?? 0
     const pointRadiusState = getSelectedPointRadiusState(obj)
     objProps.pointCornerRadius = pointRadiusState.value
@@ -1062,11 +1416,26 @@ function syncObjProps() {
         ? ''
         : String(Math.round(pointRadiusState.value))
       : '0'
+
+    const segmentRef = resolveSelectedEditableSegment()
+    const segment = getLiveEditableSegment(segmentRef)
+    objProps.curveEnabled = segment?.type === 'cubic'
+    if (segmentRef && segment) {
+      const cp1 = getEditableSegmentControlPoint(segmentRef, 'cp1')
+      const cp2 = getEditableSegmentControlPoint(segmentRef, 'cp2')
+      objProps.curveCp1XInput = formatNumericInputValue(cp1.x)
+      objProps.curveCp1YInput = formatNumericInputValue(cp1.y)
+      objProps.curveCp2XInput = formatNumericInputValue(cp2.x)
+      objProps.curveCp2YInput = formatNumericInputValue(cp2.y)
+    } else {
+      resetCurveProps()
+    }
   } else {
     objProps.cornerRadius = 0
     objProps.pointCornerRadius = 0
     objProps.cornerRadiusInput = '0'
     objProps.pointCornerRadiusInput = '0'
+    resetCurveProps()
   }
 }
 
@@ -1159,6 +1528,76 @@ function setSelectedPointCornerRadiusFromInput(value: string | number) {
     objProps.pointCornerRadius,
     setSelectedPointCornerRadius,
     (next) => { objProps.pointCornerRadiusInput = next }
+  )
+}
+
+function updateCurveControls() {
+  const obj = activeEditablePathObject.value
+  if (!obj) return
+  if (selectionMode.value !== 'point' && selectionMode.value !== 'segment') {
+    restorePointControls()
+    obj.canvas?.requestRenderAll()
+    return
+  }
+  attachPointControls(obj)
+  obj.canvas?.requestRenderAll()
+}
+
+function setSelectedSegmentCurveEnabled(enabled: boolean) {
+  const obj = activeEditablePathObject.value
+  const segmentRef = selectedEditableSegment.value
+  if (!obj || !segmentRef || !fabricCanvas) return
+  setEditableSegmentType(obj, segmentRef, enabled ? 'cubic' : 'line')
+  // 重新解析为最新的 segmentRef，避免后续操作引用过期数据
+  const liveSegmentRef = resolveEditableSegmentRef(obj, segmentRef)
+  if (liveSegmentRef) selectedSegmentRef.value = liveSegmentRef
+  updateCurveControls()
+  fabricCanvas.requestRenderAll()
+  refreshLayers()
+  snapshot()
+  syncObjProps()
+}
+
+function setSelectedSegmentControlPoint(controlPoint: CurveControlPointKey, nextPoint: EditablePoint) {
+  const obj = activeEditablePathObject.value
+  const segmentRef = selectedEditableSegment.value
+  if (!obj || !segmentRef || !fabricCanvas) return
+  setEditableSegmentControlPoint(obj, segmentRef, controlPoint, nextPoint)
+  // 操作后路径数据已更新，刷新 segmentRef 以引用最新模型
+  const liveSegmentRef = resolveEditableSegmentRef(obj, segmentRef)
+  if (liveSegmentRef) selectedSegmentRef.value = liveSegmentRef
+  updateCurveControls()
+  fabricCanvas.requestRenderAll()
+  refreshLayers()
+  snapshot()
+  syncObjProps()
+}
+
+function setSelectedSegmentControlPointCoord(controlPoint: CurveControlPointKey, axis: 'x' | 'y', value: number) {
+  const segmentRef = selectedEditableSegment.value
+  if (!segmentRef) return
+  const point = getEditableSegmentControlPoint(segmentRef, controlPoint)
+  setSelectedSegmentControlPoint(controlPoint, {
+    ...point,
+    [axis]: value
+  })
+}
+
+function setSelectedSegmentControlPointCoordFromInput(
+  controlPoint: CurveControlPointKey,
+  axis: 'x' | 'y',
+  value: string | number
+) {
+  const segmentRef = selectedEditableSegment.value
+  if (!segmentRef) return
+  const point = getEditableSegmentControlPoint(segmentRef, controlPoint)
+  const fallback = axis === 'x' ? point.x : point.y
+  const key = `curve${controlPoint === 'cp1' ? 'Cp1' : 'Cp2'}${axis.toUpperCase()}Input` as const
+  commitNumericInput(
+    value,
+    fallback,
+    (next) => { setSelectedSegmentControlPointCoord(controlPoint, axis, next) },
+    (next) => { objProps[key] = next }
   )
 }
 
@@ -1315,15 +1754,38 @@ function setObjSize(dim: 'width' | 'height', value: number) {
 }
 
 // ── 画布尺寸 ──
+function syncCanvasSizeInputs() {
+  canvasWidthInput.value = String(canvasWidth.value)
+  canvasHeightInput.value = String(canvasHeight.value)
+}
+
 function setCanvasSize(dim: 'width' | 'height', value: number) {
   if (!fabricCanvas) return
+  if (!Number.isFinite(value) || value <= 0) {
+    syncCanvasSizeInputs()
+    return
+  }
   if (dim === 'width') canvasWidth.value = value
   else canvasHeight.value = value
   applyCanvasSize()
 }
 
+function setCanvasSizeFromInput(dim: 'width' | 'height', value: string | number) {
+  const fallback = dim === 'width' ? canvasWidth.value : canvasHeight.value
+  commitNumericInput(
+    value,
+    fallback,
+    (next) => { setCanvasSize(dim, next) },
+    (next) => {
+      if (dim === 'width') canvasWidthInput.value = next
+      else canvasHeightInput.value = next
+    }
+  )
+}
+
 function applyCanvasSize() {
   if (!fabricCanvas) return
+  syncCanvasSizeInputs()
   fabricCanvas.setDimensions({ width: canvasWidth.value, height: canvasHeight.value })
   fitCanvasInView()
   snapshot()
@@ -1376,9 +1838,11 @@ function setZoom(value: number) {
 
 function syncActiveObject(obj: FabricObject | null) {
   clearPointEditing()
+  if (!obj) selectionMode.value = 'shape'
   activeObject.value = obj
   booleanError.value = ''
-  attachPointControls(obj)
+  syncCanvasInteractionMode()
+  updateCurveControls()
   refreshLayers()
   if (obj) {
     if (sizeRatioLocked.value) {
@@ -1611,7 +2075,7 @@ function isLayerActive(obj: FabricObject) {
 }
 
 function selectLayer(obj: FabricObject, event?: MouseEvent) {
-  if (!fabricCanvas) return
+  if (!fabricCanvas || selectionMode.value !== 'shape') return
   clearPointEditing()
   if (!isMultiSelectModifierPressed(event)) {
     fabricCanvas.setActiveObject(obj, event)
@@ -1703,16 +2167,68 @@ function handleKeydown(e: KeyboardEvent) {
 function setupCanvasEvents() {
   if (!fabricCanvas) return
 
+  fabricCanvas.on('mouse:down:before', (event) => {
+    if (!fabricCanvas || !activeObject.value) return
+    if (selectionMode.value === 'shape') return
+    const scenePoint = event.scenePoint ?? fabricCanvas.getScenePoint(event.e)
+    if (selectionMode.value === 'segment') {
+      // 若点击落在 active 对象的控件上（如 cp1/cp2 辅助点或边中点辅助器），交给控件自身处理，
+      // 避免误触发 handleSegmentPointerDown 导致选中相邻边、控件被重建后无法继续拖动
+      const active = activeObject.value as AnyFabricObject | null
+      const viewportPoint = event.viewportPoint ?? fabricCanvas.getViewportPoint(event.e)
+      if (active && typeof active.findControl === 'function') {
+        const hit = active.findControl(viewportPoint, util.isTouchEvent(event.e))
+        if (hit) return
+      }
+      const handled = handleSegmentPointerDown(scenePoint.x, scenePoint.y)
+      if (handled) {
+        restoreActiveObjectAfterSelectionClear = true
+        fabricCanvas.discardActiveObject(event.e)
+      }
+      return
+    }
+    const target = event.target
+    if (target && target !== activeObject.value) {
+      restoreActiveObjectAfterSelectionClear = true
+      fabricCanvas.discardActiveObject(event.e)
+    }
+  })
+
   fabricCanvas.on('selection:created', () => {
     clearBooleanPreview()
+    if (selectionMode.value !== 'shape') {
+      const active = fabricCanvas!.getActiveObject()
+      if (active && active !== activeObject.value) {
+        fabricCanvas!.discardActiveObject()
+        fabricCanvas!.requestRenderAll()
+        return
+      }
+    }
     syncActiveObject(fabricCanvas!.getActiveObject() ?? null)
   })
   fabricCanvas.on('selection:updated', () => {
     clearBooleanPreview()
+    if (selectionMode.value !== 'shape') {
+      const active = fabricCanvas!.getActiveObject()
+      if (activeObject.value && active && active !== activeObject.value) {
+        fabricCanvas!.setActiveObject(activeObject.value)
+        fabricCanvas!.requestRenderAll()
+        return
+      }
+    }
     syncActiveObject(fabricCanvas!.getActiveObject() ?? null)
   })
   fabricCanvas.on('selection:cleared', () => {
     clearBooleanPreview()
+    if (restoreActiveObjectAfterSelectionClear && activeObject.value && fabricCanvas) {
+      restoreActiveObjectAfterSelectionClear = false
+      fabricCanvas.setActiveObject(activeObject.value)
+      updateCurveControls()
+      syncObjProps()
+      fabricCanvas.requestRenderAll()
+      return
+    }
+    restoreActiveObjectAfterSelectionClear = false
     syncActiveObject(null)
   })
   fabricCanvas.on('object:modified', (event) => {
@@ -1758,9 +2274,11 @@ onMounted(() => {
     backgroundColor: isTransparentCanvasBg(canvasBg.value) ? '' : canvasBg.value,
     preserveObjectStacking: true,
     selection: true,
-    selectionKey: ['shiftKey', 'ctrlKey']
+    selectionKey: ['shiftKey', 'ctrlKey'],
+    uniformScaling: sizeRatioLocked.value
   })
 
+  syncCanvasInteractionMode()
   initAligningGuidelines()
   setupCanvasEvents()
 
@@ -2133,6 +2651,11 @@ $panel-bg: #fff;
     display: grid;
     grid-template-columns: 48px 1fr;
     column-gap: 8px;
+  }
+  &.bezier-group-row {
+    display: grid;
+    grid-template-columns: 48px 1fr 1fr;
+    column-gap: 6px;
   }
   .stroke-line-type-picker {
     justify-self: end;

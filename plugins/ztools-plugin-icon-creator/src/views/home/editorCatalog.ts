@@ -101,27 +101,21 @@ export const textPresets: TextLibraryItem[] = [
 
 export const canvasPresets: CanvasPreset[] = [
   {
-    label: 'FHD 1920×1080',
-    value: '1920x1080',
-    width: 1920,
-    height: 1080
+    label: '512×512',
+    value: '512x512',
+    width: 512,
+    height: 512
   },
   {
-    label: '方形 1080×1080',
-    value: '1080x1080',
-    width: 1080,
-    height: 1080
+    label: '256×256',
+    value: '256x256',
+    width: 256,
+    height: 256
   },
   {
-    label: '竖版 1080×1350',
-    value: '1080x1350',
-    width: 1080,
-    height: 1350
-  },
-  {
-    label: 'A4 2480×3508',
-    value: '2480x3508',
-    width: 2480,
-    height: 3508
+    label: '128×128',
+    value: '128x128',
+    width: 128,
+    height: 128
   }
 ]

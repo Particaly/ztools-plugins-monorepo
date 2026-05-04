@@ -10,7 +10,7 @@ export type EditablePoint = {
 }
 
 export type EditablePathSegment =
-  | { type: 'line'; to: number }
+  | { type: 'line'; to: number; cp1?: EditablePoint; cp2?: EditablePoint }
   | { type: 'cubic'; cp1: EditablePoint; cp2: EditablePoint; to: number }
 
 export type EditablePathContour = {
@@ -56,6 +56,19 @@ type EditablePointRef = {
   globalIndex: number
 }
 
+export type EditableSegmentRef = {
+  contour: EditablePathContour
+  contourIndex: number
+  segment: EditablePathSegment
+  segmentIndex: number
+  fromPoint: EditablePoint
+  toPoint: EditablePoint
+  fromPointIndex: number
+  toPointIndex: number
+  fromGlobalIndex: number
+  toGlobalIndex: number
+}
+
 const EDITABLE_PATH_VERSION = 2
 const KAPPA = 0.5522847498307936
 
@@ -64,7 +77,13 @@ function clonePoint(point: EditablePoint): EditablePoint {
 }
 
 function cloneSegment(segment: EditablePathSegment): EditablePathSegment {
-  if (segment.type === 'line') return { ...segment }
+  if (segment.type === 'line') {
+    return {
+      ...segment,
+      cp1: segment.cp1 ? clonePoint(segment.cp1) : undefined,
+      cp2: segment.cp2 ? clonePoint(segment.cp2) : undefined
+    }
+  }
   return { ...segment, cp1: clonePoint(segment.cp1), cp2: clonePoint(segment.cp2) }
 }
 
@@ -138,6 +157,72 @@ function normalizeModel(model: EditablePathModel | LegacyEditablePathModel | nul
 
 function getPointCount(model: EditablePathModel) {
   return model.contours.reduce((total, contour) => total + contour.points.length, 0)
+}
+
+function getContourStartIndices(model: EditablePathModel) {
+  const startIndices: number[] = []
+  let startIndex = 0
+  model.contours.forEach((contour) => {
+    startIndices.push(startIndex)
+    startIndex += contour.points.length
+  })
+  return startIndices
+}
+
+function buildSegmentToEditablePathSegment(segment: BuildSegment): EditablePathSegment {
+  if (segment.type === 'cubic' && segment.cp1 && segment.cp2) {
+    return {
+      type: 'cubic',
+      cp1: clonePoint(segment.cp1),
+      cp2: clonePoint(segment.cp2),
+      to: segment.to
+    }
+  }
+  return {
+    type: 'line',
+    to: segment.to,
+    cp1: segment.cp1 ? clonePoint(segment.cp1) : undefined,
+    cp2: segment.cp2 ? clonePoint(segment.cp2) : undefined
+  }
+}
+
+function buildEditableSegmentRef(model: EditablePathModel, contourIndex: number, segmentIndex: number) {
+  const contour = model.contours[contourIndex]
+  if (!contour) return null
+  const segments = getBuildSegments(contour)
+  const buildSegment = segments[segmentIndex]
+  if (!buildSegment) return null
+  const fromPoint = contour.points[buildSegment.from]
+  const toPoint = contour.points[buildSegment.to]
+  if (!fromPoint || !toPoint) return null
+  const contourStartIndex = getContourStartIndices(model)[contourIndex] ?? 0
+  return {
+    contour,
+    contourIndex,
+    segment: contour.segments[segmentIndex] ?? buildSegmentToEditablePathSegment(buildSegment),
+    segmentIndex,
+    fromPoint,
+    toPoint,
+    fromPointIndex: buildSegment.from,
+    toPointIndex: buildSegment.to,
+    fromGlobalIndex: contourStartIndex + buildSegment.from,
+    toGlobalIndex: contourStartIndex + buildSegment.to
+  } satisfies EditableSegmentRef
+}
+
+export function resolveEditableSegmentRef(
+  obj: EditablePathObject,
+  segmentRef: EditableSegmentRef | null | undefined
+) {
+  if (!segmentRef) return null
+  const model = ensureEditablePathObject(obj)
+  const liveSegmentRef = buildEditableSegmentRef(model, segmentRef.contourIndex, segmentRef.segmentIndex)
+  if (!liveSegmentRef) return null
+  if (
+    liveSegmentRef.fromPointIndex !== segmentRef.fromPointIndex
+    || liveSegmentRef.toPointIndex !== segmentRef.toPointIndex
+  ) return null
+  return liveSegmentRef
 }
 
 function ensureEditablePathObject(obj: EditablePathObject) {
@@ -332,6 +417,57 @@ export function getSelectableEditablePoints(obj: EditablePathObject) {
     .filter(({ point }) => point.selectable !== false)
 }
 
+export function getEditableSegmentByPointSelection(obj: EditablePathObject, indices: number[]) {
+  const model = ensureEditablePathObject(obj)
+  const uniqueIndices = Array.from(new Set(indices))
+    .filter((index) => Number.isInteger(index) && index >= 0)
+    .sort((a, b) => a - b)
+  if (uniqueIndices.length !== 2) return null
+  const [firstIndex, secondIndex] = uniqueIndices
+  const firstPointRef = resolveEditablePoint(model, firstIndex)
+  const secondPointRef = resolveEditablePoint(model, secondIndex)
+  if (!firstPointRef || !secondPointRef) return null
+  if (firstPointRef.contourIndex !== secondPointRef.contourIndex) return null
+
+  const contour = firstPointRef.contour
+  const pointCount = contour.points.length
+  if (pointCount < 2) return null
+  if (contour.closed && pointCount === 2) return null
+
+  const segments = getBuildSegments(contour)
+  const contourStartIndices = getContourStartIndices(model)
+  const contourStartIndex = contourStartIndices[firstPointRef.contourIndex] ?? 0
+  const segmentIndex = segments.findIndex((segment) => {
+    const fromGlobalIndex = contourStartIndex + segment.from
+    const toGlobalIndex = contourStartIndex + segment.to
+    return (
+      (fromGlobalIndex === firstIndex && toGlobalIndex === secondIndex)
+      || (fromGlobalIndex === secondIndex && toGlobalIndex === firstIndex)
+    )
+  })
+  if (segmentIndex < 0) return null
+
+  return buildEditableSegmentRef(model, firstPointRef.contourIndex, segmentIndex)
+}
+
+function materializeContourSegments(contour: EditablePathContour) {
+  return getBuildSegments(contour).map((segment) => buildSegmentToEditablePathSegment(segment))
+}
+
+function ensureContourSegments(contour: EditablePathContour) {
+  if (!contour.segments.length) {
+    contour.segments = materializeContourSegments(contour)
+  }
+  return contour.segments
+}
+
+function createDefaultCubicControlPoints(fromPoint: EditablePoint, toPoint: EditablePoint) {
+  return {
+    cp1: lerp(fromPoint, toPoint, 1 / 3),
+    cp2: lerp(fromPoint, toPoint, 2 / 3)
+  }
+}
+
 export function getPointRadius(obj: EditablePathObject, index: number) {
   ensureEditablePathObject(obj)
   return effectiveRadius(obj, index)
@@ -365,6 +501,169 @@ export function setPointsCornerRadius(obj: EditablePathObject, indices: number[]
   })
   obj.cornerRadiusOverrides = overrides
   rebuildEditablePathObject(obj)
+}
+
+export function setEditableSegmentType(obj: EditablePathObject, segmentRef: EditableSegmentRef, type: EditablePathSegment['type']) {
+  const liveSegmentRef = resolveEditableSegmentRef(obj, segmentRef)
+  if (!liveSegmentRef) return
+  const segments = ensureContourSegments(liveSegmentRef.contour)
+  const segment = segments[liveSegmentRef.segmentIndex]
+  if (!segment || segment.to !== liveSegmentRef.toPointIndex) return
+  if (type === 'cubic') {
+    const controlPoints = segment.cp1 && segment.cp2
+      ? { cp1: clonePoint(segment.cp1), cp2: clonePoint(segment.cp2) }
+      : createDefaultCubicControlPoints(liveSegmentRef.fromPoint, liveSegmentRef.toPoint)
+    segments[liveSegmentRef.segmentIndex] = {
+      type: 'cubic',
+      to: segment.to,
+      cp1: controlPoints.cp1,
+      cp2: controlPoints.cp2
+    }
+  } else {
+    segments[liveSegmentRef.segmentIndex] = {
+      type: 'line',
+      to: segment.to,
+      cp1: segment.cp1 ? clonePoint(segment.cp1) : undefined,
+      cp2: segment.cp2 ? clonePoint(segment.cp2) : undefined
+    }
+  }
+  rebuildEditablePathObject(obj)
+}
+
+export function setEditableSegmentControlPoint(
+  obj: EditablePathObject,
+  segmentRef: EditableSegmentRef,
+  controlPoint: 'cp1' | 'cp2',
+  nextPoint: EditablePoint
+) {
+  const liveSegmentRef = resolveEditableSegmentRef(obj, segmentRef)
+  if (!liveSegmentRef) return
+  const segments = ensureContourSegments(liveSegmentRef.contour)
+  const segment = segments[liveSegmentRef.segmentIndex]
+  if (!segment || segment.to !== liveSegmentRef.toPointIndex) return
+  let current: EditablePathSegment & { type: 'cubic' }
+  if (segment.type === 'cubic') {
+    current = segment
+  } else {
+    const defaults = createDefaultCubicControlPoints(liveSegmentRef.fromPoint, liveSegmentRef.toPoint)
+    current = {
+      type: 'cubic',
+      to: segment.to,
+      cp1: segment.cp1 ? clonePoint(segment.cp1) : defaults.cp1,
+      cp2: segment.cp2 ? clonePoint(segment.cp2) : defaults.cp2
+    }
+  }
+  segments[liveSegmentRef.segmentIndex] = {
+    ...current,
+    [controlPoint]: clonePoint(nextPoint)
+  }
+  rebuildEditablePathObject(obj)
+}
+
+function pointSegmentDistance(point: EditablePoint, fromPoint: EditablePoint, toPoint: EditablePoint) {
+  const lineX = toPoint.x - fromPoint.x
+  const lineY = toPoint.y - fromPoint.y
+  const lengthSquared = lineX * lineX + lineY * lineY
+  if (lengthSquared < 0.0001) return distance(point, fromPoint)
+  const projection = ((point.x - fromPoint.x) * lineX + (point.y - fromPoint.y) * lineY) / lengthSquared
+  const t = Math.max(0, Math.min(1, projection))
+  return distance(point, {
+    x: fromPoint.x + lineX * t,
+    y: fromPoint.y + lineY * t
+  })
+}
+
+function cubicPoint(
+  fromPoint: EditablePoint,
+  cp1: EditablePoint,
+  cp2: EditablePoint,
+  toPoint: EditablePoint,
+  t: number
+): EditablePoint {
+  const inverse = 1 - t
+  const inverse2 = inverse * inverse
+  const inverse3 = inverse2 * inverse
+  const t2 = t * t
+  const t3 = t2 * t
+  return {
+    x: inverse3 * fromPoint.x + 3 * inverse2 * t * cp1.x + 3 * inverse * t2 * cp2.x + t3 * toPoint.x,
+    y: inverse3 * fromPoint.y + 3 * inverse2 * t * cp1.y + 3 * inverse * t2 * cp2.y + t3 * toPoint.y
+  }
+}
+
+function cubicSegmentDistance(
+  point: EditablePoint,
+  fromPoint: EditablePoint,
+  cp1: EditablePoint,
+  cp2: EditablePoint,
+  toPoint: EditablePoint,
+  steps = 24
+) {
+  let minDistance = Math.min(distance(point, fromPoint), distance(point, toPoint))
+  let previousPoint = fromPoint
+  for (let index = 1; index <= steps; index += 1) {
+    const currentPoint = cubicPoint(fromPoint, cp1, cp2, toPoint, index / steps)
+    minDistance = Math.min(minDistance, pointSegmentDistance(point, previousPoint, currentPoint))
+    previousPoint = currentPoint
+  }
+  return minDistance
+}
+
+export function getEditableSegmentByLocalPoint(
+  obj: EditablePathObject,
+  point: EditablePoint,
+  tolerance = 6
+) {
+  const model = ensureEditablePathObject(obj)
+  let bestMatch: { ref: EditableSegmentRef, distance: number } | null = null
+  model.contours.forEach((contour, contourIndex) => {
+    const segments = getBuildSegments(contour)
+    segments.forEach((segment, segmentIndex) => {
+      const fromPoint = contour.points[segment.from]
+      const toPoint = contour.points[segment.to]
+      if (!fromPoint || !toPoint) return
+      const nextDistance = segment.type === 'cubic' && segment.cp1 && segment.cp2
+        ? cubicSegmentDistance(point, fromPoint, segment.cp1, segment.cp2, toPoint)
+        : pointSegmentDistance(point, fromPoint, toPoint)
+      if (nextDistance > tolerance || (bestMatch && nextDistance >= bestMatch.distance)) return
+      const ref = buildEditableSegmentRef(model, contourIndex, segmentIndex)
+      if (!ref) return
+      bestMatch = { ref, distance: nextDistance }
+    })
+  })
+  return bestMatch?.ref ?? null
+}
+
+export function getEditableSegments(obj: EditablePathObject): EditableSegmentRef[] {
+  const model = ensureEditablePathObject(obj)
+  const result: EditableSegmentRef[] = []
+  model.contours.forEach((contour, contourIndex) => {
+    const segments = getBuildSegments(contour)
+    segments.forEach((_segment, segmentIndex) => {
+      const ref = buildEditableSegmentRef(model, contourIndex, segmentIndex)
+      if (ref) result.push(ref)
+    })
+  })
+  return result
+}
+
+export function getEditableSegmentMidpoint(segmentRef: EditableSegmentRef): EditablePoint {
+  const segment = segmentRef.segment
+  if (segment && segment.type === 'cubic' && segment.cp1 && segment.cp2) {
+    return cubicPoint(segmentRef.fromPoint, segment.cp1, segment.cp2, segmentRef.toPoint, 0.5)
+  }
+  return lerp(segmentRef.fromPoint, segmentRef.toPoint, 0.5)
+}
+
+export function isSameEditableSegmentRef(
+  a: EditableSegmentRef | null | undefined,
+  b: EditableSegmentRef | null | undefined
+) {
+  if (!a || !b) return false
+  return a.contourIndex === b.contourIndex
+    && a.segmentIndex === b.segmentIndex
+    && a.fromPointIndex === b.fromPointIndex
+    && a.toPointIndex === b.toPointIndex
 }
 
 export function moveEditablePoint(obj: EditablePathObject, index: number, nextPoint: EditablePoint) {
