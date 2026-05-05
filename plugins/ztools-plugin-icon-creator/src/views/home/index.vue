@@ -73,11 +73,19 @@
       </aside>
 
       <!-- 中间画布区 -->
-      <main class="canvas-area" ref="canvasAreaRef">
-        <div class="canvas-wrapper" :class="{ 'transparent-bg': isCanvasBgTransparent }">
-          <canvas ref="canvasElRef"></canvas>
-        </div>
-      </main>
+      <div class="canvas-frame" :class="{ 'with-ruler': showRuler }">
+        <main class="canvas-area" ref="canvasAreaRef">
+          <div class="canvas-wrapper" ref="canvasWrapperRef" :class="{ 'transparent-bg': isCanvasBgTransparent }">
+            <canvas ref="canvasElRef"></canvas>
+          </div>
+        </main>
+        <Ruler
+          v-if="showRuler"
+          :scroll-el="canvasAreaRef"
+          :wrapper-el="canvasWrapperRef"
+          :zoom="zoom"
+        />
+      </div>
 
       <!-- 右栏 -->
       <aside class="right-panel">
@@ -113,6 +121,46 @@
                 @change="setObjProp('angle', $event)"
               />
               <span class="val-label">{{ Math.round(objProps.angle) }}°</span>
+            </div>
+            <div class="prop-group align-row">
+              <label>对齐</label>
+              <ZPopover
+                :show="alignPopoverVisible"
+                trigger="hover"
+                placement="bottom"
+                :to="false"
+                show-arrow
+                keep-alive-on-hover
+                @update:show="alignPopoverVisible = $event"
+              >
+                <template #trigger>
+                  <button
+                    class="align-btn align-trigger"
+                    :title="currentAlignPosition.label"
+                    @click="alignToCanvas(currentAlignPosition.id)"
+                  >
+                    <svg viewBox="0 0 18 18" aria-hidden="true">
+                      <rect x="1" y="1" width="16" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.2" />
+                      <rect :x="currentAlignPosition.svgX" :y="currentAlignPosition.svgY" width="6" height="4" rx="0.5" fill="currentColor" />
+                    </svg>
+                  </button>
+                </template>
+                <div class="align-grid align-popover-grid">
+                  <button
+                    v-for="pos in alignPositions"
+                    :key="pos.id"
+                    class="align-btn"
+                    :class="{ active: pos.id === currentAlignId }"
+                    :title="pos.label"
+                    @click="selectAlign(pos.id)"
+                  >
+                    <svg viewBox="0 0 18 18" aria-hidden="true">
+                      <rect x="1" y="1" width="16" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.2" />
+                      <rect :x="pos.svgX" :y="pos.svgY" width="6" height="4" rx="0.5" fill="currentColor" />
+                    </svg>
+                  </button>
+                </div>
+              </ZPopover>
             </div>
           </div>
           <div class="prop-section">
@@ -394,6 +442,7 @@ import { AligningGuidelines } from '../../fabric-aligning-guidelines'
 import { basicShapes, textPresets, canvasPresets } from './editorCatalog'
 import type { ShapeLibraryItem, TextLibraryItem } from './editorCatalog'
 import { createShape } from './fabric/shapeFactories'
+import Ruler from './components/Ruler.vue'
 import { isBooleanCandidate, type FabricBooleanStyleSnapshot } from './geometry/fabricToPathKit'
 import { applyBooleanOperation, computeBooleanResult } from './geometry/booleanOps'
 import type { BooleanOperation, SubtractDirection } from './geometry/booleanOps'
@@ -433,6 +482,7 @@ type CurveControlPointKey = 'cp1' | 'cp2'
 // ── refs ──
 const canvasElRef = ref<HTMLCanvasElement | null>(null)
 const canvasAreaRef = ref<HTMLElement | null>(null)
+const canvasWrapperRef = ref<HTMLElement | null>(null)
 const imgInputRef = ref<HTMLInputElement | null>(null)
 
 // ── 状态 ──
@@ -441,16 +491,16 @@ let aligningGuidelines: AligningGuidelines | null = null
 let restoreActiveObjectAfterSelectionClear = false
 
 const leftTab = ref<'shape' | 'text'>('shape')
-const showRuler = ref(false)
+const showRuler = ref(true)
 const zoom = ref(1)
 const activeObject = shallowRef<FabricObject | null>(null)
-const canvasWidth = ref(800)
-const canvasHeight = ref(600)
+const canvasWidth = ref(512)
+const canvasHeight = ref(512)
 const canvasWidthInput = ref(String(canvasWidth.value))
 const canvasHeightInput = ref(String(canvasHeight.value))
 const canvasBg = ref('#ffffff')
 const lastOpaqueCanvasBg = ref('#ffffff')
-const canvasPresetValue = ref('')
+const canvasPresetValue = ref('512x512')
 const canvasPresetOptions = computed(() => canvasPresets.map(({ label, value }) => ({ label, value })))
 const isCanvasBgTransparent = computed(() => isTransparentCanvasBg(canvasBg.value))
 const canvasBgPickerValue = computed(() => (isCanvasBgTransparent.value ? lastOpaqueCanvasBg.value : canvasBg.value))
@@ -922,43 +972,45 @@ function attachPointControls(obj: FabricObject | null) {
   const editable = obj
   originalControlsMap.set(editable, editable.controls as FabricControls)
   const controls: FabricControls = { ...(editable.controls as FabricControls) }
-  getSelectableEditablePoints(editable).forEach(({ index }) => {
-    controls[`ep${index}`] = new Control({
-      actionName: 'modifyEditablePath',
-      cursorStyle: 'crosshair',
-      sizeX: 10,
-      sizeY: 10,
-      touchSizeX: 18,
-      touchSizeY: 18,
-      pointIndex: index,
-      positionHandler: () => getViewportPointForEditablePoint(editable, index),
-      mouseDownHandler: (eventData) => {
-        if (!canEditPoints(editable)) return false
-        selectEditablePoint(editable, index, isMultiSelectModifierPressed(eventData))
-        return false
-      },
-      actionHandler: (_eventData, _transform, x, y) => {
-        if (!canEditPoints(editable)) return false
-        if (!selectedPointIndices.value.includes(index)) {
-          setSelectedEditablePoints(editable, [index])
-        }
-        moveEditablePoint(editable, index, getLocalPointFromCanvas(editable, x, y))
-        updateCurveControls()
-        syncObjProps()
-        return true
-      },
-      mouseUpHandler: () => {
-        snapshot()
-        return false
-      },
-      render: renderPointControl
-    } as Partial<Control> & { pointIndex: number })
-  })
-  // 边选择模式下，新增每条边的中点辅助器，方便直接点击边来选中
+  // 边选择模式下，不展示选点的辅助点，仅展示每条边的中点辅助器，方便直接点击边来选中
   if (selectionMode.value === 'segment') {
     getEditableSegments(editable).forEach((segmentRef) => {
       const key = `es${segmentRef.contourIndex}_${segmentRef.segmentIndex}`
       controls[key] = createSegmentSelectControl(editable, segmentRef)
+    })
+  }
+  else {
+    getSelectableEditablePoints(editable).forEach(({ index }) => {
+      controls[`ep${index}`] = new Control({
+        actionName: 'modifyEditablePath',
+        cursorStyle: 'crosshair',
+        sizeX: 10,
+        sizeY: 10,
+        touchSizeX: 18,
+        touchSizeY: 18,
+        pointIndex: index,
+        positionHandler: () => getViewportPointForEditablePoint(editable, index),
+        mouseDownHandler: (eventData) => {
+          if (!canEditPoints(editable)) return false
+          selectEditablePoint(editable, index, isMultiSelectModifierPressed(eventData))
+          return false
+        },
+        actionHandler: (_eventData, _transform, x, y) => {
+          if (!canEditPoints(editable)) return false
+          if (!selectedPointIndices.value.includes(index)) {
+            setSelectedEditablePoints(editable, [index])
+          }
+          moveEditablePoint(editable, index, getLocalPointFromCanvas(editable, x, y))
+          updateCurveControls()
+          syncObjProps()
+          return true
+        },
+        mouseUpHandler: () => {
+          snapshot()
+          return false
+        },
+        render: renderPointControl
+      } as Partial<Control> & { pointIndex: number })
     })
   }
   controls.curveCp1 = createCurveHandleControl(editable, 'cp1')
@@ -1753,6 +1805,89 @@ function setObjSize(dim: 'width' | 'height', value: number) {
   syncObjProps()
 }
 
+// ── 对齐到画布 ──
+type AlignPositionId =
+  | 'top-left' | 'top-center' | 'top-right'
+  | 'middle-left' | 'middle-center' | 'middle-right'
+  | 'bottom-left' | 'bottom-center' | 'bottom-right'
+
+interface AlignPositionMeta {
+  id: AlignPositionId
+  label: string
+  hAxis: 'left' | 'center' | 'right'
+  vAxis: 'top' | 'middle' | 'bottom'
+  svgX: number
+  svgY: number
+}
+
+const alignPositions: AlignPositionMeta[] = [
+  { id: 'top-left',      label: '左上对齐', hAxis: 'left',   vAxis: 'top',    svgX: 2,  svgY: 2 },
+  { id: 'top-center',    label: '中上对齐', hAxis: 'center', vAxis: 'top',    svgX: 6,  svgY: 2 },
+  { id: 'top-right',     label: '右上对齐', hAxis: 'right',  vAxis: 'top',    svgX: 10, svgY: 2 },
+  { id: 'middle-left',   label: '左中对齐', hAxis: 'left',   vAxis: 'middle', svgX: 2,  svgY: 7 },
+  { id: 'middle-center', label: '正中对齐', hAxis: 'center', vAxis: 'middle', svgX: 6,  svgY: 7 },
+  { id: 'middle-right',  label: '右中对齐', hAxis: 'right',  vAxis: 'middle', svgX: 10, svgY: 7 },
+  { id: 'bottom-left',   label: '左下对齐', hAxis: 'left',   vAxis: 'bottom', svgX: 2,  svgY: 12 },
+  { id: 'bottom-center', label: '中下对齐', hAxis: 'center', vAxis: 'bottom', svgX: 6,  svgY: 12 },
+  { id: 'bottom-right',  label: '右下对齐', hAxis: 'right',  vAxis: 'bottom', svgX: 10, svgY: 12 }
+]
+
+const alignPopoverVisible = ref(false)
+
+const detectedAlignId = computed<AlignPositionId | null>(() => {
+  void layerVersion.value
+  const obj = activeObject.value
+  if (!obj) return null
+  const bounds = obj.getBoundingRect()
+  const tolerance = 0.5
+  let hAxis: AlignPositionMeta['hAxis'] | null = null
+  let vAxis: AlignPositionMeta['vAxis'] | null = null
+  if (Math.abs(bounds.left) <= tolerance) hAxis = 'left'
+  else if (Math.abs(bounds.left + bounds.width - canvasWidth.value) <= tolerance) hAxis = 'right'
+  else if (Math.abs(bounds.left + bounds.width / 2 - canvasWidth.value / 2) <= tolerance) hAxis = 'center'
+  if (Math.abs(bounds.top) <= tolerance) vAxis = 'top'
+  else if (Math.abs(bounds.top + bounds.height - canvasHeight.value) <= tolerance) vAxis = 'bottom'
+  else if (Math.abs(bounds.top + bounds.height / 2 - canvasHeight.value / 2) <= tolerance) vAxis = 'middle'
+  if (!hAxis || !vAxis) return null
+  return alignPositions.find((item) => item.hAxis === hAxis && item.vAxis === vAxis)?.id ?? null
+})
+
+const currentAlignId = computed<AlignPositionId>(() => detectedAlignId.value ?? 'middle-center')
+
+const currentAlignPosition = computed<AlignPositionMeta>(() => (
+  alignPositions.find((item) => item.id === currentAlignId.value) ?? alignPositions[4]
+))
+
+function alignToCanvas(positionId: AlignPositionId) {
+  const obj = activeObject.value
+  if (!obj || !fabricCanvas) return
+  const meta = alignPositions.find((item) => item.id === positionId)
+  if (!meta) return
+  const bounds = obj.getBoundingRect()
+  let targetLeft = bounds.left
+  let targetTop = bounds.top
+  if (meta.hAxis === 'left') targetLeft = 0
+  else if (meta.hAxis === 'center') targetLeft = (canvasWidth.value - bounds.width) / 2
+  else targetLeft = canvasWidth.value - bounds.width
+  if (meta.vAxis === 'top') targetTop = 0
+  else if (meta.vAxis === 'middle') targetTop = (canvasHeight.value - bounds.height) / 2
+  else targetTop = canvasHeight.value - bounds.height
+  const dx = targetLeft - bounds.left
+  const dy = targetTop - bounds.top
+  if (dx === 0 && dy === 0) return
+  obj.set({ left: (obj.left ?? 0) + dx, top: (obj.top ?? 0) + dy })
+  obj.setCoords()
+  fabricCanvas.requestRenderAll()
+  refreshLayers()
+  snapshot()
+  syncObjProps()
+}
+
+function selectAlign(positionId: AlignPositionId) {
+  alignPopoverVisible.value = false
+  alignToCanvas(positionId)
+}
+
 // ── 画布尺寸 ──
 function syncCanvasSizeInputs() {
   canvasWidthInput.value = String(canvasWidth.value)
@@ -2468,6 +2603,20 @@ $panel-bg: #fff;
 }
 
 /* ── 画布区 ── */
+.canvas-frame {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  position: relative;
+}
+.canvas-frame .canvas-area {
+  flex: 1;
+}
+.canvas-frame.with-ruler .canvas-area {
+  padding-top: 24px;
+  padding-left: 24px;
+}
 .canvas-area {
   flex: 1;
   display: flex;
@@ -2506,8 +2655,7 @@ $panel-bg: #fff;
   }
 }
 
-.transparent-swatch,
-.stroke-line-swatch {
+.transparent-swatch {
   position: relative;
   flex: 0 0 28px;
   width: 28px;
@@ -2522,7 +2670,6 @@ $panel-bg: #fff;
   background-position: 0 0, 6px 6px;
   background-size: 12px 12px;
   box-shadow: none;
-  overflow: hidden;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 
   &:hover:not(:disabled) {
@@ -2533,13 +2680,28 @@ $panel-bg: #fff;
     background-position: 0 0, 6px 6px;
     background-size: 12px 12px;
   }
+
+  &.active {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px var(--primary-light-bg);
+  }
 }
 
 .stroke-line-swatch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex: 0 0 28px;
-  border: 1px solid rgba(128, 128, 128, 0.18);
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  box-sizing: border-box;
+  border: 2px solid var(--control-border);
   border-radius: 6px;
   background: #fafafa;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, color 0.15s ease;
 
   &::before {
     content: '';
@@ -2554,9 +2716,14 @@ $panel-bg: #fff;
     border-top-style: dashed;
   }
 
+  &:hover:not(:disabled) {
+    background: #fafafa;
+    border-color: color-mix(in srgb, var(--primary-color), black 15%);
+  }
+
   &.active {
-    border-color: #1e6fff;
-    box-shadow: 0 0 0 2px rgba(30, 111, 255, 0.15);
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px var(--primary-light-bg);
   }
 }
 
@@ -2600,6 +2767,68 @@ $panel-bg: #fff;
   display: grid!important;
   grid-template-columns: 28px 20px 1fr 1fr;
   column-gap: 4px;
+}
+.align-row {
+  display: grid!important;
+  grid-template-columns: 36px 1fr;
+  column-gap: 8px;
+  align-items: center;
+  :deep(.zt-popover) {
+    justify-self: end;
+  }
+}
+.align-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-auto-rows: 1fr;
+  gap: 4px;
+  width: 100%;
+}
+.align-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 3px;
+  border: 1px solid rgba(128, 128, 128, 0.25);
+  border-radius: 5px;
+  background: #fff;
+  color: #555;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+  &:hover {
+    background: color-mix(in srgb, var(--primary-color) 8%, #fff);
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+  }
+  &.active {
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+    background: color-mix(in srgb, var(--primary-color) 12%, #fff);
+  }
+  &.align-trigger {
+    color: var(--primary-color);
+  }
+  svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+}
+.align-grid .align-btn {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+}
+.align-popover-grid {
+  width: 108px;
+}
+:deep(.zt-popover__panel:has(.align-popover-grid) .zt-popover__content) {
+  min-width: 0;
+}
+:deep(.zt-popover__panel:has(.align-popover-grid) .zt-popover__body--card) {
+  padding: 8px;
 }
 .prop-group {
   display: flex;
