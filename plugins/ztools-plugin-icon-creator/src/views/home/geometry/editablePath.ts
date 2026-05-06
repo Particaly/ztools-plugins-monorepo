@@ -696,6 +696,61 @@ export function moveEditablePoint(obj: EditablePathObject, index: number, nextPo
   obj.setCoords()
 }
 
+/**
+ * 批量平移多个 anchor 点位。
+ * - 以 leadIndex 这一点的 (leadNextPoint - 当前 local 坐标) 计算统一 delta
+ * - 对所有 indices 中存在的 anchor 点应用同一个 delta
+ * - 不修改任何 segment 的 cp1 / cp2 控制点
+ * - 整批修改完只 rebuild 一次 path
+ * - 根据 lead point 在父平面的位置一次性补偿 obj.left / obj.top，保证被抓住的点跟手
+ */
+export function moveEditablePoints(
+  obj: EditablePathObject,
+  indices: number[],
+  leadIndex: number,
+  leadNextPoint: EditablePoint
+) {
+  const model = ensureEditablePathObject(obj)
+  const leadRef = resolveEditablePoint(model, leadIndex)
+  if (!leadRef) return
+  const uniqueIndices = Array.from(new Set(indices))
+    .filter((index) => Number.isInteger(index) && index >= 0)
+  const refs: EditablePointRef[] = []
+  const seenPoints = new Set<EditablePoint>()
+  for (const index of uniqueIndices) {
+    const ref = resolveEditablePoint(model, index)
+    if (!ref) continue
+    if (seenPoints.has(ref.point)) continue
+    seenPoints.add(ref.point)
+    refs.push(ref)
+  }
+  if (!seenPoints.has(leadRef.point)) {
+    refs.push(leadRef)
+    seenPoints.add(leadRef.point)
+  }
+  const dx = leadNextPoint.x - leadRef.point.x
+  const dy = leadNextPoint.y - leadRef.point.y
+  if (dx === 0 && dy === 0) return
+  // lead point 在父平面下变换前的位置，用于只补偿一次 obj.left / obj.top
+  const leadAnchorBefore = new Point(leadRef.point.x, leadRef.point.y)
+    .subtract(obj.pathOffset)
+    .transform(obj.calcOwnMatrix())
+  for (const ref of refs) {
+    ref.point.x += dx
+    ref.point.y += dy
+  }
+  const path = buildEditablePathData(obj)
+  ;(obj as any)._setPath(path as TSimplePathData, false)
+  const leadAnchorAfter = new Point(leadRef.point.x, leadRef.point.y)
+    .subtract(obj.pathOffset)
+    .transform(obj.calcOwnMatrix())
+  const diff = leadAnchorAfter.subtract(leadAnchorBefore)
+  obj.left = (obj.left ?? 0) - diff.x
+  obj.top = (obj.top ?? 0) - diff.y
+  obj.dirty = true
+  obj.setCoords()
+}
+
 export function editablePointToLocalObjectPoint(obj: EditablePathObject, index: number) {
   const model = ensureEditablePathObject(obj)
   const point = resolveEditablePoint(model, index)?.point
