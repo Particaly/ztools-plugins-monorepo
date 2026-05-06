@@ -21,6 +21,21 @@ export type PathKitToFabricOptions = {
 
 type AnyFabricPath = Path & Record<string, any>
 
+const DEFAULT_KALEIDOSCOPE_COUNT = 6
+
+function applyDefaultKaleidoscopeMetadata(obj: Path) {
+  const target = obj as AnyFabricPath
+  target.kaleidoscopeEnabled = false
+  target.kaleidoscopeCenterX = 0
+  target.kaleidoscopeCenterY = 0
+  target.kaleidoscopeFollowRotation = false
+  target.kaleidoscopeCount = DEFAULT_KALEIDOSCOPE_COUNT
+  target.kaleidoscopeSourceId = ''
+  target.kaleidoscopeManaged = false
+  target.kaleidoscopeInstanceOf = ''
+  target.kaleidoscopeInstanceIndex = 0
+}
+
 type EditableCornerRadiusState = {
   cornerRadius: number
   overrides: Array<number | null>
@@ -158,6 +173,7 @@ export function pathKitToFabricPath(path: PathKitPath, options: PathKitToFabricO
     custom.booleanEligible = !options.preview
     custom.booleanPreview = !!options.preview
     custom.excludeFromExport = !!options.preview
+    applyDefaultKaleidoscopeMetadata(result)
     result.setCoords()
     return result
   } finally {

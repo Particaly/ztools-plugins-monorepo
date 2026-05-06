@@ -89,316 +89,384 @@
 
       <!-- 右栏 -->
       <aside class="right-panel">
-        <!-- 对象属性 -->
-        <template v-if="activeObject">
-          <div class="prop-section">
-            <div class="prop-group transform-row">
-              <label>位置</label>
-              <span class="size-lock-spacer"></span>
-              <ZInput size="small" type="text" :model-value="Math.round(objProps.left)" @change="setObjProp('left', uiNum($event))" />
-              <ZInput size="small" type="text" :model-value="Math.round(objProps.top)" @change="setObjProp('top', uiNum($event))" />
-            </div>
-            <div class="prop-group transform-row">
-              <label>尺寸</label>
-              <Icon
-                class="size-lock-icon"
-                :class="{ active: sizeRatioLocked }"
-                :icon="sizeRatioLocked ? 'mdi:lock' : 'mdi:lock-open-variant'"
-                :title="sizeRatioLocked ? '解锁宽高比例' : '锁定宽高比例'"
-                @click="toggleSizeRatioLock"
-              />
-              <ZInput size="small" type="text" :model-value="Math.round(objProps.width)" @change="setObjSize('width', uiNum($event))" />
-              <ZInput size="small" type="text" :model-value="Math.round(objProps.height)" @change="setObjSize('height', uiNum($event))" />
-            </div>
-            <div class="prop-group rotation-row">
-              <label>旋转</label>
-              <ZSlider
-                :model-value="objProps.angle"
-                :min="0"
-                :max="360"
-                :step="1"
-                :formatter="(value) => `${Math.round(value)}°`"
-                @change="setObjProp('angle', $event)"
-              />
-              <span class="val-label">{{ Math.round(objProps.angle) }}°</span>
-            </div>
-            <div class="prop-group align-row">
-              <label>对齐</label>
-              <ZPopover
-                :show="alignPopoverVisible"
-                trigger="hover"
-                placement="bottom"
-                :to="false"
-                show-arrow
-                keep-alive-on-hover
-                @update:show="alignPopoverVisible = $event"
-              >
-                <template #trigger>
-                  <button
-                    class="align-btn align-trigger"
-                    :title="currentAlignPosition.label"
-                    @click="alignToCanvas(currentAlignPosition.id)"
-                  >
-                    <svg viewBox="0 0 18 18" aria-hidden="true">
-                      <rect x="1" y="1" width="16" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.2" />
-                      <rect :x="currentAlignPosition.svgX" :y="currentAlignPosition.svgY" width="6" height="4" rx="0.5" fill="currentColor" />
-                    </svg>
-                  </button>
+        <ZTabs
+          v-model:value="activeRightTab"
+          class="right-tabs"
+          type="line"
+          size="small"
+          placement="top"
+          :animated="false"
+          justify-content="start"
+          pane-wrapper-class="right-tabs-pane-wrapper"
+          pane-class="right-tabs-pane"
+        >
+          <ZTabPane name="properties" tab="属性" display-directive="show">
+            <div class="right-panel-scroll">
+              <!-- 对象属性 -->
+              <template v-if="activeObject">
+                <template v-if="activeKaleidoscopeInstance">
+                  <div class="prop-section">
+                    <div class="prop-actions instance-actions">
+                      <button class="tb-btn" @click="selectKaleidoscopeSourceFromInstance">选中源对象</button>
+                      <button class="tb-btn" @click="detachKaleidoscopeInstance">脱离万花筒</button>
+                    </div>
+                  </div>
                 </template>
-                <div class="align-grid align-popover-grid">
-                  <button
-                    v-for="pos in alignPositions"
-                    :key="pos.id"
-                    class="align-btn"
-                    :class="{ active: pos.id === currentAlignId }"
-                    :title="pos.label"
-                    @click="selectAlign(pos.id)"
-                  >
-                    <svg viewBox="0 0 18 18" aria-hidden="true">
-                      <rect x="1" y="1" width="16" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.2" />
-                      <rect :x="pos.svgX" :y="pos.svgY" width="6" height="4" rx="0.5" fill="currentColor" />
-                    </svg>
-                  </button>
+                <template v-else>
+                <div class="prop-section">
+                  <div class="prop-group transform-row">
+                    <label>位置</label>
+                    <span class="size-lock-spacer"></span>
+                    <ZInput size="small" type="text" :model-value="Math.round(objProps.left)" @change="setObjProp('left', uiNum($event))" />
+                    <ZInput size="small" type="text" :model-value="Math.round(objProps.top)" @change="setObjProp('top', uiNum($event))" />
+                  </div>
+                  <div class="prop-group transform-row">
+                    <label>尺寸</label>
+                    <Icon
+                      class="size-lock-icon"
+                      :class="{ active: sizeRatioLocked }"
+                      :icon="sizeRatioLocked ? 'mdi:lock' : 'mdi:lock-open-variant'"
+                      :title="sizeRatioLocked ? '解锁宽高比例' : '锁定宽高比例'"
+                      @click="toggleSizeRatioLock"
+                    />
+                    <ZInput size="small" type="text" :model-value="Math.round(objProps.width)" @change="setObjSize('width', uiNum($event))" />
+                    <ZInput size="small" type="text" :model-value="Math.round(objProps.height)" @change="setObjSize('height', uiNum($event))" />
+                  </div>
+                  <div class="prop-group rotation-row">
+                    <label>旋转</label>
+                    <ZSlider
+                      :model-value="objProps.angle"
+                      :min="0"
+                      :max="360"
+                      :step="1"
+                      :formatter="(value) => `${Math.round(value)}°`"
+                      @change="setObjProp('angle', $event)"
+                    />
+                    <span class="val-label">{{ Math.round(objProps.angle) }}°</span>
+                  </div>
+                  <div class="prop-group align-row">
+                    <label>对齐</label>
+                    <ZPopover
+                      :show="alignPopoverVisible"
+                      trigger="hover"
+                      placement="bottom"
+                      :to="false"
+                      show-arrow
+                      keep-alive-on-hover
+                      @update:show="alignPopoverVisible = $event"
+                    >
+                      <template #trigger>
+                        <button
+                          class="align-btn align-trigger"
+                          :title="currentAlignPosition.label"
+                          @click="alignToCanvas(currentAlignPosition.id)"
+                        >
+                          <svg viewBox="0 0 18 18" aria-hidden="true">
+                            <rect x="1" y="1" width="16" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.2" />
+                            <rect :x="currentAlignPosition.svgX" :y="currentAlignPosition.svgY" width="6" height="4" rx="0.5" fill="currentColor" />
+                          </svg>
+                        </button>
+                      </template>
+                      <div class="align-grid align-popover-grid">
+                        <button
+                          v-for="pos in alignPositions"
+                          :key="pos.id"
+                          class="align-btn"
+                          :class="{ active: pos.id === currentAlignId }"
+                          :title="pos.label"
+                          @click="selectAlign(pos.id)"
+                        >
+                          <svg viewBox="0 0 18 18" aria-hidden="true">
+                            <rect x="1" y="1" width="16" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.2" />
+                            <rect :x="pos.svgX" :y="pos.svgY" width="6" height="4" rx="0.5" fill="currentColor" />
+                          </svg>
+                        </button>
+                      </div>
+                    </ZPopover>
+                  </div>
                 </div>
-              </ZPopover>
-            </div>
-          </div>
-          <div class="prop-section">
-            <div class="prop-group style-toggle-row">
-              <label>填充</label>
-              <ZSwitch size="small" :model-value="objProps.fillEnabled" @change="toggleFill" />
-            </div>
-            <div v-if="objProps.fillEnabled" class="prop-group style-color-row">
-              <label>填充色</label>
-              <ZColorPicker
-                size="small"
-                show-alpha
-                :model-value="objProps.fill || '#000000'"
-                @change="setObjProp('fill', String($event))"
-              />
-            </div>
-          </div>
-          <div class="prop-section">
-            <div class="prop-group style-toggle-row">
-              <label>描边</label>
-              <ZSwitch size="small" :model-value="objProps.strokeEnabled" @change="toggleStroke" />
-            </div>
-            <div v-if="objProps.strokeEnabled" class="prop-group style-color-row">
-              <label>描边色</label>
-              <ZColorPicker
-                size="small"
-                show-alpha
-                :model-value="objProps.stroke || '#000000'"
-                @change="setObjProp('stroke', String($event))"
-              />
-            </div>
-            <div v-if="objProps.strokeEnabled" class="prop-group style-color-row">
-              <label>描边宽</label>
-              <ZInput size="small" type="text" :model-value="objProps.strokeWidth" @change="setObjProp('strokeWidth', uiNum($event))" />
-            </div>
-            <div v-if="objProps.strokeEnabled" class="prop-group">
-              <label>线型</label>
-              <div class="stroke-line-type-picker">
-                <button
-                  class="stroke-line-swatch solid"
-                  :class="{ active: objProps.strokeLineType === 'solid' }"
-                  title="实线"
-                  @click="setStrokeLineType('solid')"
-                />
-                <button
-                  class="stroke-line-swatch dashed"
-                  :class="{ active: objProps.strokeLineType === 'dashed' }"
-                  title="虚线"
-                  @click="setStrokeLineType('dashed')"
-                />
-              </div>
-            </div>
-            <div v-if="objProps.strokeEnabled && objProps.strokeLineType === 'dashed'" class="prop-group style-color-row">
-              <label>虚线线长</label>
-              <ZInput
-                size="small"
-                type="text"
-                :model-value="objProps.strokeDashLengthInput"
-                @update:model-value="objProps.strokeDashLengthInput = String($event)"
-                @change="setStrokeDashLengthFromInput"
-              />
-            </div>
-            <div v-if="objProps.strokeEnabled && objProps.strokeLineType === 'dashed'" class="prop-group style-color-row">
-              <label>虚线间隔</label>
-              <ZInput
-                size="small"
-                type="text"
-                :model-value="objProps.strokeDashGapInput"
-                @update:model-value="objProps.strokeDashGapInput = String($event)"
-                @change="setStrokeDashGapFromInput"
-              />
-            </div>
-          </div>
-          <div class="prop-section">
-            <div class="prop-group opacity-row">
-              <label>透明度</label>
-              <ZSlider
-                :model-value="objProps.opacity"
-                :min="0"
-                :max="1"
-                :step="0.01"
-                :formatter="(value) => `${Math.round(value * 100)}%`"
-                @change="setObjProp('opacity', $event)"
-              />
-              <span class="val-label">{{ Math.round(objProps.opacity * 100) }}%</span>
-            </div>
-          </div>
-          <div v-if="hasEditablePoints" class="prop-section">
-            <div v-if="!hasSelectedPoint" class="prop-group style-color-row">
-              <label>圆角</label>
-              <ZInput
-                size="small"
-                type="text"
-                :model-value="objProps.cornerRadiusInput"
-                @update:model-value="objProps.cornerRadiusInput = String($event)"
-                @change="setCornerRadiusFromInput"
-              />
-            </div>
-            <div v-else class="prop-group style-color-row">
-              <label>点圆角</label>
-              <ZInput
-                size="small"
-                type="text"
-                :model-value="objProps.pointCornerRadiusInput"
-                @update:model-value="objProps.pointCornerRadiusInput = String($event)"
-                @change="setSelectedPointCornerRadiusFromInput"
-              />
-            </div>
-          </div>
-          <div v-if="hasSelectedCurveSegment" class="prop-section">
-            <div class="prop-group style-toggle-row">
-              <label>曲线</label>
-              <ZSwitch size="small" :model-value="objProps.curveEnabled" @change="setSelectedSegmentCurveEnabled" />
-            </div>
-            <div class="prop-group bezier-group-row">
-              <label>CP1</label>
-              <ZInput
-                size="small"
-                type="text"
-                :model-value="objProps.curveCp1XInput"
-                @update:model-value="objProps.curveCp1XInput = String($event)"
-                @change="setSelectedSegmentControlPointCoordFromInput('cp1', 'x', $event)"
-              />
-              <ZInput
-                size="small"
-                type="text"
-                :model-value="objProps.curveCp1YInput"
-                @update:model-value="objProps.curveCp1YInput = String($event)"
-                @change="setSelectedSegmentControlPointCoordFromInput('cp1', 'y', $event)"
-              />
-            </div>
-            <div class="prop-group bezier-group-row">
-              <label>CP2</label>
-              <ZInput
-                size="small"
-                type="text"
-                :model-value="objProps.curveCp2XInput"
-                @update:model-value="objProps.curveCp2XInput = String($event)"
-                @change="setSelectedSegmentControlPointCoordFromInput('cp2', 'x', $event)"
-              />
-              <ZInput
-                size="small"
-                type="text"
-                :model-value="objProps.curveCp2YInput"
-                @update:model-value="objProps.curveCp2YInput = String($event)"
-                @change="setSelectedSegmentControlPointCoordFromInput('cp2', 'y', $event)"
-              />
-            </div>
-          </div>
-          <div class="prop-actions boolean-actions">
-            <button class="tb-btn" @mouseenter="showBooleanPreview('union')" @mouseleave="clearBooleanPreview" @click="runBooleanOperation('union')" :disabled="!canBoolean">并集</button>
-            <button class="tb-btn" @mouseenter="showBooleanPreview('intersect')" @mouseleave="clearBooleanPreview" @click="runBooleanOperation('intersect')" :disabled="!canBoolean">交集</button>
-            <ZPopover
-              v-if="canBoolean"
-              :show="subtractPopoverVisible"
-              trigger="hover"
-              placement="top"
-              :to="false"
-              show-arrow
-              keep-alive-on-hover
-              @update:show="handleSubtractPopoverShowChange"
-            >
-              <template #trigger>
-                <button class="tb-btn" @mouseenter="showBooleanPreview('subtract')" @click="runBooleanOperation('subtract')">差集</button>
-              </template>
-              <div class="boolean-preview-menu">
-                <template v-if="canDirectionalSubtract">
-                  <button class="tb-btn sm boolean-preview-option" @mouseenter="showBooleanPreview('subtract', 'forward')" @click="runBooleanOperation('subtract', 'forward')">A - B</button>
-                  <button class="tb-btn sm boolean-preview-option" @mouseenter="showBooleanPreview('subtract', 'reverse')" @click="runBooleanOperation('subtract', 'reverse')">B - A</button>
+                <div class="prop-section">
+                  <div class="prop-group style-toggle-row">
+                    <label>填充</label>
+                    <ZSwitch size="small" :model-value="objProps.fillEnabled" @change="toggleFill" />
+                  </div>
+                  <div v-if="objProps.fillEnabled" class="prop-group style-color-row">
+                    <label>填充色</label>
+                    <ZColorPicker
+                      size="small"
+                      show-alpha
+                      :model-value="objProps.fill || '#000000'"
+                      @change="setObjProp('fill', String($event))"
+                    />
+                  </div>
+                </div>
+                <div class="prop-section">
+                  <div class="prop-group style-toggle-row">
+                    <label>描边</label>
+                    <ZSwitch size="small" :model-value="objProps.strokeEnabled" @change="toggleStroke" />
+                  </div>
+                  <div v-if="objProps.strokeEnabled" class="prop-group style-color-row">
+                    <label>描边色</label>
+                    <ZColorPicker
+                      size="small"
+                      show-alpha
+                      :model-value="objProps.stroke || '#000000'"
+                      @change="setObjProp('stroke', String($event))"
+                    />
+                  </div>
+                  <div v-if="objProps.strokeEnabled" class="prop-group style-color-row">
+                    <label>描边宽</label>
+                    <ZInput size="small" type="text" :model-value="objProps.strokeWidth" @change="setObjProp('strokeWidth', uiNum($event))" />
+                  </div>
+                  <div v-if="objProps.strokeEnabled" class="prop-group">
+                    <label>线型</label>
+                    <div class="stroke-line-type-picker">
+                      <button
+                        class="stroke-line-swatch solid"
+                        :class="{ active: objProps.strokeLineType === 'solid' }"
+                        title="实线"
+                        @click="setStrokeLineType('solid')"
+                      />
+                      <button
+                        class="stroke-line-swatch dashed"
+                        :class="{ active: objProps.strokeLineType === 'dashed' }"
+                        title="虚线"
+                        @click="setStrokeLineType('dashed')"
+                      />
+                    </div>
+                  </div>
+                  <div v-if="objProps.strokeEnabled && objProps.strokeLineType === 'dashed'" class="prop-group style-color-row">
+                    <label>虚线线长</label>
+                    <ZInput
+                      size="small"
+                      type="text"
+                      :model-value="objProps.strokeDashLengthInput"
+                      @update:model-value="objProps.strokeDashLengthInput = String($event)"
+                      @change="setStrokeDashLengthFromInput"
+                    />
+                  </div>
+                  <div v-if="objProps.strokeEnabled && objProps.strokeLineType === 'dashed'" class="prop-group style-color-row">
+                    <label>虚线间隔</label>
+                    <ZInput
+                      size="small"
+                      type="text"
+                      :model-value="objProps.strokeDashGapInput"
+                      @update:model-value="objProps.strokeDashGapInput = String($event)"
+                      @change="setStrokeDashGapFromInput"
+                    />
+                  </div>
+                </div>
+                <div class="prop-section">
+                  <div class="prop-group opacity-row">
+                    <label>透明度</label>
+                    <ZSlider
+                      :model-value="objProps.opacity"
+                      :min="0"
+                      :max="1"
+                      :step="0.01"
+                      :formatter="(value) => `${Math.round(value * 100)}%`"
+                      @change="setObjProp('opacity', $event)"
+                    />
+                    <span class="val-label">{{ Math.round(objProps.opacity * 100) }}%</span>
+                  </div>
+                </div>
+                <div v-if="hasEditablePoints" class="prop-section">
+                  <div v-if="!hasSelectedPoint" class="prop-group style-color-row">
+                    <label>圆角</label>
+                    <ZInput
+                      size="small"
+                      type="text"
+                      :model-value="objProps.cornerRadiusInput"
+                      @update:model-value="objProps.cornerRadiusInput = String($event)"
+                      @change="setCornerRadiusFromInput"
+                    />
+                  </div>
+                  <div v-else class="prop-group style-color-row">
+                    <label>点圆角</label>
+                    <ZInput
+                      size="small"
+                      type="text"
+                      :model-value="objProps.pointCornerRadiusInput"
+                      @update:model-value="objProps.pointCornerRadiusInput = String($event)"
+                      @change="setSelectedPointCornerRadiusFromInput"
+                    />
+                  </div>
+                </div>
+                <div v-if="hasSelectedCurveSegment" class="prop-section">
+                  <div class="prop-group style-toggle-row">
+                    <label>曲线</label>
+                    <ZSwitch size="small" :model-value="objProps.curveEnabled" @change="setSelectedSegmentCurveEnabled" />
+                  </div>
+                  <div v-if="objProps.curveEnabled" class="prop-group bezier-group-row">
+                    <label>CP1</label>
+                    <ZInput
+                      size="small"
+                      type="text"
+                      :model-value="objProps.curveCp1XInput"
+                      @update:model-value="objProps.curveCp1XInput = String($event)"
+                      @change="setSelectedSegmentControlPointCoordFromInput('cp1', 'x', $event)"
+                    />
+                    <ZInput
+                      size="small"
+                      type="text"
+                      :model-value="objProps.curveCp1YInput"
+                      @update:model-value="objProps.curveCp1YInput = String($event)"
+                      @change="setSelectedSegmentControlPointCoordFromInput('cp1', 'y', $event)"
+                    />
+                  </div>
+                  <div v-if="objProps.curveEnabled" class="prop-group bezier-group-row">
+                    <label>CP2</label>
+                    <ZInput
+                      size="small"
+                      type="text"
+                      :model-value="objProps.curveCp2XInput"
+                      @update:model-value="objProps.curveCp2XInput = String($event)"
+                      @change="setSelectedSegmentControlPointCoordFromInput('cp2', 'x', $event)"
+                    />
+                    <ZInput
+                      size="small"
+                      type="text"
+                      :model-value="objProps.curveCp2YInput"
+                      @update:model-value="objProps.curveCp2YInput = String($event)"
+                      @change="setSelectedSegmentControlPointCoordFromInput('cp2', 'y', $event)"
+                    />
+                  </div>
+                </div>
+                <div class="prop-section">
+                  <div class="prop-group style-toggle-row">
+                    <label>万花筒</label>
+                    <ZSwitch
+                      size="small"
+                      :model-value="objProps.kaleidoscopeEnabled"
+                      :disabled="!activeKaleidoscopeEditableSource"
+                      @change="setKaleidoscopeEnabled"
+                    />
+                  </div>
+                  <template v-if="activeKaleidoscopeEditableSource && objProps.kaleidoscopeEnabled">
+                    <div class="prop-group bezier-group-row">
+                      <label>中心点</label>
+                      <ZInput
+                        size="small"
+                        type="text"
+                        :model-value="objProps.kaleidoscopeCenterXInput"
+                        @update:model-value="objProps.kaleidoscopeCenterXInput = String($event)"
+                        @change="setKaleidoscopeCenterFromInput('x', $event)"
+                      />
+                      <ZInput
+                        size="small"
+                        type="text"
+                        :model-value="objProps.kaleidoscopeCenterYInput"
+                        @update:model-value="objProps.kaleidoscopeCenterYInput = String($event)"
+                        @change="setKaleidoscopeCenterFromInput('y', $event)"
+                      />
+                    </div>
+                    <div class="prop-group style-toggle-row">
+                      <label>跟随旋转</label>
+                      <ZSwitch size="small" :model-value="objProps.kaleidoscopeFollowRotation" @change="setKaleidoscopeFollowRotation" />
+                    </div>
+                    <div class="prop-group style-color-row">
+                      <label>份数</label>
+                      <ZInput
+                        size="small"
+                        type="text"
+                        :model-value="objProps.kaleidoscopeCountInput"
+                        @update:model-value="objProps.kaleidoscopeCountInput = String($event)"
+                        @change="setKaleidoscopeCountFromInput"
+                      />
+                    </div>
+                  </template>
+                </div>
+                <div class="prop-actions boolean-actions">
+                  <button class="tb-btn" @mouseenter="showBooleanPreview('union')" @mouseleave="clearBooleanPreview" @click="runBooleanOperation('union')" :disabled="!canBoolean">并集</button>
+                  <button class="tb-btn" @mouseenter="showBooleanPreview('intersect')" @mouseleave="clearBooleanPreview" @click="runBooleanOperation('intersect')" :disabled="!canBoolean">交集</button>
+                  <ZPopover
+                    v-if="canBoolean"
+                    :show="subtractPopoverVisible"
+                    trigger="hover"
+                    placement="top"
+                    :to="false"
+                    show-arrow
+                    keep-alive-on-hover
+                    @update:show="handleSubtractPopoverShowChange"
+                  >
+                    <template #trigger>
+                      <button class="tb-btn" @mouseenter="showBooleanPreview('subtract')" @click="runBooleanOperation('subtract')">差集</button>
+                    </template>
+                    <div class="boolean-preview-menu">
+                      <template v-if="canDirectionalSubtract">
+                        <button class="tb-btn sm boolean-preview-option" @mouseenter="showBooleanPreview('subtract', 'forward')" @click="runBooleanOperation('subtract', 'forward')">A - B</button>
+                        <button class="tb-btn sm boolean-preview-option" @mouseenter="showBooleanPreview('subtract', 'reverse')" @click="runBooleanOperation('subtract', 'reverse')">B - A</button>
+                      </template>
+                      <div v-else class="boolean-preview-note">多对象差集预览当前默认结果</div>
+                    </div>
+                  </ZPopover>
+                  <button v-else class="tb-btn" disabled>差集</button>
+                  <button class="tb-btn" @mouseenter="showBooleanPreview('xor')" @mouseleave="clearBooleanPreview" @click="runBooleanOperation('xor')" :disabled="!canBoolean">异或</button>
+                  <span v-if="booleanBusy" class="boolean-status">处理中...</span>
+                  <span v-if="booleanError" class="boolean-error">{{ booleanError }}</span>
+                </div>
+                <div class="prop-actions">
+                  <button class="tb-btn" @click="groupObjects" :disabled="!canGroup">成组</button>
+                  <button class="tb-btn" @click="ungroupObject" :disabled="!canUngroup">解组</button>
+                  <button class="tb-btn" @click="lockObject">{{ activeObject.lockMovementX ? '解锁' : '锁定' }}</button>
+                  <button class="tb-btn danger" @click="deleteObject">删除</button>
+                </div>
                 </template>
-                <div v-else class="boolean-preview-note">多对象差集预览当前默认结果</div>
-              </div>
-            </ZPopover>
-            <button v-else class="tb-btn" disabled>差集</button>
-            <button class="tb-btn" @mouseenter="showBooleanPreview('xor')" @mouseleave="clearBooleanPreview" @click="runBooleanOperation('xor')" :disabled="!canBoolean">异或</button>
-            <span v-if="booleanBusy" class="boolean-status">处理中...</span>
-            <span v-if="booleanError" class="boolean-error">{{ booleanError }}</span>
-          </div>
-          <div class="prop-actions">
-            <button class="tb-btn" @click="groupObjects" :disabled="!canGroup">成组</button>
-            <button class="tb-btn" @click="ungroupObject" :disabled="!canUngroup">解组</button>
-            <button class="tb-btn" @click="lockObject">{{ activeObject.lockMovementX ? '解锁' : '锁定' }}</button>
-            <button class="tb-btn danger" @click="deleteObject">删除</button>
-          </div>
-        </template>
-
-        <!-- 画布设置（无选中时） -->
-        <template v-else>
-          <div class="section-title">画布设置</div>
-          <div class="prop-group">
-            <label>预设</label>
-            <ZSelect
-              size="small"
-              class="w-100%"
-              :model-value="canvasPresetValue"
-              :options="canvasPresetOptions"
-              placeholder="请选择预设"
-              @change="applyCanvasPreset(String($event))"
-            />
-          </div>
-          <div class="prop-group">
-            <label>宽高</label>
-            <ZInput
-              size="small"
-              type="text"
-              :model-value="canvasWidthInput"
-              @update:model-value="canvasWidthInput = String($event)"
-              @change="setCanvasSizeFromInput('width', $event)"
-            />
-            <ZInput
-              size="small"
-              type="text"
-              :model-value="canvasHeightInput"
-              @update:model-value="canvasHeightInput = String($event)"
-              @change="setCanvasSizeFromInput('height', $event)"
-            />
-          </div>
-          <div class="prop-group">
-            <label>背景</label>
-            <div class="canvas-bg-picker">
-              <ZButton
-                class="transparent-swatch"
-                :class="{ active: isCanvasBgTransparent }"
-                title="透明"
-                @click="setCanvasBg('transparent')"
-              />
-              <ZColorPicker
-                size="small"
-                :show-input="false"
-                :model-value="canvasBgPickerValue"
-                @change="setCanvasBg(String($event))"
-              />
+              </template>
+              <template v-else>
+                <div class="section-title">画布设置</div>
+                <div class="prop-group">
+                  <label>预设</label>
+                  <ZSelect
+                    size="small"
+                    class="w-100%"
+                    :model-value="canvasPresetValue"
+                    :options="canvasPresetOptions"
+                    placeholder="请选择预设"
+                    @change="applyCanvasPreset(String($event))"
+                  />
+                </div>
+                <div class="prop-group">
+                  <label>宽高</label>
+                  <ZInput
+                    size="small"
+                    type="text"
+                    :model-value="canvasWidthInput"
+                    @update:model-value="canvasWidthInput = String($event)"
+                    @change="setCanvasSizeFromInput('width', $event)"
+                  />
+                  <ZInput
+                    size="small"
+                    type="text"
+                    :model-value="canvasHeightInput"
+                    @update:model-value="canvasHeightInput = String($event)"
+                    @change="setCanvasSizeFromInput('height', $event)"
+                  />
+                </div>
+                <div class="prop-group">
+                  <label>背景</label>
+                  <div class="canvas-bg-picker">
+                    <ZButton
+                      class="transparent-swatch"
+                      :class="{ active: isCanvasBgTransparent }"
+                      title="透明"
+                      @click="setCanvasBg('transparent')"
+                    />
+                    <ZColorPicker
+                      size="small"
+                      :show-input="false"
+                      :model-value="canvasBgPickerValue"
+                      @change="setCanvasBg(String($event))"
+                    />
+                  </div>
+                </div>
+              </template>
             </div>
-          </div>
-        </template>
-
+          </ZTabPane>
+          <ZTabPane name="layers" tab="图层" display-directive="show">
+            <div class="right-panel-scroll">
         <!-- 图层区 -->
-        <div class="section-title layer-header">
+        <div class="section-title">
           <span>图层</span>
         </div>
         <div class="layer-toolbar">
@@ -408,7 +476,7 @@
           <button class="tb-btn xs" @click="layerBottom" title="置底"><Icon icon="mdi:arrow-collapse-down" /></button>
           <ZInput class="layer-search" size="small" type="text" placeholder="搜索" v-model="layerSearch" />
         </div>
-        <div class="layer-list">
+        <div v-if="filteredLayers.length" class="layer-list">
           <div
             v-for="item in filteredLayers" :key="item.id"
             class="layer-item"
@@ -425,7 +493,13 @@
             <button class="layer-icon-btn danger" @click.stop="removeObject(item.obj)"><Icon icon="mdi:close" /></button>
           </div>
         </div>
-      </aside>
+        <div v-else class="layer-empty">
+          {{ layerSearch.trim() ? '未找到匹配的图层' : '当前没有图层' }}
+        </div>
+      </div>
+    </ZTabPane>
+  </ZTabs>
+</aside>
     </div>
 
     <!-- 隐藏的文件输入 -->
@@ -435,7 +509,7 @@
 
 <script setup lang="ts">
 import { ref, shallowRef, triggerRef, reactive, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
-import { ZInput, ZSelect, ZColorPicker, ZSwitch, ZSlider, ZPopover, ZButton } from 'ztools-ui'
+import { ZInput, ZSelect, ZColorPicker, ZSwitch, ZSlider, ZPopover, ZButton, ZTabs, ZTabPane } from 'ztools-ui'
 import { Icon } from '@iconify/vue'
 import { Canvas, Control, FabricObject, Textbox, Group, ActiveSelection, FabricImage, Point, util } from 'fabric'
 import { AligningGuidelines } from '../../fabric-aligning-guidelines'
@@ -479,6 +553,47 @@ type BooleanPreviewHiddenObject = {
 type StrokeLineType = 'solid' | 'dashed'
 type CurveControlPointKey = 'cp1' | 'cp2'
 
+type KaleidoscopeMetadata = {
+  kaleidoscopeEnabled?: boolean
+  kaleidoscopeCenterX?: number
+  kaleidoscopeCenterY?: number
+  kaleidoscopeFollowRotation?: boolean
+  kaleidoscopeCount?: number
+  kaleidoscopeSourceId?: string
+  kaleidoscopeManaged?: boolean
+  kaleidoscopeInstanceOf?: string
+  kaleidoscopeInstanceIndex?: number
+}
+
+const DEFAULT_KALEIDOSCOPE_COUNT = 6
+const MIN_KALEIDOSCOPE_COUNT = 1
+const MAX_KALEIDOSCOPE_COUNT = 36
+const KALEIDOSCOPE_CENTER_CONTROL_KEY = 'kaleidoscopeCenter'
+const SERIALIZED_OBJECT_PROPS = [
+  'name',
+  'strokeUniform',
+  'lastFill',
+  'lastStroke',
+  'lastStrokeWidth',
+  'lastStrokeDashArray',
+  'shapeId',
+  'booleanEligible',
+  'fillRule',
+  'editablePath',
+  'cornerRadius',
+  'cornerRadiusOverrides',
+  'editablePathVersion',
+  'kaleidoscopeEnabled',
+  'kaleidoscopeCenterX',
+  'kaleidoscopeCenterY',
+  'kaleidoscopeFollowRotation',
+  'kaleidoscopeCount',
+  'kaleidoscopeSourceId',
+  'kaleidoscopeManaged',
+  'kaleidoscopeInstanceOf',
+  'kaleidoscopeInstanceIndex'
+] as const
+
 // ── refs ──
 const canvasElRef = ref<HTMLCanvasElement | null>(null)
 const canvasAreaRef = ref<HTMLElement | null>(null)
@@ -491,6 +606,7 @@ let aligningGuidelines: AligningGuidelines | null = null
 let restoreActiveObjectAfterSelectionClear = false
 
 const leftTab = ref<'shape' | 'text'>('shape')
+const activeRightTab = ref<'properties' | 'layers'>('properties')
 const showRuler = ref(true)
 const zoom = ref(1)
 const activeObject = shallowRef<FabricObject | null>(null)
@@ -548,12 +664,17 @@ const objProps = reactive({
   curveCp1XInput: '0',
   curveCp1YInput: '0',
   curveCp2XInput: '0',
-  curveCp2YInput: '0'
+  curveCp2YInput: '0',
+  kaleidoscopeEnabled: false,
+  kaleidoscopeCenterXInput: '0',
+  kaleidoscopeCenterYInput: '0',
+  kaleidoscopeFollowRotation: false,
+  kaleidoscopeCountInput: String(DEFAULT_KALEIDOSCOPE_COUNT)
 })
 const selectedPointIndices = ref<number[]>([])
 const selectedSegmentRef = shallowRef<EditableSegmentRef | null>(null)
 const selectionMode = ref<'shape' | 'point' | 'segment'>('shape')
-const pointControlsOwner = shallowRef<EditablePathObject | null>(null)
+const pointControlsOwner = shallowRef<FabricObject | null>(null)
 const originalControlsMap = new WeakMap<FabricObject, FabricControls>()
 const sizeRatioLocked = ref(false)
 const lockedAspectRatio = ref(1)
@@ -576,6 +697,383 @@ function refreshLayers() {
 let objCounter = 0
 function nextName(type: string) {
   return `${type} ${++objCounter}`
+}
+
+function createKaleidoscopeSourceId() {
+  return `kaleidoscope-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function getKaleidoscopeMetadata(obj: FabricObject | null | undefined) {
+  return obj ? (obj as AnyFabricObject & KaleidoscopeMetadata) : null
+}
+
+function normalizeFiniteNumber(value: unknown, fallback = 0) {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : fallback
+}
+
+function normalizeKaleidoscopeCount(value: unknown) {
+  const parsed = Math.round(Number(value))
+  if (!Number.isFinite(parsed)) return DEFAULT_KALEIDOSCOPE_COUNT
+  return Math.min(MAX_KALEIDOSCOPE_COUNT, Math.max(MIN_KALEIDOSCOPE_COUNT, parsed))
+}
+
+function applyDefaultKaleidoscopeMetadata(obj: FabricObject) {
+  const target = getKaleidoscopeMetadata(obj)
+  if (!target) return
+  target.kaleidoscopeEnabled = target.kaleidoscopeEnabled === true
+  target.kaleidoscopeCenterX = normalizeFiniteNumber(target.kaleidoscopeCenterX)
+  target.kaleidoscopeCenterY = normalizeFiniteNumber(target.kaleidoscopeCenterY)
+  target.kaleidoscopeFollowRotation = target.kaleidoscopeFollowRotation === true
+  target.kaleidoscopeCount = normalizeKaleidoscopeCount(target.kaleidoscopeCount)
+  target.kaleidoscopeSourceId = typeof target.kaleidoscopeSourceId === 'string' ? target.kaleidoscopeSourceId : ''
+  target.kaleidoscopeManaged = target.kaleidoscopeManaged === true
+  target.kaleidoscopeInstanceOf = typeof target.kaleidoscopeInstanceOf === 'string' ? target.kaleidoscopeInstanceOf : ''
+  target.kaleidoscopeInstanceIndex = Math.max(0, Math.round(normalizeFiniteNumber(target.kaleidoscopeInstanceIndex)))
+}
+
+function clearKaleidoscopeMetadata(obj: FabricObject) {
+  const target = getKaleidoscopeMetadata(obj)
+  if (!target) return
+  target.kaleidoscopeEnabled = false
+  target.kaleidoscopeCenterX = 0
+  target.kaleidoscopeCenterY = 0
+  target.kaleidoscopeFollowRotation = false
+  target.kaleidoscopeCount = DEFAULT_KALEIDOSCOPE_COUNT
+  target.kaleidoscopeSourceId = ''
+  target.kaleidoscopeManaged = false
+  target.kaleidoscopeInstanceOf = ''
+  target.kaleidoscopeInstanceIndex = 0
+}
+
+function canUseKaleidoscopeAsSource(obj: FabricObject | null | undefined) {
+  if (!obj) return false
+  if (obj instanceof Group || obj instanceof ActiveSelection) return false
+  applyDefaultKaleidoscopeMetadata(obj)
+  return getKaleidoscopeMetadata(obj)?.kaleidoscopeManaged !== true
+}
+
+function isKaleidoscopeInstance(obj: FabricObject | null | undefined) {
+  if (!obj) return false
+  applyDefaultKaleidoscopeMetadata(obj)
+  const target = getKaleidoscopeMetadata(obj)
+  return !!target && target.kaleidoscopeManaged === true && !!target.kaleidoscopeInstanceOf
+}
+
+function isKaleidoscopeSource(obj: FabricObject | null | undefined) {
+  if (!obj || !canUseKaleidoscopeAsSource(obj)) return false
+  applyDefaultKaleidoscopeMetadata(obj)
+  return getKaleidoscopeMetadata(obj)?.kaleidoscopeEnabled === true
+}
+
+function isKaleidoscopeObject(obj: FabricObject | null | undefined) {
+  return isKaleidoscopeSource(obj) || isKaleidoscopeInstance(obj)
+}
+
+function canMutateKaleidoscopeObject(obj: FabricObject | null | undefined) {
+  return !!obj && !isKaleidoscopeInstance(obj)
+}
+
+function getKaleidoscopeSourceId(obj: FabricObject | null | undefined) {
+  if (!obj) return ''
+  applyDefaultKaleidoscopeMetadata(obj)
+  return getKaleidoscopeMetadata(obj)?.kaleidoscopeSourceId || ''
+}
+
+function getKaleidoscopeInstanceSourceId(obj: FabricObject | null | undefined) {
+  if (!obj) return ''
+  applyDefaultKaleidoscopeMetadata(obj)
+  return getKaleidoscopeMetadata(obj)?.kaleidoscopeInstanceOf || ''
+}
+
+function ensureKaleidoscopeSourceId(obj: FabricObject) {
+  applyDefaultKaleidoscopeMetadata(obj)
+  const target = getKaleidoscopeMetadata(obj)
+  if (!target) return ''
+  if (!target.kaleidoscopeSourceId) {
+    target.kaleidoscopeSourceId = createKaleidoscopeSourceId()
+  }
+  return target.kaleidoscopeSourceId
+}
+
+function getObjectCenter(obj: FabricObject) {
+  return obj.getCenterPoint()
+}
+
+function initializeKaleidoscopeSource(obj: FabricObject) {
+  if (!canUseKaleidoscopeAsSource(obj)) return
+  applyDefaultKaleidoscopeMetadata(obj)
+  const target = getKaleidoscopeMetadata(obj)
+  if (!target) return
+  if (!target.kaleidoscopeSourceId) {
+    target.kaleidoscopeSourceId = createKaleidoscopeSourceId()
+    const center = getObjectCenter(obj)
+    target.kaleidoscopeCenterX = center.x
+    target.kaleidoscopeCenterY = center.y
+  }
+  target.kaleidoscopeCount = normalizeKaleidoscopeCount(target.kaleidoscopeCount)
+  target.kaleidoscopeManaged = false
+  target.kaleidoscopeInstanceOf = ''
+  target.kaleidoscopeInstanceIndex = 0
+}
+
+function getKaleidoscopeCount(obj: FabricObject) {
+  applyDefaultKaleidoscopeMetadata(obj)
+  return normalizeKaleidoscopeCount(getKaleidoscopeMetadata(obj)?.kaleidoscopeCount)
+}
+
+function getKaleidoscopeEffectiveCenter(obj: FabricObject) {
+  applyDefaultKaleidoscopeMetadata(obj)
+  const target = getKaleidoscopeMetadata(obj)
+  if (target?.kaleidoscopeSourceId) {
+    return new Point(target.kaleidoscopeCenterX || 0, target.kaleidoscopeCenterY || 0)
+  }
+  return getObjectCenter(obj)
+}
+
+function findKaleidoscopeSourceById(sourceId: string) {
+  if (!fabricCanvas || !sourceId) return null
+  return fabricCanvas.getObjects().find((obj) => {
+    if (isBooleanPreviewObject(obj)) return false
+    if (obj instanceof ActiveSelection) return false
+    applyDefaultKaleidoscopeMetadata(obj)
+    const target = getKaleidoscopeMetadata(obj)
+    return !!target && target.kaleidoscopeManaged !== true && target.kaleidoscopeSourceId === sourceId
+  }) ?? null
+}
+
+function findKaleidoscopeInstancesBySourceId(sourceId: string) {
+  if (!fabricCanvas || !sourceId) return []
+  return fabricCanvas.getObjects()
+    .filter((obj) => {
+      if (isBooleanPreviewObject(obj)) return false
+      return isKaleidoscopeInstance(obj) && getKaleidoscopeInstanceSourceId(obj) === sourceId
+    })
+    .sort((a, b) => {
+      const aIndex = getKaleidoscopeMetadata(a)?.kaleidoscopeInstanceIndex || 0
+      const bIndex = getKaleidoscopeMetadata(b)?.kaleidoscopeInstanceIndex || 0
+      return aIndex - bIndex
+    })
+}
+
+function setKaleidoscopeInstanceManagedState(obj: FabricObject, managed: boolean) {
+  obj.set({
+    lockMovementX: managed,
+    lockMovementY: managed,
+    lockScalingX: managed,
+    lockScalingY: managed,
+    lockRotation: managed,
+    hasControls: !managed,
+    selectable: true,
+    evented: true
+  })
+}
+
+function positionKaleidoscopeInstance(source: FabricObject, instance: FabricObject, instanceIndex: number) {
+  const count = getKaleidoscopeCount(source)
+  if (count <= 0) return
+  const baseCenter = source.getCenterPoint()
+  const pivot = getKaleidoscopeEffectiveCenter(source)
+  const step = 360 / count
+  const delta = step * instanceIndex
+  const radians = delta * Math.PI / 180
+  const offsetX = baseCenter.x - pivot.x
+  const offsetY = baseCenter.y - pivot.y
+  const nextCenter = new Point(
+    pivot.x + (offsetX * Math.cos(radians) - offsetY * Math.sin(radians)),
+    pivot.y + (offsetX * Math.sin(radians) + offsetY * Math.cos(radians))
+  )
+  const sourceAngle = source.angle ?? 0
+  const followRotation = getKaleidoscopeMetadata(source)?.kaleidoscopeFollowRotation === true
+
+  instance.set({
+    scaleX: source.scaleX ?? 1,
+    scaleY: source.scaleY ?? 1,
+    skewX: source.skewX ?? 0,
+    skewY: source.skewY ?? 0,
+    flipX: source.flipX,
+    flipY: source.flipY,
+    visible: source.visible !== false,
+    opacity: source.opacity ?? 1,
+    angle: followRotation ? sourceAngle + delta : sourceAngle
+  })
+  instance.setPositionByOrigin(nextCenter, 'center', 'center')
+  instance.dirty = true
+  instance.setCoords()
+}
+
+function setKaleidoscopeInstanceMetadata(source: FabricObject, instance: FabricObject, instanceIndex: number) {
+  const sourceId = ensureKaleidoscopeSourceId(source)
+  clearKaleidoscopeMetadata(instance)
+  const target = getKaleidoscopeMetadata(instance)
+  if (!target) return
+  target.kaleidoscopeManaged = true
+  target.kaleidoscopeInstanceOf = sourceId
+  target.kaleidoscopeInstanceIndex = instanceIndex
+  setKaleidoscopeInstanceManagedState(instance, true)
+  ;(instance as AnyFabricObject).name = `${(source as AnyFabricObject).name || source.type || '对象'} · ${instanceIndex}`
+}
+
+const kaleidoscopeSyncTokens = new Map<string, number>()
+
+function nextKaleidoscopeSyncToken(sourceId: string) {
+  const next = (kaleidoscopeSyncTokens.get(sourceId) || 0) + 1
+  kaleidoscopeSyncTokens.set(sourceId, next)
+  return next
+}
+
+function moveKaleidoscopeInstanceNearSource(source: FabricObject, instance: FabricObject, instanceIndex: number) {
+  if (!fabricCanvas) return
+  const sourceIndex = fabricCanvas.getObjects().indexOf(source)
+  if (sourceIndex < 0) return
+  const nextIndex = Math.min(sourceIndex + instanceIndex, fabricCanvas.getObjects().length - 1)
+  fabricCanvas.moveObjectTo(instance, nextIndex)
+}
+
+function removeKaleidoscopeInstancesBySourceId(sourceId: string) {
+  if (!fabricCanvas || !sourceId) return []
+  const instances = findKaleidoscopeInstancesBySourceId(sourceId)
+  if (!instances.length) return []
+  skipSnapshot = true
+  try {
+    instances.forEach((instance) => fabricCanvas!.remove(instance as AnyFabricObject))
+  } finally {
+    skipSnapshot = false
+  }
+  return instances
+}
+
+async function rebuildKaleidoscopeInstances(source: FabricObject) {
+  if (!fabricCanvas || !canUseKaleidoscopeAsSource(source)) return
+  initializeKaleidoscopeSource(source)
+  const target = getKaleidoscopeMetadata(source)
+  if (!target) return
+  const sourceId = ensureKaleidoscopeSourceId(source)
+  const token = nextKaleidoscopeSyncToken(sourceId)
+  removeKaleidoscopeInstancesBySourceId(sourceId)
+
+  if (target.kaleidoscopeEnabled !== true || getKaleidoscopeCount(source) <= 1 || !fabricCanvas.getObjects().includes(source)) {
+    fabricCanvas.requestRenderAll()
+    refreshLayers()
+    return
+  }
+
+  const clones = await Promise.all(
+    Array.from({ length: getKaleidoscopeCount(source) - 1 }, () => source.clone())
+  )
+
+  if (!fabricCanvas || kaleidoscopeSyncTokens.get(sourceId) !== token || !fabricCanvas.getObjects().includes(source) || !isKaleidoscopeSource(source)) {
+    return
+  }
+
+  skipSnapshot = true
+  try {
+    clones.forEach((clone, offset) => {
+      applyDefaultKaleidoscopeMetadata(clone)
+      setKaleidoscopeInstanceMetadata(source, clone, offset + 1)
+      positionKaleidoscopeInstance(source, clone, offset + 1)
+      fabricCanvas!.add(clone as AnyFabricObject)
+      moveKaleidoscopeInstanceNearSource(source, clone, offset + 1)
+    })
+  } finally {
+    skipSnapshot = false
+  }
+
+  fabricCanvas.requestRenderAll()
+  refreshLayers()
+}
+
+function syncKaleidoscopeTransforms(source: FabricObject) {
+  if (!fabricCanvas || !isKaleidoscopeSource(source)) return
+  const sourceId = ensureKaleidoscopeSourceId(source)
+  const expectedCount = getKaleidoscopeCount(source) - 1
+  const instances = findKaleidoscopeInstancesBySourceId(sourceId)
+
+  if (expectedCount <= 0) {
+    if (instances.length) {
+      removeKaleidoscopeInstancesBySourceId(sourceId)
+      fabricCanvas.requestRenderAll()
+      refreshLayers()
+    }
+    return
+  }
+
+  if (instances.length !== expectedCount) {
+    void rebuildKaleidoscopeInstances(source)
+    return
+  }
+
+  instances.forEach((instance) => {
+    applyDefaultKaleidoscopeMetadata(instance)
+    setKaleidoscopeInstanceManagedState(instance, true)
+    positionKaleidoscopeInstance(source, instance, getKaleidoscopeMetadata(instance)?.kaleidoscopeInstanceIndex || 1)
+  })
+  fabricCanvas.requestRenderAll()
+}
+
+async function syncAllKaleidoscopes() {
+  if (!fabricCanvas) return
+  const objects = fabricCanvas.getObjects().filter((obj) => !isBooleanPreviewObject(obj))
+  objects.forEach((obj) => applyDefaultKaleidoscopeMetadata(obj))
+
+  const activeSources = objects.filter((obj) => isKaleidoscopeSource(obj))
+  const sourceIds = new Set(activeSources.map((obj) => ensureKaleidoscopeSourceId(obj)))
+  const orphanInstances = objects.filter((obj) => isKaleidoscopeInstance(obj) && !sourceIds.has(getKaleidoscopeInstanceSourceId(obj)))
+
+  if (orphanInstances.length) {
+    skipSnapshot = true
+    try {
+      orphanInstances.forEach((obj) => fabricCanvas!.remove(obj as AnyFabricObject))
+    } finally {
+      skipSnapshot = false
+    }
+  }
+
+  for (const source of activeSources) {
+    await rebuildKaleidoscopeInstances(source)
+  }
+
+  fabricCanvas.requestRenderAll()
+  refreshLayers()
+}
+
+function triggerKaleidoscopeTransformSync(obj: FabricObject | null | undefined) {
+  if (obj && isKaleidoscopeSource(obj)) {
+    syncKaleidoscopeTransforms(obj)
+  }
+}
+
+function triggerKaleidoscopeRebuild(obj: FabricObject | null | undefined) {
+  if (obj && isKaleidoscopeSource(obj)) {
+    void rebuildKaleidoscopeInstances(obj)
+  }
+}
+
+function triggerKaleidoscopeVisibilitySync(obj: FabricObject | null | undefined) {
+  if (!obj || !isKaleidoscopeSource(obj)) return
+  findKaleidoscopeInstancesBySourceId(ensureKaleidoscopeSourceId(obj)).forEach((instance) => {
+    instance.set('visible', obj.visible !== false)
+    instance.setCoords()
+  })
+  fabricCanvas?.requestRenderAll()
+}
+
+function resolveKaleidoscopeSelectionTarget(obj: FabricObject | null) {
+  if (!(obj instanceof ActiveSelection)) return obj
+  const objects = obj.getObjects()
+  return objects.find((item) => isKaleidoscopeInstance(item))
+    ?? objects.find((item) => isKaleidoscopeSource(item))
+    ?? obj
+}
+
+function applyKaleidoscopeSelectionConstraints(obj: FabricObject | null, event?: Event | MouseEvent) {
+  if (!fabricCanvas || !obj) return obj
+  const resolved = resolveKaleidoscopeSelectionTarget(obj)
+  if (resolved !== obj) {
+    fabricCanvas.setActiveObject(resolved, event as any)
+    fabricCanvas.requestRenderAll()
+  }
+  return resolved
 }
 
 // 模板事件值辅助
@@ -632,32 +1130,56 @@ function getStrokeDashPair(target?: FabricObject | null) {
 }
 
 // ── 计算属性 ──
-const canGroup = computed(() => {
-  const obj = activeObject.value
-  return obj instanceof ActiveSelection && (obj as ActiveSelection).size() > 1
-})
-
-const canUngroup = computed(() => {
-  const obj = activeObject.value
-  return obj instanceof Group && !(obj instanceof ActiveSelection)
-})
-
 const selectedObjects = computed(() => {
   void layerVersion.value
   return fabricCanvas?.getActiveObjects() ?? []
 })
 
+const hasKaleidoscopeSelection = computed(() => selectedObjects.value.some((obj) => isKaleidoscopeObject(obj)))
+
+const canGroup = computed(() => {
+  const obj = activeObject.value
+  return !hasKaleidoscopeSelection.value && obj instanceof ActiveSelection && (obj as ActiveSelection).size() > 1
+})
+
+const canUngroup = computed(() => {
+  const obj = activeObject.value
+  return !hasKaleidoscopeSelection.value && obj instanceof Group && !(obj instanceof ActiveSelection)
+})
+
 const canBoolean = computed(() => {
-  return !booleanBusy.value && selectedObjects.value.length >= 2 && selectedObjects.value.every(isBooleanCandidate)
+  return !hasKaleidoscopeSelection.value && !booleanBusy.value && selectedObjects.value.length >= 2 && selectedObjects.value.every(isBooleanCandidate)
 })
 
 const canDirectionalSubtract = computed(() => {
   return canBoolean.value && selectedObjects.value.length === 2
 })
 
+const activeKaleidoscopeInstance = computed(() => {
+  const obj = activeObject.value
+  return obj && isKaleidoscopeInstance(obj) ? obj : null
+})
+
+const activeKaleidoscopeSource = computed(() => {
+  const obj = activeObject.value
+  return obj && isKaleidoscopeSource(obj) ? obj : null
+})
+
+const activeKaleidoscopeEditableSource = computed(() => {
+  const obj = activeObject.value
+  return obj && canUseKaleidoscopeAsSource(obj) ? obj : null
+})
+
+const activeKaleidoscopeInstanceSource = computed(() => {
+  const instance = activeKaleidoscopeInstance.value
+  return instance ? findKaleidoscopeSourceById(getKaleidoscopeInstanceSourceId(instance)) : null
+})
+
+const activeKaleidoscopePanelSource = computed(() => activeKaleidoscopeEditableSource.value ?? activeKaleidoscopeInstanceSource.value)
+
 const activeEditablePathObject = computed(() => {
   const obj = activeObject.value
-  return obj && isEditablePathObject(obj) ? obj : null
+  return obj && !isKaleidoscopeInstance(obj) && isEditablePathObject(obj) ? obj : null
 })
 
 const hasEditablePoints = computed(() => {
@@ -765,6 +1287,191 @@ function resetCurveProps() {
   objProps.curveCp2YInput = '0'
 }
 
+function resetKaleidoscopeProps() {
+  objProps.kaleidoscopeEnabled = false
+  objProps.kaleidoscopeCenterXInput = '0'
+  objProps.kaleidoscopeCenterYInput = '0'
+  objProps.kaleidoscopeFollowRotation = false
+  objProps.kaleidoscopeCountInput = String(DEFAULT_KALEIDOSCOPE_COUNT)
+}
+
+function formatKaleidoscopeInputValue(value: number) {
+  return String(Math.round(value * 100) / 100)
+}
+
+function createKaleidoscopeCenterControl(source: FabricObject) {
+  return new Control({
+    actionName: 'moveKaleidoscopeCenter',
+    cursorStyle: 'move',
+    sizeX: 14,
+    sizeY: 14,
+    touchSizeX: 20,
+    touchSizeY: 20,
+    positionHandler: () => {
+      const pivot = getKaleidoscopeEffectiveCenter(source)
+      return pivot.transform(source.getViewportTransform())
+    },
+    getVisibility: () => (
+      activeKaleidoscopeSource.value === source
+      && selectionMode.value === 'shape'
+      && objProps.kaleidoscopeEnabled
+    ),
+    actionHandler: (_eventData, _transform, x, y) => {
+      const target = getKaleidoscopeMetadata(source)
+      if (!target) return false
+      target.kaleidoscopeCenterX = x
+      target.kaleidoscopeCenterY = y
+      objProps.kaleidoscopeCenterXInput = formatKaleidoscopeInputValue(x)
+      objProps.kaleidoscopeCenterYInput = formatKaleidoscopeInputValue(y)
+      syncKaleidoscopeTransforms(source)
+      source.canvas?.requestRenderAll()
+      return true
+    },
+    mouseUpHandler: () => {
+      snapshot()
+      syncObjProps()
+      return false
+    },
+    render: (ctx, left, top) => {
+      ctx.save()
+      ctx.beginPath()
+      ctx.arc(left, top, 5, 0, Math.PI * 2)
+      ctx.fillStyle = '#ffffff'
+      ctx.strokeStyle = '#ff4d4f'
+      ctx.lineWidth = 2
+      ctx.fill()
+      ctx.stroke()
+      ctx.beginPath()
+      ctx.moveTo(left - 8, top)
+      ctx.lineTo(left + 8, top)
+      ctx.moveTo(left, top - 8)
+      ctx.lineTo(left, top + 8)
+      ctx.strokeStyle = '#ff4d4f'
+      ctx.lineWidth = 1.5
+      ctx.stroke()
+      ctx.restore()
+    }
+  } as Partial<Control>)
+}
+
+function attachKaleidoscopeCenterControl(obj: FabricObject | null) {
+  restorePointControls()
+  if (!obj || !isKaleidoscopeSource(obj) || selectionMode.value !== 'shape') return
+  originalControlsMap.set(obj, obj.controls as FabricControls)
+  const controls: FabricControls = { ...(obj.controls as FabricControls) }
+  controls[KALEIDOSCOPE_CENTER_CONTROL_KEY] = createKaleidoscopeCenterControl(obj)
+  obj.controls = controls
+  pointControlsOwner.value = obj
+  obj.setCoords()
+}
+
+function setKaleidoscopeCenterValue(axis: 'x' | 'y', value: number) {
+  const source = activeKaleidoscopeEditableSource.value
+  if (!source || !fabricCanvas) return
+  initializeKaleidoscopeSource(source)
+  const target = getKaleidoscopeMetadata(source)
+  if (!target) return
+  if (axis === 'x') target.kaleidoscopeCenterX = value
+  else target.kaleidoscopeCenterY = value
+  syncKaleidoscopeTransforms(source)
+  fabricCanvas.requestRenderAll()
+  snapshot()
+  syncObjProps()
+}
+
+function setKaleidoscopeCenterFromInput(axis: 'x' | 'y', value: string | number) {
+  const source = activeKaleidoscopeEditableSource.value
+  if (!source) return
+  initializeKaleidoscopeSource(source)
+  const center = getKaleidoscopeEffectiveCenter(source)
+  const fallback = axis === 'x' ? center.x : center.y
+  commitNumericInput(
+    value,
+    fallback,
+    (next) => { setKaleidoscopeCenterValue(axis, next) },
+    (next) => {
+      if (axis === 'x') objProps.kaleidoscopeCenterXInput = next
+      else objProps.kaleidoscopeCenterYInput = next
+    }
+  )
+}
+
+function setKaleidoscopeCountValue(value: number) {
+  const source = activeKaleidoscopeEditableSource.value
+  if (!source || !fabricCanvas) return
+  initializeKaleidoscopeSource(source)
+  const target = getKaleidoscopeMetadata(source)
+  if (!target) return
+  target.kaleidoscopeCount = normalizeKaleidoscopeCount(value)
+  objProps.kaleidoscopeCountInput = String(target.kaleidoscopeCount)
+  triggerKaleidoscopeRebuild(source)
+  snapshot()
+  syncObjProps()
+}
+
+function setKaleidoscopeCountFromInput(value: string | number) {
+  const source = activeKaleidoscopeEditableSource.value
+  if (!source) return
+  commitNumericInput(
+    value,
+    getKaleidoscopeCount(source),
+    (next) => { setKaleidoscopeCountValue(next) },
+    (next) => { objProps.kaleidoscopeCountInput = String(normalizeKaleidoscopeCount(next)) }
+  )
+}
+
+function setKaleidoscopeEnabled(enabled: boolean) {
+  const source = activeKaleidoscopeEditableSource.value
+  if (!source || !fabricCanvas) return
+  initializeKaleidoscopeSource(source)
+  const target = getKaleidoscopeMetadata(source)
+  if (!target) return
+  target.kaleidoscopeEnabled = enabled
+  objProps.kaleidoscopeEnabled = enabled
+  if (!enabled) {
+    removeKaleidoscopeInstancesBySourceId(ensureKaleidoscopeSourceId(source))
+    fabricCanvas.requestRenderAll()
+    refreshLayers()
+  } else {
+    triggerKaleidoscopeRebuild(source)
+  }
+  updateCurveControls()
+  snapshot()
+  syncObjProps()
+}
+
+function setKaleidoscopeFollowRotation(enabled: boolean) {
+  const source = activeKaleidoscopeEditableSource.value
+  if (!source || !fabricCanvas) return
+  initializeKaleidoscopeSource(source)
+  const target = getKaleidoscopeMetadata(source)
+  if (!target) return
+  target.kaleidoscopeFollowRotation = enabled
+  objProps.kaleidoscopeFollowRotation = enabled
+  syncKaleidoscopeTransforms(source)
+  snapshot()
+  syncObjProps()
+}
+
+
+function selectKaleidoscopeSourceFromInstance() {
+  const source = activeKaleidoscopeInstanceSource.value
+  if (!source) return
+  applyActiveObjectsSelection([source])
+}
+
+function detachKaleidoscopeInstance() {
+  const instance = activeKaleidoscopeInstance.value
+  if (!instance || !fabricCanvas) return
+  clearKaleidoscopeMetadata(instance)
+  setKaleidoscopeInstanceManagedState(instance, false)
+  instance.setCoords()
+  fabricCanvas.requestRenderAll()
+  refreshLayers()
+  refreshActiveObject()
+  snapshot()
+  syncObjProps()
+}
 function getLocalPointFromCanvas(obj: EditablePathObject, x: number, y: number) {
   return new Point(x, y)
     .transform(util.invertTransform(obj.calcOwnMatrix()))
@@ -1168,7 +1875,7 @@ const filteredLayers = computed(() => {
 // ── 快照（撤销重做） ──
 function snapshot() {
   if (skipSnapshot || !fabricCanvas) return
-  undoStack.push(JSON.stringify((fabricCanvas as any).toObject(['name', 'strokeUniform', 'lastFill', 'lastStroke', 'lastStrokeWidth', 'lastStrokeDashArray', 'shapeId', 'booleanEligible', 'fillRule', 'editablePath', 'cornerRadius', 'cornerRadiusOverrides', 'editablePathVersion'])))
+  undoStack.push(JSON.stringify((fabricCanvas as any).toObject(SERIALIZED_OBJECT_PROPS as unknown as string[])))
   if (undoStack.length > 60) undoStack.shift()
   redoStack.length = 0
   canUndo.value = undoStack.length > 1
@@ -1209,7 +1916,8 @@ function undo() {
   redoStack.push(undoStack.pop()!)
   canRedo.value = true
   skipSnapshot = true
-  fabricCanvas.loadFromJSON(undoStack[undoStack.length - 1]).then(() => {
+  fabricCanvas.loadFromJSON(undoStack[undoStack.length - 1]).then(async () => {
+    await syncAllKaleidoscopes()
     fabricCanvas!.discardActiveObject()
     syncActiveObject(null)
     syncCanvasBgFromFabric()
@@ -1226,7 +1934,8 @@ function redo() {
   const json = redoStack.pop()!
   undoStack.push(json)
   skipSnapshot = true
-  fabricCanvas.loadFromJSON(json).then(() => {
+  fabricCanvas.loadFromJSON(json).then(async () => {
+    await syncAllKaleidoscopes()
     fabricCanvas!.discardActiveObject()
     syncActiveObject(null)
     syncCanvasBgFromFabric()
@@ -1263,6 +1972,17 @@ function applyActiveObjectsSelection(objects: FabricObject[], event?: MouseEvent
     fabricCanvas.requestRenderAll()
     return
   }
+
+  if (uniqueObjects.some((obj) => isKaleidoscopeObject(obj))) {
+    const preferred = uniqueObjects.find((obj) => isKaleidoscopeInstance(obj))
+      ?? uniqueObjects.find((obj) => isKaleidoscopeSource(obj))
+      ?? uniqueObjects[0]
+    fabricCanvas.setActiveObject(preferred, event)
+    syncActiveObject(fabricCanvas.getActiveObject() ?? preferred)
+    fabricCanvas.requestRenderAll()
+    return
+  }
+
   if (uniqueObjects.length === 1) {
     fabricCanvas.setActiveObject(uniqueObjects[0], event)
     syncActiveObject(fabricCanvas.getActiveObject() ?? uniqueObjects[0])
@@ -1415,6 +2135,7 @@ function handleSegmentPointerDown(sceneX: number, sceneY: number) {
 function syncObjProps() {
   const obj = activeObject.value
   if (!obj) return
+  applyDefaultKaleidoscopeMetadata(obj)
   objProps.left = obj.left ?? 0
   objProps.top = obj.top ?? 0
   objProps.width = obj.getScaledWidth()
@@ -1423,6 +2144,19 @@ function syncObjProps() {
   objProps.scaleY = obj.scaleY ?? 1
   objProps.angle = obj.angle ?? 0
   objProps.opacity = obj.opacity ?? 1
+
+  const panelSource = activeKaleidoscopePanelSource.value
+  if (panelSource) {
+    initializeKaleidoscopeSource(panelSource)
+    const center = getKaleidoscopeEffectiveCenter(panelSource)
+    objProps.kaleidoscopeEnabled = getKaleidoscopeMetadata(panelSource)?.kaleidoscopeEnabled === true
+    objProps.kaleidoscopeCenterXInput = formatKaleidoscopeInputValue(center.x)
+    objProps.kaleidoscopeCenterYInput = formatKaleidoscopeInputValue(center.y)
+    objProps.kaleidoscopeFollowRotation = getKaleidoscopeMetadata(panelSource)?.kaleidoscopeFollowRotation === true
+    objProps.kaleidoscopeCountInput = String(getKaleidoscopeCount(panelSource))
+  } else {
+    resetKaleidoscopeProps()
+  }
 
   const targets = getStyleTargets(obj)
   const first = targets.find((child) => (
@@ -1584,8 +2318,19 @@ function setSelectedPointCornerRadiusFromInput(value: string | number) {
 }
 
 function updateCurveControls() {
+  const shapeObj = activeKaleidoscopeSource.value
+  if (shapeObj && selectionMode.value === 'shape') {
+    attachKaleidoscopeCenterControl(shapeObj)
+    shapeObj.canvas?.requestRenderAll()
+    return
+  }
+
   const obj = activeEditablePathObject.value
-  if (!obj) return
+  if (!obj) {
+    restorePointControls()
+    fabricCanvas?.requestRenderAll()
+    return
+  }
   if (selectionMode.value !== 'point' && selectionMode.value !== 'segment') {
     restorePointControls()
     obj.canvas?.requestRenderAll()
@@ -1973,15 +2718,19 @@ function setZoom(value: number) {
 
 function syncActiveObject(obj: FabricObject | null) {
   clearPointEditing()
-  if (!obj) selectionMode.value = 'shape'
-  activeObject.value = obj
+  const constrained = applyKaleidoscopeSelectionConstraints(obj)
+  if (constrained && isKaleidoscopeInstance(constrained)) {
+    selectionMode.value = 'shape'
+  }
+  if (!constrained) selectionMode.value = 'shape'
+  activeObject.value = constrained
   booleanError.value = ''
   syncCanvasInteractionMode()
   updateCurveControls()
   refreshLayers()
-  if (obj) {
+  if (constrained) {
     if (sizeRatioLocked.value) {
-      lockedAspectRatio.value = getObjectAspectRatio(obj)
+      lockedAspectRatio.value = getObjectAspectRatio(constrained)
     }
     syncObjProps()
   }
@@ -2020,6 +2769,7 @@ function addText(preset: TextLibraryItem) {
     name: nextName(preset.label),
     width: 200
   })
+  applyDefaultKaleidoscopeMetadata(t)
   fabricCanvas.add(t)
   refreshLayers()
   fabricCanvas.setActiveObject(t)
@@ -2037,6 +2787,7 @@ async function onImageFileChosen(e: Event) {
   if (!file || !fabricCanvas) return
   const url = URL.createObjectURL(file)
   const img = await FabricImage.fromURL(url)
+  applyDefaultKaleidoscopeMetadata(img)
   img.set({
     left: canvasWidth.value / 2 - (img.width || 60) / 2,
     top: canvasHeight.value / 2 - (img.height || 60) / 2,
@@ -2209,6 +2960,10 @@ function isLayerActive(obj: FabricObject) {
   return fabricCanvas?.getActiveObjects().includes(obj) ?? false
 }
 
+function isLayerKaleidoscopeLocked(obj: FabricObject) {
+  return isKaleidoscopeInstance(obj)
+}
+
 function selectLayer(obj: FabricObject, event?: MouseEvent) {
   if (!fabricCanvas || selectionMode.value !== 'shape') return
   clearPointEditing()
@@ -2291,11 +3046,48 @@ function isEditableTarget(target: EventTarget | null) {
   return tag === 'input' || tag === 'textarea' || tag === 'select' || target.isContentEditable
 }
 
+function getArrowNudgeDelta(key: string) {
+  if (key === 'ArrowUp') return { dx: 0, dy: -1 }
+  if (key === 'ArrowDown') return { dx: 0, dy: 1 }
+  if (key === 'ArrowLeft') return { dx: -1, dy: 0 }
+  if (key === 'ArrowRight') return { dx: 1, dy: 0 }
+  return null
+}
+
+function nudgeActiveObject(dx: number, dy: number) {
+  const obj = fabricCanvas?.getActiveObject() ?? activeObject.value
+  if (!obj || !fabricCanvas) return false
+  const currentLeft = obj.left ?? 0
+  const currentTop = obj.top ?? 0
+  const nextLeft = obj.lockMovementX ? currentLeft : currentLeft + dx
+  const nextTop = obj.lockMovementY ? currentTop : currentTop + dy
+  if (nextLeft === currentLeft && nextTop === currentTop) return false
+  clearBooleanPreview()
+  obj.set({ left: nextLeft, top: nextTop })
+  obj.setCoords()
+  fabricCanvas.requestRenderAll()
+  triggerKaleidoscopeTransformSync(obj)
+  refreshLayers()
+  syncObjProps()
+  snapshot()
+  return true
+}
+
 function handleKeydown(e: KeyboardEvent) {
-  if (e.key !== 'Delete' || !fabricCanvas?.getActiveObjects().length) return
   if (isEditableTarget(e.target)) return
+  const activeObjects = fabricCanvas?.getActiveObjects() ?? []
+  if (!activeObjects.length) return
+  if (e.key === 'Delete') {
+    e.preventDefault()
+    deleteObject()
+    return
+  }
+  if (selectionMode.value !== 'shape' || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return
+  const delta = getArrowNudgeDelta(e.key)
+  const obj = fabricCanvas?.getActiveObject() ?? activeObject.value
+  if (!delta || (obj instanceof Textbox && obj.isEditing)) return
   e.preventDefault()
-  deleteObject()
+  nudgeActiveObject(delta.dx, delta.dy)
 }
 
 // ── Fabric 事件 ──
@@ -2369,6 +3161,7 @@ function setupCanvasEvents() {
   fabricCanvas.on('object:modified', (event) => {
     if (isBooleanPreviewObject(event.target ?? null)) return
     clearBooleanPreview()
+    triggerKaleidoscopeTransformSync(event.target ?? null)
     snapshot()
     syncObjProps()
     refreshLayers()
@@ -2378,9 +3171,10 @@ function setupCanvasEvents() {
     clearBooleanPreview()
     syncObjProps()
   })
-  fabricCanvas.on('object:moving', () => {
+  fabricCanvas.on('object:moving', (event) => {
     clearBooleanPreview()
     syncObjProps()
+    triggerKaleidoscopeTransformSync(event.target ?? null)
   })
   fabricCanvas.on('object:rotating', () => {
     clearBooleanPreview()
@@ -2735,6 +3529,25 @@ $panel-bg: #fff;
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.right-tabs {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.right-tabs-pane-wrapper,
+.right-tabs-pane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.right-panel-scroll {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
 }
 .section-title-row {
@@ -2949,8 +3762,13 @@ $panel-bg: #fff;
   }
 }
 .layer-list {
-  flex: 1;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+.layer-empty {
+  padding: 10px 8px 12px;
+  font-size: 12px;
+  color: #888;
 }
 .layer-item {
   display: flex;

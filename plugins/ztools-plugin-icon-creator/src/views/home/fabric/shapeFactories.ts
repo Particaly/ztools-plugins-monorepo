@@ -9,6 +9,20 @@ const DEFAULT_STROKE = '#333333'
 const DEFAULT_FILL = 'transparent'
 const DEFAULT_LAST_FILL = '#000000'
 const DEFAULT_STROKE_WIDTH = 2
+const DEFAULT_KALEIDOSCOPE_COUNT = 6
+
+function applyDefaultKaleidoscopeMetadata(obj: FabricObject) {
+  const target = obj as AnyFabricObject
+  target.kaleidoscopeEnabled = false
+  target.kaleidoscopeCenterX = 0
+  target.kaleidoscopeCenterY = 0
+  target.kaleidoscopeFollowRotation = false
+  target.kaleidoscopeCount = DEFAULT_KALEIDOSCOPE_COUNT
+  target.kaleidoscopeSourceId = ''
+  target.kaleidoscopeManaged = false
+  target.kaleidoscopeInstanceOf = ''
+  target.kaleidoscopeInstanceIndex = 0
+}
 
 function getDefaultStrokeDashArray(strokeWidth: number): [number, number] {
   return [Math.max(1, strokeWidth * 3), Math.max(1, strokeWidth * 2)]
@@ -30,6 +44,7 @@ function withDefaultStyles<T extends FabricObject>(obj: T, item: ShapeLibraryIte
   target.lastStrokeDashArray = getDefaultStrokeDashArray(DEFAULT_STROKE_WIDTH)
   target.shapeId = item.id
   target.booleanEligible = true
+  applyDefaultKaleidoscopeMetadata(obj)
   obj.setCoords()
   return obj
 }
