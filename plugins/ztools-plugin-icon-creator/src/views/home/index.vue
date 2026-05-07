@@ -1,5 +1,11 @@
 <template>
-  <div class="editor-root">
+  <div
+    class="editor-root"
+    :class="{
+      'space-pan-ready': spacePanReady,
+      'space-panning': isSpacePanning
+    }"
+  >
     <!-- 顶栏 -->
     <header class="top-bar">
       <div class="top-bar-left">
@@ -14,7 +20,8 @@
         <ZButton size="small" class="top-bar-btn" :disabled="!canUndo" @click="undo" title="撤销">撤销</ZButton>
         <ZButton size="small" class="top-bar-btn" :disabled="!canRedo" @click="redo" title="重做">重做</ZButton>
         <span class="tb-sep"></span>
-        <ZButton size="small" class="top-bar-btn" :class="{ 'is-active': showRuler }" @click="showRuler = !showRuler" title="标尺">标尺</ZButton>
+        <ZButton size="small" class="top-bar-btn" :class="{ 'is-active': showRuler }" @click="toggleRuler" title="标尺">标尺</ZButton>
+        <ZButton size="small" class="top-bar-btn shortcut-topbar-btn" :class="{ 'is-active': shortcutDrawerOpen }" @click="openShortcutDrawer" title="快捷键设置">快捷键</ZButton>
         <span class="tb-sep"></span>
         <ZButton size="small" class="top-bar-icon-btn" :class="{ 'is-active': selectionMode === 'shape' }" title="选择图形" @click="setSelectionMode('shape')">
           <Icon icon="mdi:cursor-default-outline" />
@@ -86,7 +93,11 @@
 
       <!-- 中间画布区 -->
       <div class="canvas-frame" :class="{ 'with-ruler': showRuler }">
-        <main class="canvas-area" ref="canvasAreaRef">
+        <main
+          class="canvas-area"
+          ref="canvasAreaRef"
+          @pointerdown.capture="handleCanvasAreaPointerDown"
+        >
           <div class="canvas-wrapper" ref="canvasWrapperRef" :class="{ 'transparent-bg': isCanvasBgTransparent }">
             <canvas ref="canvasElRef"></canvas>
           </div>
@@ -522,6 +533,67 @@
 </aside>
     </div>
 
+    <ZDrawer
+      v-model:show="shortcutDrawerOpen"
+      placement="right"
+      width="min(520px, 92vw)"
+      :z-index="40"
+      :block-scroll="false"
+      content-class="shortcut-drawer"
+    >
+      <header class="shortcut-drawer-header">
+        <div>
+          <h2>快捷键</h2>
+          <p>查看、搜索、录制并管理编辑器快捷键</p>
+        </div>
+        <button class="shortcut-close-btn" title="关闭" @click="closeShortcutDrawer">×</button>
+      </header>
+      <div class="shortcut-drawer-tools">
+        <ZInput v-model="shortcutSearch" size="small" type="text" placeholder="搜索动作、说明或快捷键" />
+        <button class="tb-btn" @click="resetShortcutBindingsToDefault">恢复默认</button>
+      </div>
+      <div class="shortcut-group-list">
+        <section v-for="group in filteredShortcutGroups" :key="group.id" class="shortcut-group">
+          <div class="shortcut-group-title">{{ group.label }}</div>
+          <div v-for="action in group.actions" :key="action.id" class="shortcut-action-row">
+            <div class="shortcut-action-info">
+              <div class="shortcut-action-name">{{ action.name }}</div>
+              <div class="shortcut-action-desc">{{ action.description }}</div>
+            </div>
+            <div class="shortcut-binding-list">
+              <div
+                v-for="(binding, bindingIndex) in shortcutBindings[action.id]"
+                :key="getShortcutBindingKey(action.id, binding, bindingIndex)"
+                class="shortcut-binding-row"
+              >
+                <ZHotkeyInput
+                  class="shortcut-hotkey-input"
+                  :model-value="binding"
+                  :platform="shortcutPlatform"
+                  placeholder="录制快捷键"
+                  @change="applyShortcutBinding(action.id, binding, $event)"
+                />
+                <button class="shortcut-binding-delete" title="删除" @click="removeShortcutBinding(action.id, binding)">×</button>
+                <button
+                  v-if="bindingIndex === shortcutBindings[action.id].length - 1"
+                  class="shortcut-binding-add"
+                  title="添加快捷键"
+                  @click="addShortcutBinding(action.id)"
+                >＋</button>
+              </div>
+              <button
+                v-if="!shortcutBindings[action.id].length"
+                class="shortcut-binding-add shortcut-binding-add--empty"
+                title="添加快捷键"
+                @click="addShortcutBinding(action.id)"
+              >＋</button>
+            </div>
+          </div>
+        </section>
+        <div v-if="!filteredShortcutGroups.length" class="shortcut-empty">未找到匹配的快捷键</div>
+      </div>
+    </ZDrawer>
+
     <!-- 隐藏的文件输入 -->
     <input ref="imgInputRef" type="file" accept="image/*" style="display:none" @change="onImageFileChosen" />
   </div>
@@ -529,7 +601,7 @@
 
 <script setup lang="ts">
 import { ref, shallowRef, triggerRef, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
-import { ZInput, ZSelect, ZColorPicker, ZSwitch, ZSlider, ZPopover, ZButton, ZTabs, ZTabPane, useZtoolsTheme } from 'ztools-ui'
+import { ZInput, ZSelect, ZColorPicker, ZSwitch, ZSlider, ZPopover, ZButton, ZTabs, ZTabPane, ZHotkeyInput, ZDrawer, useZtoolsTheme } from 'ztools-ui'
 import { Icon } from '@iconify/vue'
 import { Canvas, Control, FabricObject, Textbox, Group, ActiveSelection, FabricImage, Point, util } from 'fabric'
 import { AligningGuidelines } from '../../fabric-aligning-guidelines'
@@ -572,6 +644,65 @@ type BooleanPreviewHiddenObject = {
 }
 type StrokeLineType = 'solid' | 'dashed'
 type CurveControlPointKey = 'cp1' | 'cp2'
+type EditorPlatform = 'darwin' | 'win32' | 'linux'
+type ShortcutGroupId = 'edit' | 'mode' | 'select' | 'organize' | 'layer' | 'view'
+type ShortcutActionId =
+  | 'edit.copy'
+  | 'edit.paste'
+  | 'edit.duplicate'
+  | 'edit.delete'
+  | 'edit.undo'
+  | 'edit.redo'
+  | 'mode.shape'
+  | 'mode.point'
+  | 'mode.segment'
+  | 'select.all'
+  | 'organize.group'
+  | 'organize.ungroup'
+  | 'layer.up'
+  | 'layer.down'
+  | 'layer.top'
+  | 'layer.bottom'
+  | 'view.zoomIn'
+  | 'view.zoomOut'
+  | 'view.fit'
+  | 'view.actualSize'
+  | 'view.toggleRuler'
+
+type ShortcutActionDefinition = {
+  id: ShortcutActionId
+  group: ShortcutGroupId
+  name: string
+  description: string
+  defaultBindings: (platform: EditorPlatform) => string[]
+  requiresSelection?: boolean
+  shapeOnly?: boolean
+}
+
+type ShortcutGroupDefinition = {
+  id: ShortcutGroupId
+  label: string
+}
+
+type ClipboardEntry = {
+  object: Record<string, unknown>
+  sourceName: string
+  kaleidoscopeEnabled: boolean
+  sourceMissing: boolean
+}
+
+type InternalClipboard = {
+  entries: ClipboardEntry[]
+  pasteCount: number
+}
+
+type SpacePanStart = {
+  pointerId: number
+  x: number
+  y: number
+  scrollLeft: number
+  scrollTop: number
+}
 
 type KaleidoscopeMetadata = {
   kaleidoscopeEnabled?: boolean
@@ -589,6 +720,38 @@ const DEFAULT_KALEIDOSCOPE_COUNT = 6
 const MIN_KALEIDOSCOPE_COUNT = 1
 const MAX_KALEIDOSCOPE_COUNT = 36
 const KALEIDOSCOPE_CENTER_CONTROL_KEY = 'kaleidoscopeCenter'
+const SHORTCUT_STORAGE_KEY = 'icon-creator:editor-shortcuts:v1'
+const SHORTCUT_DISPLAY_GROUPS: ShortcutGroupDefinition[] = [
+  { id: 'edit', label: '编辑' },
+  { id: 'mode', label: '模式' },
+  { id: 'select', label: '选择' },
+  { id: 'organize', label: '组织' },
+  { id: 'layer', label: '图层' },
+  { id: 'view', label: '视图' }
+]
+const SHORTCUT_ACTIONS: ShortcutActionDefinition[] = [
+  { id: 'edit.copy', group: 'edit', name: '复制', description: '复制当前选择的图形对象', defaultBindings: (platform) => [platform === 'darwin' ? 'Meta+C' : 'Ctrl+C'], requiresSelection: true },
+  { id: 'edit.paste', group: 'edit', name: '粘贴', description: '粘贴内部剪贴板中的对象', defaultBindings: (platform) => [platform === 'darwin' ? 'Meta+V' : 'Ctrl+V'] },
+  { id: 'edit.duplicate', group: 'edit', name: '复制副本', description: '复制当前选择并立即粘贴，不覆盖剪贴板', defaultBindings: (platform) => [platform === 'darwin' ? 'Meta+D' : 'Ctrl+D'], requiresSelection: true },
+  { id: 'edit.delete', group: 'edit', name: '删除', description: '删除当前选中的图形对象', defaultBindings: () => ['Delete', 'Backspace'], requiresSelection: true },
+  { id: 'edit.undo', group: 'edit', name: '撤销', description: '撤销上一步编辑操作', defaultBindings: (platform) => [platform === 'darwin' ? 'Meta+Z' : 'Ctrl+Z'] },
+  { id: 'edit.redo', group: 'edit', name: '重做', description: '恢复刚撤销的编辑操作', defaultBindings: (platform) => (platform === 'darwin' ? ['Meta+Shift+Z'] : ['Ctrl+Y', 'Ctrl+Shift+Z']) },
+  { id: 'mode.shape', group: 'mode', name: '图形模式', description: '切换到图形选择模式', defaultBindings: () => ['Alt+1'] },
+  { id: 'mode.point', group: 'mode', name: '点位模式', description: '切换到点位编辑模式', defaultBindings: () => ['Alt+2'] },
+  { id: 'mode.segment', group: 'mode', name: '线段模式', description: '切换到线段编辑模式', defaultBindings: () => ['Alt+3'] },
+  { id: 'select.all', group: 'select', name: '全选', description: '按当前模式选择全部可编辑内容', defaultBindings: (platform) => [platform === 'darwin' ? 'Meta+A' : 'Ctrl+A'] },
+  { id: 'organize.group', group: 'organize', name: '成组', description: '将多个已选对象组合成组', defaultBindings: (platform) => [platform === 'darwin' ? 'Meta+G' : 'Ctrl+G'], requiresSelection: true, shapeOnly: true },
+  { id: 'organize.ungroup', group: 'organize', name: '解组', description: '拆分当前组对象', defaultBindings: (platform) => [platform === 'darwin' ? 'Meta+Shift+G' : 'Ctrl+Shift+G'], requiresSelection: true, shapeOnly: true },
+  { id: 'layer.up', group: 'layer', name: '上移一层', description: '将当前对象上移一层', defaultBindings: () => ['Alt+ArrowUp'], requiresSelection: true, shapeOnly: true },
+  { id: 'layer.down', group: 'layer', name: '下移一层', description: '将当前对象下移一层', defaultBindings: () => ['Alt+ArrowDown'], requiresSelection: true, shapeOnly: true },
+  { id: 'layer.top', group: 'layer', name: '置顶', description: '将当前对象移动到最上层', defaultBindings: () => ['Alt+Shift+ArrowUp'], requiresSelection: true, shapeOnly: true },
+  { id: 'layer.bottom', group: 'layer', name: '置底', description: '将当前对象移动到最下层', defaultBindings: () => ['Alt+Shift+ArrowDown'], requiresSelection: true, shapeOnly: true },
+  { id: 'view.zoomIn', group: 'view', name: '放大', description: '放大画布视图', defaultBindings: (platform) => (platform === 'darwin' ? ['Meta+=', 'Meta+Shift+='] : ['Ctrl+=', 'Ctrl+Shift+=']) },
+  { id: 'view.zoomOut', group: 'view', name: '缩小', description: '缩小画布视图', defaultBindings: (platform) => [platform === 'darwin' ? 'Meta+-' : 'Ctrl+-'] },
+  { id: 'view.fit', group: 'view', name: '适应画布', description: '让画布完整适应当前视图', defaultBindings: (platform) => [platform === 'darwin' ? 'Meta+0' : 'Ctrl+0'] },
+  { id: 'view.actualSize', group: 'view', name: '1:1', description: '将画布缩放恢复到 100%', defaultBindings: (platform) => [platform === 'darwin' ? 'Meta+1' : 'Ctrl+1'] },
+  { id: 'view.toggleRuler', group: 'view', name: '切换标尺', description: '显示或隐藏画布标尺', defaultBindings: (platform) => [platform === 'darwin' ? 'Meta+R' : 'Ctrl+R'] }
+]
 const SERIALIZED_OBJECT_PROPS = [
   'name',
   'strokeUniform',
@@ -625,11 +788,19 @@ let fabricCanvas: Canvas | null = null
 let aligningGuidelines: AligningGuidelines | null = null
 let restoreActiveObjectAfterSelectionClear = false
 let pointModeSwitchPending = false
+let internalClipboard: InternalClipboard | null = null
+let spacePanStart: SpacePanStart | null = null
 
 const leftTab = ref<'shape' | 'text'>('shape')
 const activeRightTab = ref<'properties' | 'layers'>('properties')
 const showRuler = ref(true)
 const zoom = ref(1)
+const shortcutDrawerOpen = ref(false)
+const shortcutSearch = ref('')
+const shortcutPlatform = getEditorPlatform()
+const shortcutBindings = reactive<Record<ShortcutActionId, string[]>>(createDefaultShortcutBindings(shortcutPlatform))
+const spacePanReady = ref(false)
+const isSpacePanning = ref(false)
 const activeObject = shallowRef<FabricObject | null>(null)
 const canvasWidth = ref(512)
 const canvasHeight = ref(512)
@@ -835,6 +1006,15 @@ const redoStack: string[] = []
 const canUndo = ref(false)
 const canRedo = ref(false)
 let skipSnapshot = false
+function withSnapshotSuppressed<T>(callback: () => T) {
+  const previous = skipSnapshot
+  skipSnapshot = true
+  try {
+    return callback()
+  } finally {
+    skipSnapshot = previous
+  }
+}
 
 // 图层搜索
 const layerSearch = ref('')
@@ -1084,13 +1264,17 @@ function removeKaleidoscopeInstancesBySourceId(sourceId: string) {
   if (!fabricCanvas || !sourceId) return []
   const instances = findKaleidoscopeInstancesBySourceId(sourceId)
   if (!instances.length) return []
-  skipSnapshot = true
-  try {
+  withSnapshotSuppressed(() => {
     instances.forEach((instance) => fabricCanvas!.remove(instance as AnyFabricObject))
-  } finally {
-    skipSnapshot = false
-  }
+  })
   return instances
+}
+
+function removeKaleidoscopeInstancesForRemovedSource(obj: FabricObject | null | undefined) {
+  if (!obj || !fabricCanvas || !isKaleidoscopeSource(obj)) return []
+  const sourceId = getKaleidoscopeSourceId(obj)
+  if (!sourceId) return []
+  return removeKaleidoscopeInstancesBySourceId(sourceId)
 }
 
 async function rebuildKaleidoscopeInstances(source: FabricObject) {
@@ -1224,6 +1408,245 @@ function applyKaleidoscopeSelectionConstraints(obj: FabricObject | null, event?:
     fabricCanvas.requestRenderAll()
   }
   return resolved
+}
+
+function getEditorPlatform(): EditorPlatform {
+  if (typeof navigator === 'undefined') return 'win32'
+  const platform = navigator.platform.toLowerCase()
+  const userAgent = navigator.userAgent.toLowerCase()
+  if (platform.includes('mac') || userAgent.includes('mac os')) return 'darwin'
+  if (platform.includes('linux') || userAgent.includes('linux')) return 'linux'
+  return 'win32'
+}
+
+function normalizeShortcutKeyName(key: string) {
+  if (key === ' ') return 'Space'
+  if (key === 'Esc') return 'Escape'
+  if (key === 'Del') return 'Delete'
+  if (key === 'Up') return 'ArrowUp'
+  if (key === 'Down') return 'ArrowDown'
+  if (key === 'Left') return 'ArrowLeft'
+  if (key === 'Right') return 'ArrowRight'
+  if (key === '+') return '='
+  if (key.length === 1) return key.toUpperCase()
+  return key.slice(0, 1).toUpperCase() + key.slice(1)
+}
+
+function normalizeShortcutString(value: unknown) {
+  if (typeof value !== 'string') return ''
+  const parts = value
+    .split('+')
+    .map((part) => part.trim())
+    .filter(Boolean)
+  if (!parts.length) return ''
+  const modifiers = new Set<string>()
+  let key = ''
+  for (const part of parts) {
+    const normalized = part.toLowerCase()
+    if (normalized === 'cmd' || normalized === 'command' || normalized === 'meta' || normalized === '⌘') {
+      modifiers.add('Meta')
+    } else if (normalized === 'ctrl' || normalized === 'control' || normalized === '⌃') {
+      modifiers.add('Ctrl')
+    } else if (normalized === 'alt' || normalized === 'option' || normalized === 'opt' || normalized === '⌥') {
+      modifiers.add('Alt')
+    } else if (normalized === 'shift' || normalized === '⇧') {
+      modifiers.add('Shift')
+    } else {
+      key = normalizeShortcutKeyName(part)
+    }
+  }
+  if (!key) return ''
+  return ['Ctrl', 'Alt', 'Shift', 'Meta']
+    .filter((modifier) => modifiers.has(modifier))
+    .concat(key)
+    .join('+')
+}
+
+function normalizeKeyboardEventShortcut(event: KeyboardEvent) {
+  const key = normalizeShortcutKeyName(event.key)
+  if (!key || key === 'Control' || key === 'Alt' || key === 'Shift' || key === 'Meta') return ''
+  return [
+    event.ctrlKey ? 'Ctrl' : '',
+    event.altKey ? 'Alt' : '',
+    event.shiftKey ? 'Shift' : '',
+    event.metaKey ? 'Meta' : '',
+    key
+  ].filter(Boolean).join('+')
+}
+
+function formatShortcutForDisplay(value: string) {
+  const normalized = normalizeShortcutString(value)
+  if (!normalized) return ''
+  if (shortcutPlatform !== 'darwin') return normalized.replace(/Meta/g, 'Cmd')
+  return normalized
+    .replace(/Meta/g, 'Cmd')
+    .replace(/Alt/g, 'Option')
+}
+
+function createDefaultShortcutBindings(platform: EditorPlatform) {
+  const result = {} as Record<ShortcutActionId, string[]>
+  SHORTCUT_ACTIONS.forEach((action) => {
+    result[action.id] = action.defaultBindings(platform)
+      .map(normalizeShortcutString)
+      .filter(Boolean)
+  })
+  return result
+}
+
+function sanitizeShortcutBindings(input: unknown, fallback: Record<ShortcutActionId, string[]>) {
+  const raw = typeof input === 'string'
+    ? (() => {
+        try { return JSON.parse(input) } catch { return null }
+      })()
+    : input
+  const candidate = raw && typeof raw === 'object' && 'bindings' in raw
+    ? (raw as { bindings?: unknown }).bindings
+    : raw
+  const result = {} as Record<ShortcutActionId, string[]>
+  const occupied = new Set<string>()
+  SHORTCUT_ACTIONS.forEach((action) => {
+    const rawBindings = candidate && typeof candidate === 'object'
+      ? (candidate as Record<string, unknown>)[action.id]
+      : undefined
+    const source = Array.isArray(rawBindings) ? rawBindings : fallback[action.id]
+    const clean: string[] = []
+    source.forEach((item) => {
+      const normalized = normalizeShortcutString(item)
+      if (!normalized || clean.includes(normalized) || occupied.has(normalized)) return
+      clean.push(normalized)
+      occupied.add(normalized)
+    })
+    result[action.id] = clean
+  })
+  return result
+}
+
+function assignShortcutBindings(next: Record<ShortcutActionId, string[]>) {
+  SHORTCUT_ACTIONS.forEach((action) => {
+    shortcutBindings[action.id] = [...next[action.id]]
+  })
+}
+
+function loadShortcutBindings() {
+  const defaults = createDefaultShortcutBindings(shortcutPlatform)
+  const storage = window.ztools?.dbStorage
+  if (!storage) {
+    assignShortcutBindings(defaults)
+    return
+  }
+  try {
+    const stored = storage.getItem(SHORTCUT_STORAGE_KEY)
+    assignShortcutBindings(sanitizeShortcutBindings(stored, defaults))
+  } catch {
+    assignShortcutBindings(defaults)
+  }
+}
+
+function saveShortcutBindings() {
+  const storage = window.ztools?.dbStorage
+  if (!storage) return
+  const payload = {
+    version: 1,
+    bindings: Object.fromEntries(SHORTCUT_ACTIONS.map((action) => [action.id, shortcutBindings[action.id]]))
+  }
+  try {
+    storage.setItem(SHORTCUT_STORAGE_KEY, payload)
+  } catch {
+    // 存储不可用时保留内存配置
+  }
+}
+
+function findShortcutConflict(binding: string, exceptActionId?: ShortcutActionId) {
+  return SHORTCUT_ACTIONS.find((action) => action.id !== exceptActionId && shortcutBindings[action.id].includes(binding)) ?? null
+}
+
+function applyShortcutBinding(actionId: ShortcutActionId, oldValue: string, nextValue: string) {
+  const next = normalizeShortcutString(nextValue)
+  const current = normalizeShortcutString(oldValue)
+  const bindings = shortcutBindings[actionId]
+  const currentIndex = current ? bindings.indexOf(current) : bindings.indexOf('')
+  if (!next) {
+    if (currentIndex >= 0) bindings.splice(currentIndex, 1)
+    saveShortcutBindings()
+    return
+  }
+  if (bindings.includes(next) && next !== current) {
+    if (currentIndex >= 0) bindings.splice(currentIndex, 1)
+    saveShortcutBindings()
+    return
+  }
+  const conflict = findShortcutConflict(next, actionId)
+  if (conflict) {
+    const confirmed = window.confirm(`快捷键 ${formatShortcutForDisplay(next)} 已分配给“${conflict.name}”。是否覆盖？`)
+    if (!confirmed) {
+      if (currentIndex >= 0 && bindings[currentIndex] === '') {
+        bindings.splice(currentIndex, 1)
+        saveShortcutBindings()
+      }
+      return
+    }
+    shortcutBindings[conflict.id] = shortcutBindings[conflict.id].filter((binding) => binding !== next)
+  }
+  if (currentIndex >= 0) {
+    bindings[currentIndex] = next
+  } else if (!bindings.includes(next)) {
+    bindings.push(next)
+  }
+  saveShortcutBindings()
+}
+
+function addShortcutBinding(actionId: ShortcutActionId) {
+  if (shortcutBindings[actionId].includes('')) return
+  shortcutBindings[actionId].push('')
+}
+
+function getShortcutBindingKey(actionId: ShortcutActionId, binding: string, index: number) {
+  return `${actionId}-${binding || 'empty'}-${index}`
+}
+
+function removeShortcutBinding(actionId: ShortcutActionId, binding: string) {
+  shortcutBindings[actionId] = shortcutBindings[actionId].filter((item) => item !== binding)
+  saveShortcutBindings()
+}
+
+function resetShortcutBindingsToDefault() {
+  assignShortcutBindings(createDefaultShortcutBindings(shortcutPlatform))
+  saveShortcutBindings()
+}
+
+function getShortcutActionByEvent(event: KeyboardEvent) {
+  const shortcut = normalizeKeyboardEventShortcut(event)
+  if (!shortcut) return null
+  return SHORTCUT_ACTIONS.find((action) => shortcutBindings[action.id].includes(shortcut)) ?? null
+}
+
+function getShortcutGroupLabel(groupId: ShortcutGroupId) {
+  return SHORTCUT_DISPLAY_GROUPS.find((group) => group.id === groupId)?.label ?? groupId
+}
+
+function shortcutMatchesSearch(action: ShortcutActionDefinition) {
+  const query = shortcutSearch.value.trim().toLowerCase()
+  if (!query) return true
+  const groupLabel = getShortcutGroupLabel(action.group)
+  const bindingsText = shortcutBindings[action.id].map(formatShortcutForDisplay).join(' ')
+  return [action.name, action.description, groupLabel, bindingsText]
+    .some((text) => text.toLowerCase().includes(query))
+}
+
+const filteredShortcutGroups = computed(() => SHORTCUT_DISPLAY_GROUPS
+  .map((group) => ({
+    ...group,
+    actions: SHORTCUT_ACTIONS.filter((action) => action.group === group.id && shortcutMatchesSearch(action))
+  }))
+  .filter((group) => group.actions.length > 0)
+)
+
+function openShortcutDrawer() {
+  shortcutDrawerOpen.value = true
+}
+
+function closeShortcutDrawer() {
+  shortcutDrawerOpen.value = false
 }
 
 // 模板事件值辅助
@@ -1362,6 +1785,201 @@ function resolveSelectedEditableSegment() {
 const selectedEditableSegment = computed(() => resolveSelectedEditableSegment())
 
 const hasSelectedCurveSegment = computed(() => !!selectedEditableSegment.value)
+
+function getSelectableCanvasObjects() {
+  if (!fabricCanvas) return []
+  return fabricCanvas.getObjects().filter((obj) => {
+    if (isBooleanPreviewObject(obj)) return false
+    if (isKaleidoscopeInstance(obj)) return false
+    return obj.selectable !== false
+  })
+}
+
+function getCurrentCopyTargets() {
+  if (!fabricCanvas) return []
+  const objects = fabricCanvas.getActiveObjects()
+  const targets = objects.length ? objects : activeObject.value ? [activeObject.value] : []
+  const expanded = targets.map((obj) => {
+    if (!isKaleidoscopeInstance(obj)) return obj
+    return findKaleidoscopeSourceById(getKaleidoscopeInstanceSourceId(obj)) ?? obj
+  })
+  const unique = Array.from(new Set(expanded))
+  return fabricCanvas.getObjects().filter((obj) => unique.includes(obj) && !isBooleanPreviewObject(obj))
+}
+
+function createClipboardEntry(obj: FabricObject): ClipboardEntry {
+  const source = isKaleidoscopeInstance(obj)
+    ? findKaleidoscopeSourceById(getKaleidoscopeInstanceSourceId(obj))
+    : obj
+  const target = source ?? obj
+  const serialized = (target as AnyFabricObject).toObject(SERIALIZED_OBJECT_PROPS as unknown as string[]) as Record<string, unknown>
+  return {
+    object: serialized,
+    sourceName: String((target as AnyFabricObject).name || target.type || '对象'),
+    kaleidoscopeEnabled: source ? isKaleidoscopeSource(source) : false,
+    sourceMissing: !source && isKaleidoscopeInstance(obj)
+  }
+}
+
+async function cloneClipboardEntry(entry: ClipboardEntry, offset: number) {
+  const [clone] = await util.enlivenObjects([entry.object]) as FabricObject[]
+  clone.set({
+    left: (clone.left ?? 0) + offset,
+    top: (clone.top ?? 0) + offset,
+    name: nextName(`${entry.sourceName} 副本`)
+  })
+  applyCanvasThemeToObject(clone)
+  applyDefaultKaleidoscopeMetadata(clone)
+  const metadata = getKaleidoscopeMetadata(clone)
+  if (entry.kaleidoscopeEnabled && !entry.sourceMissing && canUseKaleidoscopeAsSource(clone)) {
+    const center = getKaleidoscopeEffectiveCenter(clone)
+    metadata!.kaleidoscopeEnabled = true
+    metadata!.kaleidoscopeSourceId = createKaleidoscopeSourceId()
+    metadata!.kaleidoscopeManaged = false
+    metadata!.kaleidoscopeInstanceOf = ''
+    metadata!.kaleidoscopeInstanceIndex = 0
+    metadata!.kaleidoscopeCenterX = center.x + offset
+    metadata!.kaleidoscopeCenterY = center.y + offset
+    metadata!.kaleidoscopeCount = normalizeKaleidoscopeCount(metadata!.kaleidoscopeCount)
+  } else {
+    clearKaleidoscopeMetadata(clone)
+  }
+  clone.setCoords()
+  return clone
+}
+
+function copySelectionToInternalClipboard() {
+  const targets = getCurrentCopyTargets()
+  if (!targets.length) return false
+  internalClipboard = {
+    entries: targets.map(createClipboardEntry),
+    pasteCount: 0
+  }
+  return true
+}
+
+async function pasteInternalClipboard(clipboard = internalClipboard) {
+  if (!fabricCanvas || !clipboard?.entries.length) return false
+  clearBooleanPreview()
+  clearPointEditing()
+  const offset = 16 * (clipboard.pasteCount + 1)
+  const pasted: FabricObject[] = []
+  skipSnapshot = true
+  try {
+    for (const entry of clipboard.entries) {
+      const clone = await cloneClipboardEntry(entry, offset)
+      pasted.push(clone)
+      fabricCanvas.add(clone as AnyFabricObject)
+      if (isKaleidoscopeSource(clone)) {
+        await rebuildKaleidoscopeInstances(clone)
+      }
+    }
+  } finally {
+    skipSnapshot = false
+  }
+  clipboard.pasteCount += 1
+  setSelectionMode('shape')
+  applyActiveObjectsSelection(pasted)
+  refreshLayers()
+  fabricCanvas.requestRenderAll()
+  snapshot()
+  return true
+}
+
+async function duplicateSelection() {
+  const targets = getCurrentCopyTargets()
+  if (!targets.length) return false
+  const tempClipboard: InternalClipboard = {
+    entries: targets.map(createClipboardEntry),
+    pasteCount: 0
+  }
+  return pasteInternalClipboard(tempClipboard)
+}
+
+function selectAllByMode() {
+  if (!fabricCanvas) return
+  if (selectionMode.value === 'shape') {
+    applyActiveObjectsSelection(getSelectableCanvasObjects())
+    return
+  }
+  if (selectionMode.value === 'point') {
+    const obj = activeEditablePathObject.value
+    if (!obj) return
+    setSelectedEditablePoints(obj, getSelectableEditablePoints(obj).map((item) => item.index))
+  }
+}
+
+function toggleRuler() {
+  showRuler.value = !showRuler.value
+}
+
+async function executeShortcutAction(actionId: ShortcutActionId) {
+  switch (actionId) {
+    case 'edit.copy':
+      copySelectionToInternalClipboard()
+      break
+    case 'edit.paste':
+      await pasteInternalClipboard()
+      break
+    case 'edit.duplicate':
+      await duplicateSelection()
+      break
+    case 'edit.delete':
+      deleteObject()
+      break
+    case 'edit.undo':
+      undo()
+      break
+    case 'edit.redo':
+      redo()
+      break
+    case 'mode.shape':
+      setSelectionMode('shape')
+      break
+    case 'mode.point':
+      setSelectionMode('point')
+      break
+    case 'mode.segment':
+      setSelectionMode('segment')
+      break
+    case 'select.all':
+      selectAllByMode()
+      break
+    case 'organize.group':
+      if (selectionMode.value === 'shape' && canGroup.value) groupObjects()
+      break
+    case 'organize.ungroup':
+      if (selectionMode.value === 'shape' && canUngroup.value) ungroupObject()
+      break
+    case 'layer.up':
+      if (selectionMode.value === 'shape') layerUp()
+      break
+    case 'layer.down':
+      if (selectionMode.value === 'shape') layerDown()
+      break
+    case 'layer.top':
+      if (selectionMode.value === 'shape') layerTop()
+      break
+    case 'layer.bottom':
+      if (selectionMode.value === 'shape') layerBottom()
+      break
+    case 'view.zoomIn':
+      setZoom(zoom.value + 0.1)
+      break
+    case 'view.zoomOut':
+      setZoom(zoom.value - 0.1)
+      break
+    case 'view.fit':
+      fitCanvasInView()
+      break
+    case 'view.actualSize':
+      setZoom(1)
+      break
+    case 'view.toggleRuler':
+      toggleRuler()
+      break
+  }
+}
 
 function isBooleanPreviewObject(obj: FabricObject | null | undefined): obj is AnyFabricObject {
   return !!obj && !!(obj as AnyFabricObject).booleanPreview
@@ -3230,12 +3848,9 @@ function deleteObjects(objects?: FabricObject[]) {
     fabricCanvas.discardActiveObject()
     syncActiveObject(null)
   }
-  skipSnapshot = true
-  try {
+  withSnapshotSuppressed(() => {
     targets.forEach((obj) => fabricCanvas!.remove(obj as AnyFabricObject))
-  } finally {
-    skipSnapshot = false
-  }
+  })
   refreshLayers()
   if (shouldClearSelection) {
     fabricCanvas.discardActiveObject()
@@ -3275,26 +3890,32 @@ function groupObjects() {
     canvas: fabricCanvas as any
   } as any)
   ;(group as any).name = nextName('组')
-  fabricCanvas.remove(...objs)
-  fabricCanvas.add(group)
+  withSnapshotSuppressed(() => {
+    fabricCanvas!.remove(...objs)
+    fabricCanvas!.add(group)
+  })
   refreshLayers()
   fabricCanvas.setActiveObject(group)
   syncActiveObject(group)
   fabricCanvas.requestRenderAll()
+  snapshot()
 }
 
 function ungroupObject() {
   const obj = activeObject.value
   if (!(obj instanceof Group) || !fabricCanvas) return
   const items = obj.removeAll()
-  fabricCanvas.remove(obj)
-  for (const item of items) {
-    fabricCanvas.add(item)
-  }
+  withSnapshotSuppressed(() => {
+    fabricCanvas!.remove(obj)
+    for (const item of items) {
+      fabricCanvas!.add(item)
+    }
+  })
   fabricCanvas.discardActiveObject()
   syncActiveObject(null)
   refreshLayers()
   fabricCanvas.requestRenderAll()
+  snapshot()
 }
 
 async function runBooleanOperation(operation: BooleanOperation, subtractDirection: SubtractDirection = 'forward') {
@@ -3423,12 +4044,71 @@ function isEditableTarget(target: EventTarget | null) {
   return tag === 'input' || tag === 'textarea' || tag === 'select' || target.isContentEditable
 }
 
+function isFabricTextboxEditing() {
+  const obj = fabricCanvas?.getActiveObject() ?? activeObject.value
+  return obj instanceof Textbox && obj.isEditing
+}
+
+function shouldIgnoreEditorShortcut(event: KeyboardEvent) {
+  if (event.isComposing) return true
+  if (isEditableTarget(event.target)) return true
+  const target = event.target
+  if (target instanceof HTMLElement) {
+    if (target.closest('.shortcut-drawer') || target.closest('.zt-drawer__mask')) return true
+    if (target.closest('.zt-hotkey-input')) return true
+  }
+  return isFabricTextboxEditing()
+}
+
 function getArrowNudgeDelta(key: string) {
   if (key === 'ArrowUp') return { dx: 0, dy: -1 }
   if (key === 'ArrowDown') return { dx: 0, dy: 1 }
   if (key === 'ArrowLeft') return { dx: -1, dy: 0 }
   if (key === 'ArrowRight') return { dx: 1, dy: 0 }
   return null
+}
+
+function handleCanvasAreaPointerDown(event: PointerEvent) {
+  if (!spacePanReady.value || !canvasAreaRef.value) return
+  event.preventDefault()
+  event.stopPropagation()
+  const area = canvasAreaRef.value
+  area.setPointerCapture?.(event.pointerId)
+  spacePanStart = {
+    pointerId: event.pointerId,
+    x: event.clientX,
+    y: event.clientY,
+    scrollLeft: area.scrollLeft,
+    scrollTop: area.scrollTop
+  }
+  isSpacePanning.value = true
+  window.addEventListener('pointermove', handleSpacePanPointerMove, true)
+  window.addEventListener('pointerup', handleSpacePanPointerEnd, true)
+  window.addEventListener('pointercancel', handleSpacePanPointerEnd, true)
+}
+
+function handleSpacePanPointerMove(event: PointerEvent) {
+  if (!spacePanStart || !canvasAreaRef.value || event.pointerId !== spacePanStart.pointerId) return
+  event.preventDefault()
+  canvasAreaRef.value.scrollLeft = spacePanStart.scrollLeft - (event.clientX - spacePanStart.x)
+  canvasAreaRef.value.scrollTop = spacePanStart.scrollTop - (event.clientY - spacePanStart.y)
+}
+
+function handleSpacePanPointerEnd(event?: PointerEvent) {
+  if (event && spacePanStart && event.pointerId !== spacePanStart.pointerId) return
+  if (spacePanStart && canvasAreaRef.value) {
+    try { canvasAreaRef.value.releasePointerCapture?.(spacePanStart.pointerId) } catch {}
+  }
+  spacePanStart = null
+  isSpacePanning.value = false
+  window.removeEventListener('pointermove', handleSpacePanPointerMove, true)
+  window.removeEventListener('pointerup', handleSpacePanPointerEnd, true)
+  window.removeEventListener('pointercancel', handleSpacePanPointerEnd, true)
+}
+
+function endSpacePan() {
+  spacePanReady.value = false
+  handleSpacePanPointerEnd()
 }
 
 function nudgeActiveObject(dx: number, dy: number) {
@@ -3451,20 +4131,33 @@ function nudgeActiveObject(dx: number, dy: number) {
 }
 
 function handleKeydown(e: KeyboardEvent) {
-  if (isEditableTarget(e.target)) return
-  const activeObjects = fabricCanvas?.getActiveObjects() ?? []
-  if (!activeObjects.length) return
-  if (e.key === 'Delete') {
+  if (shouldIgnoreEditorShortcut(e)) return
+  if (e.key === ' ' && !e.repeat) {
+    spacePanReady.value = true
     e.preventDefault()
-    deleteObject()
     return
   }
-  if (selectionMode.value !== 'shape' || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return
+  const action = getShortcutActionByEvent(e)
+  if (action) {
+    e.preventDefault()
+    void executeShortcutAction(action.id)
+    return
+  }
+  const activeObjects = fabricCanvas?.getActiveObjects() ?? []
+  if (!activeObjects.length || selectionMode.value !== 'shape' || e.altKey || e.ctrlKey || e.metaKey) return
   const delta = getArrowNudgeDelta(e.key)
-  const obj = fabricCanvas?.getActiveObject() ?? activeObject.value
-  if (!delta || (obj instanceof Textbox && obj.isEditing)) return
+  if (!delta) return
   e.preventDefault()
-  nudgeActiveObject(delta.dx, delta.dy)
+  const step = e.shiftKey ? 10 : 1
+  nudgeActiveObject(delta.dx * step, delta.dy * step)
+}
+
+function handleKeyup(e: KeyboardEvent) {
+  if (e.key === ' ') endSpacePan()
+}
+
+function handleWindowBlur() {
+  endSpacePan()
 }
 
 // ── Fabric 事件 ──
@@ -3692,9 +4385,10 @@ function setupCanvasEvents() {
     syncObjProps()
     triggerKaleidoscopeTransformSync(event.target ?? null)
   })
-  fabricCanvas.on('object:rotating', () => {
+  fabricCanvas.on('object:rotating', (event) => {
     clearBooleanPreview()
     syncObjProps()
+    triggerKaleidoscopeTransformSync(event.target ?? null)
   })
 
   // 对象添加/删除时快照
@@ -3706,6 +4400,7 @@ function setupCanvasEvents() {
   })
   fabricCanvas.on('object:removed', (event) => {
     if (isBooleanPreviewObject(event.target ?? null)) return
+    removeKaleidoscopeInstancesForRemovedSource(event.target ?? null)
     refreshLayers()
     snapshot()
   })
@@ -3724,6 +4419,7 @@ onMounted(() => {
     uniformScaling: sizeRatioLocked.value
   })
 
+  loadShortcutBindings()
   applyCanvasTheme()
   syncCanvasInteractionMode()
   initAligningGuidelines()
@@ -3738,6 +4434,8 @@ onMounted(() => {
   // 窗口缩放自适应
   window.addEventListener('resize', fitCanvasInView)
   window.addEventListener('keydown', handleKeydown)
+  window.addEventListener('keyup', handleKeyup)
+  window.addEventListener('blur', handleWindowBlur)
 })
 
 watch(
@@ -3751,6 +4449,9 @@ watch(
 onBeforeUnmount(() => {
   window.removeEventListener('resize', fitCanvasInView)
   window.removeEventListener('keydown', handleKeydown)
+  window.removeEventListener('keyup', handleKeyup)
+  window.removeEventListener('blur', handleWindowBlur)
+  endSpacePan()
   clearBooleanPreview()
   clearPointEditing()
   aligningGuidelines?.dispose()
@@ -3871,6 +4572,159 @@ $panel-bg: #fff;
 .top-bar-reset-btn {
   width: auto;
   min-width: 40px;
+}
+.shortcut-topbar-btn {
+  min-width: 54px;
+}
+
+:global(.zt-drawer__mask) {
+  background: rgba(0, 0, 0, 0.18);
+}
+:global(.shortcut-drawer) {
+  display: flex;
+  flex-direction: column;
+  background: $panel-bg;
+  border-left: $border;
+  box-shadow: -16px 0 36px rgba(0, 0, 0, 0.16);
+  overflow: hidden;
+}
+.shortcut-drawer-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px;
+  border-bottom: $border;
+  h2 {
+    margin: 0;
+    font-size: 18px;
+  }
+  p {
+    margin: 4px 0 0;
+    color: #666;
+    font-size: 12px;
+  }
+}
+.shortcut-close-btn,
+.shortcut-binding-delete {
+  border: 1px solid rgba(128, 128, 128, 0.24);
+  border-radius: 6px;
+  background: #fff;
+  color: #666;
+  cursor: pointer;
+  &:hover { background: #f1f1f1; color: #c00; }
+}
+.shortcut-close-btn {
+  width: 35px;
+  height: 35px;
+  font-size: 20px;
+  line-height: 1;
+}
+.shortcut-drawer-tools {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: $border;
+}
+.shortcut-group-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 16px 16px;
+}
+.shortcut-group {
+  margin-bottom: 14px;
+}
+.shortcut-group-title {
+  position: sticky;
+  top: -8px;
+  z-index: 1;
+  padding: 8px 0;
+  background: $panel-bg;
+  color: #555;
+  font-weight: 700;
+  font-size: 12px;
+}
+.shortcut-action-row {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid rgba(128, 128, 128, 0.14);
+}
+.shortcut-action-name {
+  font-weight: 600;
+  color: #333;
+}
+.shortcut-action-desc {
+  margin-top: 3px;
+  color: #777;
+  font-size: 12px;
+  line-height: 1.35;
+}
+.shortcut-binding-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.shortcut-binding-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 35px 35px;
+  gap: 6px;
+  align-items: center;
+}
+.shortcut-hotkey-input {
+  min-width: 0;
+}
+.shortcut-binding-delete,
+.shortcut-binding-add {
+  width: 35px;
+  height: 35px;
+  padding: 0;
+  box-sizing: border-box;
+  border: 2px solid var(--control-border);
+  border-radius: 6px;
+  background: #fafafa;
+  color: #666;
+  cursor: pointer;
+  line-height: 1;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease, color 0.15s ease;
+
+  &:hover {
+    background: #fafafa;
+    border-color: var(--primary-color);
+  }
+}
+.shortcut-binding-delete {
+  font-size: 16px;
+
+  &:hover {
+    color: #c00;
+  }
+}
+.shortcut-binding-add {
+  font-size: 15px;
+  color: var(--primary-color);
+}
+.shortcut-binding-add--empty {
+  align-self: flex-end;
+}
+.shortcut-empty {
+  padding: 32px 0;
+  color: #777;
+  text-align: center;
+}
+
+.space-pan-ready .canvas-area,
+.space-pan-ready .canvas-wrapper,
+.space-pan-ready canvas {
+  cursor: grab !important;
+}
+.space-panning .canvas-area,
+.space-panning .canvas-wrapper,
+.space-panning canvas {
+  cursor: grabbing !important;
+  user-select: none;
 }
 
 /* ── 按钮通用 ── */

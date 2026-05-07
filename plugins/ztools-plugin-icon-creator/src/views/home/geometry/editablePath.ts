@@ -468,6 +468,29 @@ function createDefaultCubicControlPoints(fromPoint: EditablePoint, toPoint: Edit
   }
 }
 
+function getPointInParentPlane(obj: EditablePathObject, point: EditablePoint) {
+  return new Point(point.x, point.y)
+    .subtract(obj.pathOffset)
+    .transform(obj.calcOwnMatrix())
+}
+
+function rebuildEditablePathObjectKeepingAnchor(
+  obj: EditablePathObject,
+  anchorPoint: EditablePoint | null,
+  anchorPointInParentPlane: Point | null = anchorPoint ? getPointInParentPlane(obj, anchorPoint) : null
+) {
+  ensureEditablePathObject(obj)
+  const path = buildEditablePathData(obj)
+  ;(obj as any)._setPath((path.length ? path : [['M', 0, 0]]) as TSimplePathData, false)
+  if (anchorPoint && anchorPointInParentPlane) {
+    const diff = getPointInParentPlane(obj, anchorPoint).subtract(anchorPointInParentPlane)
+    obj.left = (obj.left ?? 0) - diff.x
+    obj.top = (obj.top ?? 0) - diff.y
+  }
+  obj.dirty = true
+  obj.setCoords()
+}
+
 export function getPointRadius(obj: EditablePathObject, index: number) {
   ensureEditablePathObject(obj)
   return effectiveRadius(obj, index)
@@ -527,7 +550,7 @@ export function setEditableSegmentType(obj: EditablePathObject, segmentRef: Edit
       cp2: segment.cp2 ? clonePoint(segment.cp2) : undefined
     }
   }
-  rebuildEditablePathObject(obj)
+  rebuildEditablePathObjectKeepingAnchor(obj, liveSegmentRef.fromPoint)
 }
 
 export function setEditableSegmentControlPoint(
@@ -557,7 +580,7 @@ export function setEditableSegmentControlPoint(
     ...current,
     [controlPoint]: clonePoint(nextPoint)
   }
-  rebuildEditablePathObject(obj)
+  rebuildEditablePathObjectKeepingAnchor(obj, liveSegmentRef.fromPoint)
 }
 
 function pointSegmentDistance(point: EditablePoint, fromPoint: EditablePoint, toPoint: EditablePoint) {
@@ -675,25 +698,10 @@ export function moveEditablePoint(obj: EditablePathObject, index: number, nextPo
     ? (pointIndex > 0 ? pointIndex : contour.points.length) - 1
     : -1
   const anchorPoint = anchorIndex >= 0 ? contour.points[anchorIndex] : null
-  const anchorPointInParentPlane = anchorPoint
-    ? new Point(anchorPoint.x, anchorPoint.y)
-      .subtract(obj.pathOffset)
-      .transform(obj.calcOwnMatrix())
-    : null
+  const anchorPointInParentPlane = anchorPoint ? getPointInParentPlane(obj, anchorPoint) : null
   point.x = nextPoint.x
   point.y = nextPoint.y
-  const path = buildEditablePathData(obj)
-  ;(obj as any)._setPath(path as TSimplePathData, false)
-  if (anchorPoint && anchorPointInParentPlane) {
-    const diff = new Point(anchorPoint.x, anchorPoint.y)
-      .subtract(obj.pathOffset)
-      .transform(obj.calcOwnMatrix())
-      .subtract(anchorPointInParentPlane)
-    obj.left = (obj.left ?? 0) - diff.x
-    obj.top = (obj.top ?? 0) - diff.y
-  }
-  obj.dirty = true
-  obj.setCoords()
+  rebuildEditablePathObjectKeepingAnchor(obj, anchorPoint, anchorPointInParentPlane)
 }
 
 /**
@@ -737,27 +745,13 @@ export function moveEditablePoints(
   // rebuild path 会更新 pathOffset；有未移动点时记录它的父平面位置，避免补偿时带动未选点。
   // 如果所有点均被移动，则记录 lead point 的目标父平面位置，让被抓住的点继续跟手。
   const anchorBefore = stationaryRef
-    ? new Point(stationaryRef.point.x, stationaryRef.point.y)
-      .subtract(obj.pathOffset)
-      .transform(obj.calcOwnMatrix())
-    : new Point(leadNextPoint.x, leadNextPoint.y)
-      .subtract(obj.pathOffset)
-      .transform(obj.calcOwnMatrix())
+    ? getPointInParentPlane(obj, stationaryRef.point)
+    : getPointInParentPlane(obj, leadNextPoint)
   for (const ref of refs) {
     ref.point.x += dx
     ref.point.y += dy
   }
-  const path = buildEditablePathData(obj)
-  ;(obj as any)._setPath(path as TSimplePathData, false)
-  const anchorRef = stationaryRef ?? leadRef
-  const anchorAfter = new Point(anchorRef.point.x, anchorRef.point.y)
-    .subtract(obj.pathOffset)
-    .transform(obj.calcOwnMatrix())
-  const diff = anchorAfter.subtract(anchorBefore)
-  obj.left = (obj.left ?? 0) - diff.x
-  obj.top = (obj.top ?? 0) - diff.y
-  obj.dirty = true
-  obj.setCoords()
+  rebuildEditablePathObjectKeepingAnchor(obj, stationaryRef?.point ?? leadRef.point, anchorBefore)
 }
 
 export function editablePointToLocalObjectPoint(obj: EditablePathObject, index: number) {
