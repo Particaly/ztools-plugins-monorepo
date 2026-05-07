@@ -206,12 +206,16 @@ export function createShape(item: ShapeLibraryItem): FabricObject {
     case 'base-pentagon':
       return editablePolygon(regularPolygon(5, w, h), item)
     case 'base-arrow-right': {
-      const path = editablePolygon([
+      const path = editablePath([
         { x: -w / 2, y: 0 },
         { x: w * 0.22, y: 0 },
         { x: w * 0.02, y: -h * 0.3 },
-        { x: w * 0.22, y: 0 },
         { x: w * 0.02, y: h * 0.3 }
+      ], [
+        { type: 'line', to: 1 },
+        { type: 'line', to: 2 },
+        { type: 'line', to: 1 },
+        { type: 'line', to: 3 }
       ], item, 0, false)
       path.set({ fill: 'transparent', strokeLineCap: 'round', strokeLineJoin: 'round' })
       return path

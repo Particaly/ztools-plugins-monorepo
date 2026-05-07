@@ -7,7 +7,8 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, ref, watch, nextTick } from 'vue'
+import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { useZtoolsTheme } from 'ztools-ui'
 
 const props = defineProps<{
   scrollEl: HTMLElement | null
@@ -18,11 +19,30 @@ const props = defineProps<{
 const RULER_SIZE = 24
 const TARGET_MAJOR_PX = 80
 const STEP_CANDIDATES = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000]
-const ACCENT = '#1e6fff'
-const BG = '#f5f5f5'
-const TICK = '#999'
-const LABEL = '#666'
-const BORDER = '#d0d0d0'
+
+const { isDark, primaryColor, customColor } = useZtoolsTheme()
+
+function getCssVar(name: string, fallback: string, scopeEl?: Element | null) {
+  if (typeof window === 'undefined') return fallback
+  const candidates = [scopeEl, document.body, document.documentElement]
+  for (const candidate of candidates) {
+    if (!candidate) continue
+    const value = getComputedStyle(candidate).getPropertyValue(name).trim()
+    if (value) return value
+  }
+  return fallback
+}
+
+function getRulerColors() {
+  const dark = isDark.value
+  return {
+    accent: getCssVar('--primary-color', '#0284c7', document.body),
+    bg: getCssVar('--control-bg', dark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.035)', document.body),
+    tick: getCssVar('--text-secondary', dark ? '#bfc0c3' : '#616161', document.body),
+    label: getCssVar('--text-secondary', dark ? '#bfc0c3' : '#616161', document.body),
+    border: getCssVar('--border-color', dark ? '#374151' : '#e5e7eb', document.body)
+  }
+}
 
 const hCanvasRef = ref<HTMLCanvasElement | null>(null)
 const vCanvasRef = ref<HTMLCanvasElement | null>(null)
@@ -112,10 +132,11 @@ function drawHRuler(
   minorStep: number,
   cursorCanvasX: number
 ) {
-  ctx.fillStyle = BG
+  const colors = getRulerColors()
+  ctx.fillStyle = colors.bg
   ctx.fillRect(0, 0, width, RULER_SIZE)
 
-  ctx.strokeStyle = TICK
+  ctx.strokeStyle = colors.tick
   ctx.lineWidth = 1
   ctx.beginPath()
 
@@ -134,7 +155,7 @@ function drawHRuler(
   ctx.stroke()
 
   // Major labels
-  ctx.fillStyle = LABEL
+  ctx.fillStyle = colors.label
   ctx.font = '10px ui-sans-serif, system-ui, -apple-system, sans-serif'
   ctx.textBaseline = 'top'
   ctx.textAlign = 'left'
@@ -146,7 +167,7 @@ function drawHRuler(
   }
 
   // Bottom border
-  ctx.strokeStyle = BORDER
+  ctx.strokeStyle = colors.border
   ctx.beginPath()
   ctx.moveTo(0, RULER_SIZE - 0.5)
   ctx.lineTo(width, RULER_SIZE - 0.5)
@@ -156,7 +177,7 @@ function drawHRuler(
   if (cursorCanvasX !== -1) {
     const sx = origin + cursorCanvasX * zoom
     if (sx >= 0 && sx <= width) {
-      ctx.fillStyle = ACCENT
+      ctx.fillStyle = colors.accent
       ctx.fillRect(Math.round(sx), 0, 1, RULER_SIZE)
     }
   }
@@ -171,10 +192,11 @@ function drawVRuler(
   minorStep: number,
   cursorCanvasY: number
 ) {
-  ctx.fillStyle = BG
+  const colors = getRulerColors()
+  ctx.fillStyle = colors.bg
   ctx.fillRect(0, 0, RULER_SIZE, height)
 
-  ctx.strokeStyle = TICK
+  ctx.strokeStyle = colors.tick
   ctx.lineWidth = 1
   ctx.beginPath()
 
@@ -193,7 +215,7 @@ function drawVRuler(
   ctx.stroke()
 
   // Major labels (rotated -90deg)
-  ctx.fillStyle = LABEL
+  ctx.fillStyle = colors.label
   ctx.font = '10px ui-sans-serif, system-ui, -apple-system, sans-serif'
   const firstMajor = Math.ceil(startCanvas / step) * step
   for (let cy = firstMajor; cy <= endCanvas; cy += step) {
@@ -209,7 +231,7 @@ function drawVRuler(
   }
 
   // Right border
-  ctx.strokeStyle = BORDER
+  ctx.strokeStyle = colors.border
   ctx.beginPath()
   ctx.moveTo(RULER_SIZE - 0.5, 0)
   ctx.lineTo(RULER_SIZE - 0.5, height)
@@ -219,7 +241,7 @@ function drawVRuler(
   if (cursorCanvasY !== -1) {
     const sy = origin + cursorCanvasY * zoom
     if (sy >= 0 && sy <= height) {
-      ctx.fillStyle = ACCENT
+      ctx.fillStyle = colors.accent
       ctx.fillRect(0, Math.round(sy), RULER_SIZE, 1)
     }
   }
@@ -280,7 +302,7 @@ watch(
   { immediate: true, flush: 'post' }
 )
 
-watch(() => props.zoom, scheduleDraw)
+watch(() => [props.zoom, isDark.value, primaryColor.value, customColor.value], scheduleDraw)
 
 onBeforeUnmount(detach)
 </script>
@@ -298,9 +320,9 @@ onBeforeUnmount(detach)
   left: 0;
   width: 24px;
   height: 24px;
-  background: #ececec;
-  border-right: 1px solid #d0d0d0;
-  border-bottom: 1px solid #d0d0d0;
+  background: var(--control-bg, rgba(0, 0, 0, 0.035));
+  border-right: 1px solid var(--border-color, #e5e7eb);
+  border-bottom: 1px solid var(--border-color, #e5e7eb);
   box-sizing: border-box;
 }
 .ruler-h {

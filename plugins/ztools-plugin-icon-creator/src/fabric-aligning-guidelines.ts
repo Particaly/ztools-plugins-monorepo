@@ -42,10 +42,12 @@ type SnapState<TAnchor extends string> = {
   anchor: TAnchor
 }
 
+type AligningLineColor = string | (() => string)
+
 export type AligningGuidelinesOptions = {
   margin?: number
   width?: number
-  color?: string
+  color?: AligningLineColor
   offset?: number
   getObjectsByTarget?: (target: FabricObject) => Iterable<FabricObject>
 }
@@ -69,7 +71,7 @@ export class AligningGuidelines {
   private readonly aligningLineOffset: number
   private readonly aligningLineMargin: number
   private readonly aligningLineWidth: number
-  private readonly aligningLineColor: string
+  private readonly aligningLineColor: AligningLineColor
   private zoom = 1
   private readonly verticalLines: VerticalLine[] = []
   private readonly horizontalLines: HorizontalLine[] = []
@@ -500,7 +502,7 @@ export class AligningGuidelines {
     this.ctx.save()
     this.ctx.transform(...viewportTransform)
     this.ctx.lineWidth = this.aligningLineWidth / this.zoom
-    this.ctx.strokeStyle = this.aligningLineColor
+    this.ctx.strokeStyle = typeof this.aligningLineColor === 'function' ? this.aligningLineColor() : this.aligningLineColor
     this.ctx.beginPath()
     this.ctx.moveTo(x1, y1)
     this.ctx.lineTo(x2, y2)

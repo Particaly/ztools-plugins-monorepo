@@ -702,7 +702,8 @@ export function moveEditablePoint(obj: EditablePathObject, index: number, nextPo
  * - 对所有 indices 中存在的 anchor 点应用同一个 delta
  * - 不修改任何 segment 的 cp1 / cp2 控制点
  * - 整批修改完只 rebuild 一次 path
- * - 根据 lead point 在父平面的位置一次性补偿 obj.left / obj.top，保证被抓住的点跟手
+ * - 优先根据未移动的点在父平面的位置补偿 obj.left / obj.top，保证其它点位保持不动
+ * - 如果所有点都被移动，则回退到 lead point 补偿，保证被抓住的点跟手
  */
 export function moveEditablePoints(
   obj: EditablePathObject,
@@ -728,23 +729,31 @@ export function moveEditablePoints(
     refs.push(leadRef)
     seenPoints.add(leadRef.point)
   }
+  const stationaryRef = flattenEditablePoints(model)
+    .find((ref) => !seenPoints.has(ref.point)) ?? null
   const dx = leadNextPoint.x - leadRef.point.x
   const dy = leadNextPoint.y - leadRef.point.y
   if (dx === 0 && dy === 0) return
-  // lead point 在父平面下变换前的位置，用于只补偿一次 obj.left / obj.top
-  const leadAnchorBefore = new Point(leadRef.point.x, leadRef.point.y)
-    .subtract(obj.pathOffset)
-    .transform(obj.calcOwnMatrix())
+  // rebuild path 会更新 pathOffset；有未移动点时记录它的父平面位置，避免补偿时带动未选点。
+  // 如果所有点均被移动，则记录 lead point 的目标父平面位置，让被抓住的点继续跟手。
+  const anchorBefore = stationaryRef
+    ? new Point(stationaryRef.point.x, stationaryRef.point.y)
+      .subtract(obj.pathOffset)
+      .transform(obj.calcOwnMatrix())
+    : new Point(leadNextPoint.x, leadNextPoint.y)
+      .subtract(obj.pathOffset)
+      .transform(obj.calcOwnMatrix())
   for (const ref of refs) {
     ref.point.x += dx
     ref.point.y += dy
   }
   const path = buildEditablePathData(obj)
   ;(obj as any)._setPath(path as TSimplePathData, false)
-  const leadAnchorAfter = new Point(leadRef.point.x, leadRef.point.y)
+  const anchorRef = stationaryRef ?? leadRef
+  const anchorAfter = new Point(anchorRef.point.x, anchorRef.point.y)
     .subtract(obj.pathOffset)
     .transform(obj.calcOwnMatrix())
-  const diff = leadAnchorAfter.subtract(leadAnchorBefore)
+  const diff = anchorAfter.subtract(anchorBefore)
   obj.left = (obj.left ?? 0) - diff.x
   obj.top = (obj.top ?? 0) - diff.y
   obj.dirty = true

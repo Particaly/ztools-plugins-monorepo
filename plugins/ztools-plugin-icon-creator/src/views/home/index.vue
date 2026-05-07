@@ -6,70 +6,82 @@
         <span class="app-title">图标编辑器</span>
       </div>
       <div class="top-bar-center">
-        <button class="tb-btn" @click="newDoc" title="新建">新建</button>
-        <button class="tb-btn" @click="importImage" title="导入图片">导入图片</button>
-        <button class="tb-btn" @click="exportSVG" title="导出 SVG">导出 SVG</button>
-        <button class="tb-btn" @click="exportPNG" title="导出 PNG">导出 PNG</button>
+        <ZButton size="small" class="top-bar-btn" @click="newDoc" title="新建">新建</ZButton>
+        <ZButton size="small" class="top-bar-btn" @click="importImage" title="导入图片">导入图片</ZButton>
+        <ZButton size="small" class="top-bar-btn" @click="exportSVG" title="导出 SVG">导出 SVG</ZButton>
+        <ZButton size="small" class="top-bar-btn" @click="exportPNG" title="导出 PNG">导出 PNG</ZButton>
         <span class="tb-sep"></span>
-        <button class="tb-btn" :disabled="!canUndo" @click="undo" title="撤销">撤销</button>
-        <button class="tb-btn" :disabled="!canRedo" @click="redo" title="重做">重做</button>
+        <ZButton size="small" class="top-bar-btn" :disabled="!canUndo" @click="undo" title="撤销">撤销</ZButton>
+        <ZButton size="small" class="top-bar-btn" :disabled="!canRedo" @click="redo" title="重做">重做</ZButton>
         <span class="tb-sep"></span>
-        <button class="tb-btn" :class="{ active: showRuler }" @click="showRuler = !showRuler" title="标尺">标尺</button>
+        <ZButton size="small" class="top-bar-btn" :class="{ 'is-active': showRuler }" @click="showRuler = !showRuler" title="标尺">标尺</ZButton>
         <span class="tb-sep"></span>
-        <button class="tb-btn sm" :class="{ active: selectionMode === 'shape' }" title="选择图形" @click="setSelectionMode('shape')">
+        <ZButton size="small" class="top-bar-icon-btn" :class="{ 'is-active': selectionMode === 'shape' }" title="选择图形" @click="setSelectionMode('shape')">
           <Icon icon="mdi:cursor-default-outline" />
-        </button>
-        <button class="tb-btn sm" :class="{ active: selectionMode === 'point' }" :disabled="!hasEditablePoints" title="选择点位" @click="setSelectionMode('point')">
+        </ZButton>
+        <ZButton size="small" class="top-bar-icon-btn" :class="{ 'is-active': selectionMode === 'point' }" :disabled="!hasEditablePoints" title="选择点位" @click="setSelectionMode('point')">
           <Icon icon="mdi:circle-outline" />
-        </button>
-        <button class="tb-btn sm" :class="{ active: selectionMode === 'segment' }" :disabled="!hasEditablePoints" title="选择线段" @click="setSelectionMode('segment')">
+        </ZButton>
+        <ZButton size="small" class="top-bar-icon-btn" :class="{ 'is-active': selectionMode === 'segment' }" :disabled="!hasEditablePoints" title="选择线段" @click="setSelectionMode('segment')">
           <Icon icon="mdi:minus" />
-        </button>
+        </ZButton>
       </div>
       <div class="top-bar-right">
         <span class="zoom-label">{{ Math.round(zoom * 100) }}%</span>
-        <button class="tb-btn sm" @click="setZoom(zoom - 0.1)">−</button>
-        <button class="tb-btn sm" @click="setZoom(zoom + 0.1)">+</button>
-        <button class="tb-btn sm" @click="setZoom(1)">1:1</button>
+        <ZButton size="small" class="top-bar-icon-btn" @click="setZoom(zoom - 0.1)">−</ZButton>
+        <ZButton size="small" class="top-bar-icon-btn" @click="setZoom(zoom + 0.1)">+</ZButton>
+        <ZButton size="small" class="top-bar-btn top-bar-reset-btn" @click="setZoom(1)">1:1</ZButton>
       </div>
     </header>
 
     <div class="editor-body">
       <!-- 左栏 -->
       <aside class="left-panel">
-        <div class="left-tabs">
-          <button :class="{ active: leftTab === 'shape' }" @click="leftTab = 'shape'">形状</button>
-          <button :class="{ active: leftTab === 'text' }" @click="leftTab = 'text'">文字</button>
-        </div>
-        <div class="left-content">
-          <template v-if="leftTab === 'shape'">
-            <div class="section-title">基础形状</div>
-            <div class="asset-grid">
-              <div
-                v-for="s in basicShapes"
-                :key="s.id"
-                class="asset-item"
-                :title="s.label"
-                @click="addShape(s)"
-              >
-                <svg class="shape-preview-svg" viewBox="0 0 64 64" aria-hidden="true">
-                  <path :d="shapePreviewPaths[s.id]" fill="#fff" stroke="#333" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
-                </svg>
+        <ZTabs
+          v-model:value="leftTab"
+          class="side-tabs left-tabs"
+          type="line"
+          size="small"
+          placement="top"
+          :animated="false"
+          justify-content="space-between"
+          :tabs-padding="0"
+          tab-class="side-tabs-tab"
+          pane-wrapper-class="left-tabs-pane-wrapper"
+          pane-class="left-tabs-pane"
+        >
+          <ZTabPane name="shape" tab="形状" display-directive="show">
+            <div class="left-content">
+              <div class="section-title">基础形状</div>
+              <div class="asset-grid">
+                <div
+                  v-for="s in basicShapes"
+                  :key="s.id"
+                  class="asset-item"
+                  :title="s.label"
+                  @click="addShape(s)"
+                >
+                  <svg class="shape-preview-svg" viewBox="0 0 64 64" aria-hidden="true">
+                    <path :d="shapePreviewPaths[s.id]" fill="#fff" stroke="#333" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+                  </svg>
+                </div>
               </div>
             </div>
-          </template>
-          <template v-if="leftTab === 'text'">
-            <div class="section-title">文字预设</div>
-            <div class="text-list">
-              <button
-                v-for="t in textPresets" :key="t.id" class="text-preset-btn"
-                @click="addText(t)"
-              >
-                <span :style="{ fontSize: t.fontSize > 30 ? 20 : t.fontSize + 'px', fontWeight: t.fontWeight }">{{ t.label }}</span>
-              </button>
+          </ZTabPane>
+          <ZTabPane name="text" tab="文字" display-directive="show">
+            <div class="left-content">
+              <div class="section-title">文字预设</div>
+              <div class="text-list">
+                <button
+                  v-for="t in textPresets" :key="t.id" class="text-preset-btn"
+                  @click="addText(t)"
+                >
+                  <span :style="{ fontSize: t.fontSize > 30 ? 20 : t.fontSize + 'px', fontWeight: t.fontWeight }">{{ t.label }}</span>
+                </button>
+              </div>
             </div>
-          </template>
-        </div>
+          </ZTabPane>
+        </ZTabs>
       </aside>
 
       <!-- 中间画布区 -->
@@ -91,12 +103,14 @@
       <aside class="right-panel">
         <ZTabs
           v-model:value="activeRightTab"
-          class="right-tabs"
+          class="side-tabs right-tabs"
           type="line"
           size="small"
           placement="top"
           :animated="false"
-          justify-content="start"
+          justify-content="space-between"
+          :tabs-padding="0"
+          tab-class="side-tabs-tab"
           pane-wrapper-class="right-tabs-pane-wrapper"
           pane-class="right-tabs-pane"
         >
@@ -216,7 +230,13 @@
                   </div>
                   <div v-if="objProps.strokeEnabled" class="prop-group style-color-row">
                     <label>描边宽</label>
-                    <ZInput size="small" type="text" :model-value="objProps.strokeWidth" @change="setObjProp('strokeWidth', uiNum($event))" />
+                    <ZInput
+                      size="small"
+                      type="text"
+                      :model-value="objProps.strokeWidthInput"
+                      @update:model-value="objProps.strokeWidthInput = String($event)"
+                      @change="setStrokeWidthFromInput"
+                    />
                   </div>
                   <div v-if="objProps.strokeEnabled" class="prop-group">
                     <label>线型</label>
@@ -470,10 +490,10 @@
           <span>图层</span>
         </div>
         <div class="layer-toolbar">
-          <button class="tb-btn xs" @click="layerUp" title="上移"><Icon icon="mdi:arrow-up" /></button>
-          <button class="tb-btn xs" @click="layerDown" title="下移"><Icon icon="mdi:arrow-down" /></button>
-          <button class="tb-btn xs" @click="layerTop" title="置顶"><Icon icon="mdi:arrow-collapse-up" /></button>
-          <button class="tb-btn xs" @click="layerBottom" title="置底"><Icon icon="mdi:arrow-collapse-down" /></button>
+          <ZButton class="layer-toolbar-btn" size="small" @click="layerUp" title="上移"><Icon icon="mdi:arrow-up" /></ZButton>
+          <ZButton class="layer-toolbar-btn" size="small" @click="layerDown" title="下移"><Icon icon="mdi:arrow-down" /></ZButton>
+          <ZButton class="layer-toolbar-btn" size="small" @click="layerTop" title="置顶"><Icon icon="mdi:arrow-collapse-up" /></ZButton>
+          <ZButton class="layer-toolbar-btn" size="small" @click="layerBottom" title="置底"><Icon icon="mdi:arrow-collapse-down" /></ZButton>
           <ZInput class="layer-search" size="small" type="text" placeholder="搜索" v-model="layerSearch" />
         </div>
         <div v-if="filteredLayers.length" class="layer-list">
@@ -508,8 +528,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, shallowRef, triggerRef, reactive, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
-import { ZInput, ZSelect, ZColorPicker, ZSwitch, ZSlider, ZPopover, ZButton, ZTabs, ZTabPane } from 'ztools-ui'
+import { ref, shallowRef, triggerRef, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
+import { ZInput, ZSelect, ZColorPicker, ZSwitch, ZSlider, ZPopover, ZButton, ZTabs, ZTabPane, useZtoolsTheme } from 'ztools-ui'
 import { Icon } from '@iconify/vue'
 import { Canvas, Control, FabricObject, Textbox, Group, ActiveSelection, FabricImage, Point, util } from 'fabric'
 import { AligningGuidelines } from '../../fabric-aligning-guidelines'
@@ -656,7 +676,7 @@ const objProps = reactive({
   left: 0, top: 0, width: 0, height: 0,
   scaleX: 1, scaleY: 1, angle: 0,
   fill: '#000000', fillEnabled: true,
-  stroke: '#000000', strokeEnabled: true, strokeWidth: 0, strokeLineType: 'solid' as StrokeLineType, strokeDashLength: 6, strokeDashGap: 4, strokeDashLengthInput: '6', strokeDashGapInput: '4', opacity: 1,
+  stroke: '#000000', strokeEnabled: true, strokeWidth: 0, strokeWidthInput: '0', strokeLineType: 'solid' as StrokeLineType, strokeDashLength: 6, strokeDashGap: 4, strokeDashLengthInput: '6', strokeDashGapInput: '4', opacity: 1,
   cornerRadius: 0,
   pointCornerRadius: 0,
   cornerRadiusInput: '0',
@@ -733,6 +753,74 @@ function createInitialPointGestureState(): PointGestureState {
 const pointGestureState = createInitialPointGestureState()
 // 用于触发 marquee 重新渲染的版本号（修改 viewport / preview 命中后递增）
 const pointGestureRenderTick = ref(0)
+
+const { isDark, primaryColor, customColor } = useZtoolsTheme()
+
+function getCssVar(name: string, fallback: string, scopeEl?: Element | null) {
+  if (typeof window === 'undefined') return fallback
+  const candidates = [scopeEl, document.body, document.documentElement]
+  for (const candidate of candidates) {
+    if (!candidate) continue
+    const value = getComputedStyle(candidate).getPropertyValue(name).trim()
+    if (value) return value
+  }
+  return fallback
+}
+
+function hexToRgba(hex: string, alpha: number) {
+  const normalized = hex.trim().replace('#', '')
+  const full = normalized.length === 3
+    ? normalized.split('').map((char) => char + char).join('')
+    : normalized
+  if (!/^[0-9a-fA-F]{6}$/.test(full)) return hex
+  const r = Number.parseInt(full.slice(0, 2), 16)
+  const g = Number.parseInt(full.slice(2, 4), 16)
+  const b = Number.parseInt(full.slice(4, 6), 16)
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
+
+function getCanvasAssistColors() {
+  const dark = isDark.value
+  const primary = getCssVar('--primary-color', '#0284c7', document.body)
+  const border = getCssVar('--border-color', dark ? '#374151' : '#e5e7eb', document.body)
+  const textOnPrimary = getCssVar('--text-on-primary', '#ffffff', document.body)
+  return {
+    primary,
+    primarySoft: hexToRgba(primary, dark ? 0.22 : 0.18),
+    primaryOverlay: hexToRgba(primary, dark ? 0.18 : 0.10),
+    primaryStrong: hexToRgba(primary, 0.85),
+    neutralSurface: getCssVar('--control-bg', dark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.035)', document.body),
+    neutralBorder: border,
+    textOnPrimary,
+  }
+}
+
+function applyCanvasThemeToObject(obj: FabricObject | null | undefined) {
+  if (!obj) return
+  const colors = getCanvasAssistColors()
+  obj.set({
+    borderColor: colors.primaryStrong,
+    cornerColor: colors.primary,
+    cornerStrokeColor: colors.primary,
+    transparentCorners: true,
+    cornerStyle: 'rect'
+  })
+  obj.setCoords()
+}
+
+function applyCanvasTheme() {
+  if (!fabricCanvas) return
+  const colors = getCanvasAssistColors()
+  fabricCanvas.selectionColor = colors.primaryOverlay
+  fabricCanvas.selectionBorderColor = colors.primaryStrong
+  fabricCanvas.selectionLineWidth = 1
+
+  fabricCanvas.forEachObject((obj) => {
+    applyCanvasThemeToObject(obj)
+  })
+}
+
+
 function bumpPointGestureRender() {
   pointGestureRenderTick.value = (pointGestureRenderTick.value + 1) | 0
 }
@@ -1286,7 +1374,7 @@ function getBooleanPreviewStrokeColor(style: FabricBooleanStyleSnapshot) {
     const normalized = candidate.trim().toLowerCase()
     if (normalized && normalized !== 'none' && normalized !== 'transparent') return candidate
   }
-  return '#1e6fff'
+  return getCanvasAssistColors().primary
 }
 
 function getBooleanPreviewStrokeWidth(style: FabricBooleanStyleSnapshot) {
@@ -1544,6 +1632,7 @@ function restorePointControls() {
   const original = originalControlsMap.get(owner)
   if (original) {
     owner.controls = original
+    owner.setCoords()
     originalControlsMap.delete(owner)
   }
   pointControlsOwner.value = null
@@ -1748,9 +1837,10 @@ function drawPointGestureMarquee() {
   const w = bounds.x2 - bounds.x1
   const h = bounds.y2 - bounds.y1
   if (w <= 0 || h <= 0) return
+  const colors = getCanvasAssistColors()
   ctx.save()
-  ctx.fillStyle = 'rgba(30, 111, 255, 0.10)'
-  ctx.strokeStyle = 'rgba(30, 111, 255, 0.85)'
+  ctx.fillStyle = colors.primaryOverlay
+  ctx.strokeStyle = colors.primaryStrong
   ctx.lineWidth = 1
   ctx.fillRect(x, y, w, h)
   ctx.strokeRect(x + 0.5, y + 0.5, Math.max(0, w - 1), Math.max(0, h - 1))
@@ -1768,22 +1858,23 @@ function renderPointControl(ctx: CanvasRenderingContext2D, left: number, top: nu
   // （after:render 会显式 requestRenderAll，这里只是保持响应式依赖）
   // eslint-disable-next-line @typescript-eslint/no-unused-expressions
   pointGestureRenderTick.value
+  const colors = getCanvasAssistColors()
   ctx.save()
   ctx.beginPath()
   if (previewAdded) {
     ctx.arc(left, top, 5, 0, Math.PI * 2)
-    ctx.fillStyle = '#cce0ff'
-    ctx.strokeStyle = '#1e6fff'
+    ctx.fillStyle = colors.primarySoft
+    ctx.strokeStyle = colors.primary
     ctx.lineWidth = 2
   } else if (committed) {
     ctx.arc(left, top, 5, 0, Math.PI * 2)
-    ctx.fillStyle = '#1e6fff'
-    ctx.strokeStyle = '#1e6fff'
+    ctx.fillStyle = colors.primary
+    ctx.strokeStyle = colors.primary
     ctx.lineWidth = 2
   } else {
     ctx.arc(left, top, 4, 0, Math.PI * 2)
-    ctx.fillStyle = '#ffffff'
-    ctx.strokeStyle = '#1e6fff'
+    ctx.fillStyle = colors.textOnPrimary
+    ctx.strokeStyle = colors.primary
     ctx.lineWidth = 2
   }
   ctx.fill()
@@ -1834,11 +1925,12 @@ function createSegmentSelectControl(editable: EditablePathObject, segmentRef: Ed
     render: (ctx, left, top) => {
       const isSelected = isSameEditableSegmentRef(selectedSegmentRef.value, segmentRef)
       const size = isSelected ? 6 : 5
+      const colors = getCanvasAssistColors()
       ctx.save()
       ctx.beginPath()
       ctx.rect(left - size, top - size, size * 2, size * 2)
-      ctx.fillStyle = isSelected ? '#1e6fff' : '#ffffff'
-      ctx.strokeStyle = '#1e6fff'
+      ctx.fillStyle = isSelected ? colors.primary : colors.textOnPrimary
+      ctx.strokeStyle = colors.primary
       ctx.lineWidth = 1.5
       ctx.fill()
       ctx.stroke()
@@ -1882,19 +1974,20 @@ function createCurveHandleControl(editable: EditablePathObject, controlPoint: Cu
       const segmentRef = selectedEditableSegment.value
       const liveSegmentRef = getLiveEditableSegmentRef(segmentRef)
       if (!liveSegmentRef) return
+      const colors = getCanvasAssistColors()
       const anchorPoint = controlPoint === 'cp1' ? liveSegmentRef.fromPoint : liveSegmentRef.toPoint
       const anchorViewportPoint = getViewportPointForEditablePathPoint(editable, anchorPoint)
       ctx.save()
       ctx.beginPath()
       ctx.moveTo(anchorViewportPoint.x, anchorViewportPoint.y)
       ctx.lineTo(left, top)
-      ctx.strokeStyle = 'rgba(255, 122, 0, 0.8)'
+      ctx.strokeStyle = colors.primaryStrong
       ctx.lineWidth = 1.5
       ctx.stroke()
       ctx.beginPath()
       ctx.arc(left, top, 4, 0, Math.PI * 2)
-      ctx.fillStyle = '#ffffff'
-      ctx.strokeStyle = '#ff7a00'
+      ctx.fillStyle = colors.textOnPrimary
+      ctx.strokeStyle = colors.primary
       ctx.lineWidth = 2
       ctx.fill()
       ctx.stroke()
@@ -2316,7 +2409,7 @@ function initAligningGuidelines() {
   aligningGuidelines = new AligningGuidelines(fabricCanvas, {
     margin: 4,
     width: 1,
-    color: 'rgba(30, 111, 255, 0.85)',
+    color: () => getCanvasAssistColors().primaryStrong,
     getObjectsByTarget: getAligningObjectsByTarget
   })
 }
@@ -2436,6 +2529,7 @@ function syncObjProps() {
       ? (first as AnyFabricObject).lastStroke
       : '#333333'
   objProps.strokeWidth = first?.strokeWidth ?? (first as AnyFabricObject | undefined)?.lastStrokeWidth ?? 0
+  objProps.strokeWidthInput = formatNumericInputValue(objProps.strokeWidth)
   objProps.strokeEnabled = isStrokeEnabled(first?.stroke, first?.strokeWidth)
   const currentStrokeDashArray = normalizeStrokeDashArray(first?.strokeDashArray)
   const rememberedStrokeDashArray = getStrokeDashPair(first)
@@ -2516,6 +2610,7 @@ function setObjProp(prop: string, value: any) {
       target.setCoords()
     })
     objProps.strokeEnabled = Number(value) > 0
+    objProps.strokeWidthInput = formatNumericInputValue(Number(value) || 0)
   } else {
     obj.set(prop as any, value)
   }
@@ -2655,6 +2750,15 @@ function setSelectedSegmentControlPointCoordFromInput(
     fallback,
     (next) => { setSelectedSegmentControlPointCoord(controlPoint, axis, next) },
     (next) => { objProps[key] = next }
+  )
+}
+
+function setStrokeWidthFromInput(value: string | number) {
+  commitNumericInput(
+    value,
+    objProps.strokeWidth,
+    (next) => { setObjProp('strokeWidth', next) },
+    (next) => { objProps.strokeWidthInput = next }
   )
 }
 
@@ -2985,6 +3089,9 @@ function syncActiveObject(obj: FabricObject | null) {
   if (!constrained) selectionMode.value = 'shape'
   activeObject.value = constrained
   booleanError.value = ''
+  if (constrained) {
+    applyCanvasThemeToObject(constrained)
+  }
   syncCanvasInteractionMode()
   updateCurveControls()
   refreshLayers()
@@ -3593,6 +3700,7 @@ function setupCanvasEvents() {
   // 对象添加/删除时快照
   fabricCanvas.on('object:added', (event) => {
     if (isBooleanPreviewObject(event.target ?? null)) return
+    applyCanvasThemeToObject(event.target ?? null)
     refreshLayers()
     snapshot()
   })
@@ -3616,6 +3724,7 @@ onMounted(() => {
     uniformScaling: sizeRatioLocked.value
   })
 
+  applyCanvasTheme()
   syncCanvasInteractionMode()
   initAligningGuidelines()
   setupCanvasEvents()
@@ -3630,6 +3739,14 @@ onMounted(() => {
   window.addEventListener('resize', fitCanvasInView)
   window.addEventListener('keydown', handleKeydown)
 })
+
+watch(
+  () => [isDark.value, primaryColor.value, customColor.value],
+  () => {
+    applyCanvasTheme()
+    fabricCanvas?.requestRenderAll()
+  }
+)
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', fitCanvasInView)
@@ -3703,6 +3820,58 @@ $panel-bg: #fff;
   background: rgba(128, 128, 128, 0.2);
   margin: 0 4px;
 }
+.top-bar-btn,
+.top-bar-icon-btn,
+.layer-toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  box-sizing: border-box;
+  border: 2px solid var(--control-border);
+  border-radius: 6px;
+  background: #fafafa;
+  box-shadow: none;
+  color: #555;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, color 0.15s ease, background-color 0.15s ease;
+
+  &:hover:not(:disabled) {
+    background: #fafafa;
+    border-color: color-mix(in srgb, var(--primary-color), black 15%);
+    color: #333;
+  }
+
+  &:disabled {
+    box-shadow: none;
+  }
+
+  &.is-active {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px var(--primary-light-bg);
+    color: var(--primary-color);
+  }
+}
+.top-bar-btn {
+  min-height: 28px;
+  white-space: nowrap;
+}
+.top-bar-icon-btn,
+.layer-toolbar-btn {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: 14px;
+
+  :deep(svg) {
+    width: 14px;
+    height: 14px;
+  }
+}
+.top-bar-reset-btn {
+  width: auto;
+  min-width: 40px;
+}
 
 /* ── 按钮通用 ── */
 .tb-btn {
@@ -3737,23 +3906,36 @@ $panel-bg: #fff;
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
+  min-height: 0;
+}
+.side-tabs {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.left-tabs-pane-wrapper,
+.left-tabs-pane,
+.right-tabs-pane-wrapper,
+.right-tabs-pane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+:deep(.side-tabs > .zt-tabs__nav) {
+  width: 100%;
+}
+:deep(.side-tabs > .zt-tabs__nav .zt-tabs__nav-list) {
+  width: 100%;
+}
+:deep(.side-tabs-tab) {
+  flex: 1 1 0;
+  justify-content: center;
+  text-align: center;
 }
 .left-tabs {
-  display: flex;
   border-bottom: $border;
-  button {
-    flex: 1;
-    padding: 8px 0;
-    border: none;
-    background: transparent;
-    cursor: pointer;
-    font-size: 13px;
-    font-weight: 500;
-    &.active {
-      border-bottom: 2px solid #1e6fff;
-      color: #1e6fff;
-    }
-  }
 }
 .left-content {
   flex: 1;
@@ -3942,17 +4124,7 @@ $panel-bg: #fff;
   overflow: hidden;
 }
 .right-tabs {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-.right-tabs-pane-wrapper,
-.right-tabs-pane {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
+  border-bottom: none;
 }
 .right-panel-scroll {
   flex: 1;
@@ -4160,15 +4332,16 @@ $panel-bg: #fff;
 }
 .layer-toolbar {
   display: flex;
-  gap: 3px;
+  align-items: center;
+  gap: 6px;
   padding: 4px 8px;
   .layer-search {
     flex: 1;
-    padding: 2px 6px;
-    border: 1px solid #ccc;
-    border-radius: 3px;
-    font-size: 11px;
+    min-width: 0;
   }
+}
+.layer-toolbar-btn {
+  flex-shrink: 0;
 }
 .layer-list {
   display: flex;
