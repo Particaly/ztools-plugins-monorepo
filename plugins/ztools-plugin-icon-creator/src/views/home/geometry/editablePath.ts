@@ -3,10 +3,20 @@ import type { TComplexPathData, TSimplePathData } from 'fabric'
 
 type AnyFabricPath = Path & Record<string, any>
 
+export type ArrowHeadShape = 'hollow' | 'solid'
+
+export type ArrowHead = {
+  enabled: boolean
+  shape: ArrowHeadShape
+  angle: number
+  length: number
+}
+
 export type EditablePoint = {
   x: number
   y: number
   selectable?: boolean
+  arrowHead?: ArrowHead
 }
 
 export type EditablePathSegment =
@@ -73,7 +83,12 @@ const EDITABLE_PATH_VERSION = 2
 const KAPPA = 0.5522847498307936
 
 function clonePoint(point: EditablePoint): EditablePoint {
-  return { x: point.x, y: point.y, selectable: point.selectable }
+  return {
+    x: point.x,
+    y: point.y,
+    selectable: point.selectable,
+    arrowHead: point.arrowHead ? { ...point.arrowHead } : undefined
+  }
 }
 
 function cloneSegment(segment: EditablePathSegment): EditablePathSegment {
@@ -342,6 +357,99 @@ function pushLine(commands: TComplexPathData, point: EditablePoint) {
   commands.push(['L', point.x, point.y])
 }
 
+const DEFAULT_ARROW_HEAD: ArrowHead = { enabled: true, shape: 'hollow', angle: 60, length: 16 }
+
+export function createDefaultArrowHead(): ArrowHead {
+  return { ...DEFAULT_ARROW_HEAD }
+}
+
+function normalizeArrowHead(head: ArrowHead): ArrowHead {
+  const angle = Number.isFinite(head.angle) ? Math.max(15, Math.min(150, head.angle)) : DEFAULT_ARROW_HEAD.angle
+  const length = Number.isFinite(head.length) ? Math.max(0, head.length) : DEFAULT_ARROW_HEAD.length
+  const shape: ArrowHeadShape = head.shape === 'solid' ? 'solid' : 'hollow'
+  return { enabled: !!head.enabled, shape, angle, length }
+}
+
+function getEndpointTangent(contour: EditablePathContour, isStart: boolean) {
+  const points = contour.points
+  if (points.length < 2 || contour.closed) return null
+  const buildSegments = getBuildSegments(contour)
+  if (!buildSegments.length) return null
+
+  const seg = isStart ? buildSegments[0] : buildSegments[buildSegments.length - 1]
+  const endpointIndex = isStart ? seg.from : seg.to
+  const endpoint = points[endpointIndex]
+  if (!endpoint) return null
+
+  const candidates: EditablePoint[] = []
+  if (seg.type === 'cubic' && seg.cp1 && seg.cp2) {
+    candidates.push(isStart ? seg.cp1 : seg.cp2)
+    candidates.push(isStart ? seg.cp2 : seg.cp1)
+  }
+  candidates.push(points[isStart ? seg.to : seg.from])
+
+  for (const candidate of candidates) {
+    if (!candidate) continue
+    const dx = endpoint.x - candidate.x
+    const dy = endpoint.y - candidate.y
+    const len = Math.hypot(dx, dy)
+    if (len > 1e-6) return { x: dx / len, y: dy / len }
+  }
+  return null
+}
+
+type ArrowHeadGeometry = {
+  shape: ArrowHeadShape
+  tip: EditablePoint
+  barb1: EditablePoint
+  barb2: EditablePoint
+}
+
+function computeArrowHeadGeometry(contour: EditablePathContour, isStart: boolean, headRaw: ArrowHead): ArrowHeadGeometry | null {
+  const head = normalizeArrowHead(headRaw)
+  if (!head.enabled) return null
+  if (head.length <= 0) return null
+  const tangent = getEndpointTangent(contour, isStart)
+  if (!tangent) return null
+  const tip = isStart ? contour.points[0] : contour.points[contour.points.length - 1]
+  if (!tip) return null
+
+  const halfRad = (head.angle / 2) * Math.PI / 180
+  const cosA = Math.cos(halfRad)
+  const sinA = Math.sin(halfRad)
+  const bx = -tangent.x
+  const by = -tangent.y
+  const a1x = bx * cosA - by * sinA
+  const a1y = bx * sinA + by * cosA
+  const a2x = bx * cosA + by * sinA
+  const a2y = -bx * sinA + by * cosA
+
+  return {
+    shape: head.shape,
+    tip: { x: tip.x, y: tip.y },
+    barb1: { x: tip.x + head.length * a1x, y: tip.y + head.length * a1y },
+    barb2: { x: tip.x + head.length * a2x, y: tip.y + head.length * a2y }
+  }
+}
+
+function buildArrowHeadCommands(contour: EditablePathContour, isStart: boolean, head: ArrowHead): TComplexPathData | null {
+  const geo = computeArrowHeadGeometry(contour, isStart, head)
+  if (!geo) return null
+  if (geo.shape === 'solid') {
+    return [
+      ['M', geo.tip.x, geo.tip.y],
+      ['L', geo.barb1.x, geo.barb1.y],
+      ['L', geo.barb2.x, geo.barb2.y],
+      ['Z']
+    ]
+  }
+  return [
+    ['M', geo.barb1.x, geo.barb1.y],
+    ['L', geo.tip.x, geo.tip.y],
+    ['L', geo.barb2.x, geo.barb2.y]
+  ]
+}
+
 function pushCubic(commands: TComplexPathData, from: EditablePoint, cp1: EditablePoint, cp2: EditablePoint, to: EditablePoint) {
   if (samePoint(from, to)) return
   commands.push(['C', cp1.x, cp1.y, cp2.x, cp2.y, to.x, to.y])
@@ -377,6 +485,19 @@ function buildContourPathData(contour: EditablePathContour, obj: EditablePathObj
   }
 
   if (contour.closed) commands.push(['Z'])
+
+  if (!contour.closed) {
+    const startHead = points[0]?.arrowHead
+    const endHead = points[points.length - 1]?.arrowHead
+    if (startHead?.enabled) {
+      const headCommands = buildArrowHeadCommands(contour, true, startHead)
+      if (headCommands) commands.push(...headCommands)
+    }
+    if (endHead?.enabled) {
+      const headCommands = buildArrowHeadCommands(contour, false, endHead)
+      if (headCommands) commands.push(...headCommands)
+    }
+  }
   return commands
 }
 
@@ -494,6 +615,78 @@ function rebuildEditablePathObjectKeepingAnchor(
 export function getPointRadius(obj: EditablePathObject, index: number) {
   ensureEditablePathObject(obj)
   return effectiveRadius(obj, index)
+}
+
+export type EditablePointEndpointInfo = {
+  isEndpoint: boolean
+  isStart?: boolean
+  contourIndex?: number
+  pointIndex?: number
+}
+
+export function getEditablePointEndpointInfo(obj: EditablePathObject, globalIndex: number): EditablePointEndpointInfo {
+  const model = ensureEditablePathObject(obj)
+  const ref = resolveEditablePoint(model, globalIndex)
+  if (!ref || ref.contour.closed) return { isEndpoint: false }
+  if (ref.contour.points.length < 2) return { isEndpoint: false }
+  if (ref.pointIndex === 0) {
+    return { isEndpoint: true, isStart: true, contourIndex: ref.contourIndex, pointIndex: ref.pointIndex }
+  }
+  if (ref.pointIndex === ref.contour.points.length - 1) {
+    return { isEndpoint: true, isStart: false, contourIndex: ref.contourIndex, pointIndex: ref.pointIndex }
+  }
+  return { isEndpoint: false }
+}
+
+export function isEditablePointOpenEndpoint(obj: EditablePathObject, globalIndex: number) {
+  return getEditablePointEndpointInfo(obj, globalIndex).isEndpoint
+}
+
+export function getEditablePointArrowHead(obj: EditablePathObject, globalIndex: number): ArrowHead | null {
+  const model = ensureEditablePathObject(obj)
+  const ref = resolveEditablePoint(model, globalIndex)
+  if (!ref) return null
+  return ref.point.arrowHead ? normalizeArrowHead(ref.point.arrowHead) : null
+}
+
+export function pathHasSolidArrowHead(obj: EditablePathObject) {
+  const model = ensureEditablePathObject(obj)
+  for (const contour of model.contours) {
+    if (contour.closed) continue
+    const start = contour.points[0]?.arrowHead
+    const end = contour.points[contour.points.length - 1]?.arrowHead
+    if (start?.enabled && start.shape === 'solid') return true
+    if (end?.enabled && end.shape === 'solid') return true
+  }
+  return false
+}
+
+export function setEditablePointsArrowHead(
+  obj: EditablePathObject,
+  indices: number[],
+  partial: Partial<ArrowHead>
+) {
+  const model = ensureEditablePathObject(obj)
+  let touched = false
+  const seen = new Set<number>()
+  indices.forEach((globalIndex) => {
+    if (seen.has(globalIndex)) return
+    seen.add(globalIndex)
+    const ref = resolveEditablePoint(model, globalIndex)
+    if (!ref || ref.contour.closed) return
+    if (ref.contour.points.length < 2) return
+    if (ref.pointIndex !== 0 && ref.pointIndex !== ref.contour.points.length - 1) return
+    const current = ref.point.arrowHead ? normalizeArrowHead(ref.point.arrowHead) : createDefaultArrowHead()
+    const next: ArrowHead = normalizeArrowHead({
+      enabled: partial.enabled ?? current.enabled,
+      shape: partial.shape ?? current.shape,
+      angle: partial.angle ?? current.angle,
+      length: partial.length ?? current.length
+    })
+    ref.point.arrowHead = next
+    touched = true
+  })
+  if (touched) rebuildEditablePathObject(obj)
 }
 
 export function setObjectCornerRadius(obj: EditablePathObject, radius: number) {

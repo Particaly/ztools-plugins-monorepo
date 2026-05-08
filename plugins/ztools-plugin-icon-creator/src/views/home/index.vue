@@ -169,6 +169,16 @@
                     />
                     <span class="val-label">{{ Math.round(objProps.angle) }}°</span>
                   </div>
+                <div v-if="!(activeObject instanceof ActiveSelection)" class="prop-group style-color-row">
+                    <label>吸附边距</label>
+                    <ZInput
+                      size="small"
+                      type="text"
+                      :model-value="objProps.endpointSnapMarginInput"
+                      @update:model-value="objProps.endpointSnapMarginInput = String($event)"
+                      @change="setEndpointSnapMarginFromInput"
+                    />
+                  </div>
                   <div class="prop-group align-row">
                     <label>对齐</label>
                     <ZPopover
@@ -312,7 +322,7 @@
                       @change="setCornerRadiusFromInput"
                     />
                   </div>
-                  <div v-else class="prop-group style-color-row">
+                  <div v-else-if="!hasSelectedArrowEndpoint" class="prop-group style-color-row">
                     <label>点圆角</label>
                     <ZInput
                       size="small"
@@ -322,6 +332,57 @@
                       @change="setSelectedPointCornerRadiusFromInput"
                     />
                   </div>
+                </div>
+                <div v-if="hasSelectedArrowEndpoint" class="prop-section">
+                  <div class="prop-group style-toggle-row">
+                    <label>箭头</label>
+                    <ZSwitch
+                      size="small"
+                      :model-value="arrowAggregated.enabled === true"
+                      @change="toggleSelectedArrowEnabled"
+                    />
+                  </div>
+                  <template v-if="arrowAggregated.enabled === true">
+                    <div class="prop-group">
+                      <label>形状</label>
+                      <div class="stroke-line-type-picker arrow-shape-picker">
+                        <button
+                          class="stroke-line-swatch arrow-shape-solid"
+                          :class="{ active: arrowAggregated.shape === 'solid' }"
+                          title="实心"
+                          @click="setSelectedArrowShape('solid')"
+                        />
+                        <button
+                          class="stroke-line-swatch arrow-shape-hollow"
+                          :class="{ active: arrowAggregated.shape === 'hollow' }"
+                          title="空心"
+                          @click="setSelectedArrowShape('hollow')"
+                        />
+                      </div>
+                    </div>
+                    <div class="prop-group rotation-row">
+                      <label>夹角</label>
+                      <ZSlider
+                        :model-value="arrowAggregated.angle ?? 60"
+                        :min="15"
+                        :max="150"
+                        :step="1"
+                        :formatter="(value) => `${Math.round(value)}°`"
+                        @change="setSelectedArrowAngle($event)"
+                      />
+                      <span class="val-label">{{ arrowAggregated.angle == null ? '—' : `${Math.round(arrowAggregated.angle)}°` }}</span>
+                    </div>
+                    <div class="prop-group style-color-row">
+                      <label>长度</label>
+                      <ZInput
+                        size="small"
+                        type="text"
+                        :model-value="objProps.arrowLengthInput"
+                        @update:model-value="objProps.arrowLengthInput = String($event)"
+                        @change="setSelectedArrowLengthFromInput"
+                      />
+                    </div>
+                  </template>
                 </div>
                 <div v-if="hasSelectedCurveSegment" class="prop-section">
                   <div class="prop-group style-toggle-row">
@@ -603,33 +664,41 @@
 import { ref, shallowRef, triggerRef, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { ZInput, ZSelect, ZColorPicker, ZSwitch, ZSlider, ZPopover, ZButton, ZTabs, ZTabPane, ZHotkeyInput, ZDrawer, useZtoolsTheme } from 'ztools-ui'
 import { Icon } from '@iconify/vue'
-import { Canvas, Control, FabricObject, Textbox, Group, ActiveSelection, FabricImage, Point, util } from 'fabric'
+import { Canvas, Control, FabricObject, Textbox, Group, ActiveSelection, FabricImage, Path, Point, util } from 'fabric'
 import { AligningGuidelines } from '../../fabric-aligning-guidelines'
 import { basicShapes, textPresets, canvasPresets } from './editorCatalog'
 import type { ShapeLibraryItem, TextLibraryItem } from './editorCatalog'
 import { createShape } from './fabric/shapeFactories'
 import Ruler from './components/Ruler.vue'
-import { isBooleanCandidate, type FabricBooleanStyleSnapshot } from './geometry/fabricToPathKit'
+import { isBooleanCandidate, fabricObjectToPathKitWithApi, type FabricBooleanStyleSnapshot } from './geometry/fabricToPathKit'
 import { applyBooleanOperation, computeBooleanResult } from './geometry/booleanOps'
 import type { BooleanOperation, SubtractDirection } from './geometry/booleanOps'
-import { pathKitToFabricPath } from './geometry/pathKitToFabric'
+import { pathKitToEditablePathObject, pathKitToFabricPath } from './geometry/pathKitToFabric'
+import { getPathKit, peekPathKit } from './geometry/pathkit'
 import {
   editablePointToLocalObjectPoint,
+  getEditablePointArrowHead,
+  getEditablePointEndpointInfo,
   getEditableSegmentByLocalPoint,
   getEditableSegmentMidpoint,
   getEditableSegments,
   getPointRadius,
   getSelectableEditablePoints,
   isEditablePathObject,
+  isEditablePointOpenEndpoint,
   isSameEditableSegmentRef,
   moveEditablePoint,
   moveEditablePoints,
+  pathHasSolidArrowHead,
   resolveEditableSegmentRef,
+  setEditablePointsArrowHead,
   setEditableSegmentControlPoint,
   setEditableSegmentType,
   setObjectCornerRadius,
   setPointCornerRadius,
   setPointsCornerRadius,
+  type ArrowHead,
+  type ArrowHeadShape,
   type EditablePathObject,
   type EditablePoint,
   type EditableSegmentRef
@@ -716,10 +785,53 @@ type KaleidoscopeMetadata = {
   kaleidoscopeInstanceIndex?: number
 }
 
+type EndpointSnapMarginMetadata = {
+  endpointSnapMargin?: number
+}
+
+type EndpointAttachmentEdge = 'left' | 'right' | 'top' | 'bottom'
+type EndpointAttachmentRatio = number
+
+type BoundsEndpointAttachment = {
+  targetId: string
+  kind?: 'bounds'
+  edge: EndpointAttachmentEdge
+  ratio: EndpointAttachmentRatio
+}
+
+type SegmentEndpointAttachment = {
+  targetId: string
+  kind: 'segment'
+  contourIndex: number
+  segmentIndex: number
+  ratio: EndpointAttachmentRatio
+  normalSign?: 1 | -1
+}
+
+type EndpointAttachment = BoundsEndpointAttachment | SegmentEndpointAttachment
+
+type EndpointAttachmentMap = Record<string, EndpointAttachment | undefined>
+
+type EndpointSnapCandidate = {
+  target: FabricObject
+  attachment: EndpointAttachment
+  scenePoint: Point
+  distance: number
+}
+
+type EditableSegmentRefWithTarget = EditableSegmentRef & {
+  target: EditablePathObject
+}
+
 const DEFAULT_KALEIDOSCOPE_COUNT = 6
 const MIN_KALEIDOSCOPE_COUNT = 1
 const MAX_KALEIDOSCOPE_COUNT = 36
 const KALEIDOSCOPE_CENTER_CONTROL_KEY = 'kaleidoscopeCenter'
+const DIRECT_EDIT_SHAPE_IDS = new Set(['base-line', 'base-arrow-right'])
+const FABRIC_TRANSFORM_CONTROL_KEYS = ['tl', 'tr', 'br', 'bl', 'ml', 'mt', 'mr', 'mb', 'mtr']
+const ENDPOINT_SNAP_MARGIN = 4
+const EDITOR_OBJECT_ID_PREFIX = 'editor-object-'
+let editorObjectIdSeed = 0
 const SHORTCUT_STORAGE_KEY = 'icon-creator:editor-shortcuts:v1'
 const SHORTCUT_DISPLAY_GROUPS: ShortcutGroupDefinition[] = [
   { id: 'edit', label: '编辑' },
@@ -760,6 +872,9 @@ const SERIALIZED_OBJECT_PROPS = [
   'lastStrokeWidth',
   'lastStrokeDashArray',
   'shapeId',
+  'editorObjectId',
+  'endpointAttachments',
+  'endpointSnapMargin',
   'booleanEligible',
   'fillRule',
   'editablePath',
@@ -850,8 +965,11 @@ const objProps = reactive({
   stroke: '#000000', strokeEnabled: true, strokeWidth: 0, strokeWidthInput: '0', strokeLineType: 'solid' as StrokeLineType, strokeDashLength: 6, strokeDashGap: 4, strokeDashLengthInput: '6', strokeDashGapInput: '4', opacity: 1,
   cornerRadius: 0,
   pointCornerRadius: 0,
+  endpointSnapMargin: 0,
   cornerRadiusInput: '0',
   pointCornerRadiusInput: '0',
+  endpointSnapMarginInput: '0',
+  arrowLengthInput: '16',
   curveEnabled: false,
   curveCp1XInput: '0',
   curveCp1YInput: '0',
@@ -864,10 +982,12 @@ const objProps = reactive({
   kaleidoscopeCountInput: String(DEFAULT_KALEIDOSCOPE_COUNT)
 })
 const selectedPointIndices = ref<number[]>([])
+const editablePathMetadataVersion = ref(0)
 const selectedSegmentRef = shallowRef<EditableSegmentRef | null>(null)
 const selectionMode = ref<'shape' | 'point' | 'segment'>('shape')
 const pointControlsOwner = shallowRef<FabricObject | null>(null)
 const originalControlsMap = new WeakMap<FabricObject, FabricControls>()
+const originalHasBordersMap = new WeakMap<FabricObject, boolean | undefined>()
 const sizeRatioLocked = ref(false)
 const lockedAspectRatio = ref(1)
 
@@ -1021,6 +1141,737 @@ const layerSearch = ref('')
 const layerVersion = ref(0)
 function refreshLayers() {
   layerVersion.value += 1
+}
+
+function refreshEditablePathMetadata() {
+  editablePathMetadataVersion.value += 1
+}
+
+function createEditorObjectId() {
+  editorObjectIdSeed += 1
+  return `${EDITOR_OBJECT_ID_PREFIX}${Date.now().toString(36)}-${editorObjectIdSeed.toString(36)}`
+}
+
+function ensureEditorObjectId(obj: FabricObject | null | undefined) {
+  if (!obj) return ''
+  const target = obj as AnyFabricObject
+  const current = typeof target.editorObjectId === 'string' ? target.editorObjectId.trim() : ''
+  if (current) return current
+  const next = createEditorObjectId()
+  target.editorObjectId = next
+  return next
+}
+
+function getEndpointSnapMarginMetadata(obj: FabricObject | null | undefined) {
+  return obj ? (obj as AnyFabricObject & EndpointSnapMarginMetadata) : null
+}
+
+function normalizeEndpointSnapMargin(value: unknown) {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return 0
+  return Math.max(0, parsed)
+}
+
+function applyDefaultEndpointSnapMargin(obj: FabricObject | null | undefined) {
+  const target = getEndpointSnapMarginMetadata(obj)
+  if (!target) return
+  target.endpointSnapMargin = normalizeEndpointSnapMargin(target.endpointSnapMargin)
+}
+
+function getObjectEndpointSnapMargin(obj: FabricObject | null | undefined) {
+  applyDefaultEndpointSnapMargin(obj)
+  return getEndpointSnapMarginMetadata(obj)?.endpointSnapMargin ?? 0
+}
+function getEndpointAttachmentMap(obj: FabricObject | null | undefined): EndpointAttachmentMap {
+  if (!obj) return {}
+  const target = obj as AnyFabricObject
+  const raw = target.endpointAttachments
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    target.endpointAttachments = {}
+    return target.endpointAttachments as EndpointAttachmentMap
+  }
+  return raw as EndpointAttachmentMap
+}
+
+function getEndpointAttachmentKey(pointIndex: number) {
+  return String(pointIndex)
+}
+
+function setEndpointAttachment(obj: FabricObject, pointIndex: number, attachment: EndpointAttachment | null) {
+  const target = obj as AnyFabricObject
+  const map = getEndpointAttachmentMap(target)
+  const key = getEndpointAttachmentKey(pointIndex)
+  if (attachment) {
+    map[key] = attachment
+  } else {
+    delete map[key]
+  }
+  target.endpointAttachments = { ...map }
+}
+
+function clearEndpointAttachmentsForPoints(obj: FabricObject, pointIndices: number[]) {
+  const target = obj as AnyFabricObject
+  const map = getEndpointAttachmentMap(target)
+  let touched = false
+  pointIndices.forEach((index) => {
+    const key = getEndpointAttachmentKey(index)
+    if (map[key]) {
+      delete map[key]
+      touched = true
+    }
+  })
+  if (touched) target.endpointAttachments = { ...map }
+}
+
+function clearAllEndpointAttachments(obj: FabricObject | null | undefined) {
+  if (!obj) return
+  const target = obj as AnyFabricObject
+  const raw = target.endpointAttachments
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return
+  if (!Object.keys(raw).length) return
+  target.endpointAttachments = {}
+}
+
+function clearOwnedEndpointAttachmentsForTransformedObject(target: FabricObject | null | undefined) {
+  if (!target) return
+  if (target instanceof ActiveSelection || target instanceof Group) {
+    ;(target as ActiveSelection | Group).getObjects().forEach((child) => clearAllEndpointAttachments(child))
+  }
+  clearAllEndpointAttachments(target)
+}
+
+function getObjectSceneBounds(object: FabricObject) {
+  object.setCoords()
+  const points = object.getCoords()
+  if (!points.length) return null
+  let left = Infinity
+  let right = -Infinity
+  let top = Infinity
+  let bottom = -Infinity
+  for (const point of points) {
+    if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) continue
+    left = Math.min(left, point.x)
+    right = Math.max(right, point.x)
+    top = Math.min(top, point.y)
+    bottom = Math.max(bottom, point.y)
+  }
+  if (![left, right, top, bottom].every(Number.isFinite)) return null
+  return { left, right, top, bottom, width: right - left, height: bottom - top, points }
+}
+
+function clampEndpointAttachmentRatio(value: number) {
+  if (!Number.isFinite(value)) return 0
+  return Math.max(0, Math.min(1, value))
+}
+
+function lerpScenePoint(from: Point, to: Point, ratio: number) {
+  const amount = clampEndpointAttachmentRatio(ratio)
+  return new Point(
+    from.x + (to.x - from.x) * amount,
+    from.y + (to.y - from.y) * amount
+  )
+}
+
+function getObjectSceneEdge(bounds: NonNullable<ReturnType<typeof getObjectSceneBounds>>, edge: EndpointAttachmentEdge): [Point, Point] {
+  if (bounds.points.length >= 4) {
+    const [topLeft, topRight, bottomRight, bottomLeft] = bounds.points
+    if (edge === 'left') return [topLeft, bottomLeft]
+    if (edge === 'right') return [topRight, bottomRight]
+    if (edge === 'top') return [topLeft, topRight]
+    return [bottomLeft, bottomRight]
+  }
+  if (edge === 'left') return [new Point(bounds.left, bounds.top), new Point(bounds.left, bounds.bottom)]
+  if (edge === 'right') return [new Point(bounds.right, bounds.top), new Point(bounds.right, bounds.bottom)]
+  if (edge === 'top') return [new Point(bounds.left, bounds.top), new Point(bounds.right, bounds.top)]
+  return [new Point(bounds.left, bounds.bottom), new Point(bounds.right, bounds.bottom)]
+}
+
+function normalizeSceneVector(dx: number, dy: number) {
+  const length = Math.hypot(dx, dy)
+  if (!Number.isFinite(length) || length <= 0) return null
+  return { x: dx / length, y: dy / length }
+}
+
+function offsetScenePoint(point: Point, normal: { x: number; y: number } | null, offset: number) {
+  if (!normal || !Number.isFinite(offset) || offset === 0) return new Point(point.x, point.y)
+  return new Point(point.x + normal.x * offset, point.y + normal.y * offset)
+}
+
+function getBoundsEdgeOutwardNormal(bounds: NonNullable<ReturnType<typeof getObjectSceneBounds>>, edge: EndpointAttachmentEdge) {
+  const [from, to] = getObjectSceneEdge(bounds, edge)
+  const edgeVector = normalizeSceneVector(to.x - from.x, to.y - from.y)
+  if (!edgeVector) return null
+  const center = new Point((bounds.left + bounds.right) / 2, (bounds.top + bounds.bottom) / 2)
+  let normal = { x: edgeVector.y, y: -edgeVector.x }
+  const midpoint = new Point((from.x + to.x) / 2, (from.y + to.y) / 2)
+  const toCenter = { x: center.x - midpoint.x, y: center.y - midpoint.y }
+  if (normal.x * toCenter.x + normal.y * toCenter.y > 0) {
+    normal = { x: -normal.x, y: -normal.y }
+  }
+  return normal
+}
+
+function getEditableContourSignedArea(points: EditablePoint[]) {
+  if (points.length < 3) return 0
+  let area = 0
+  for (let index = 0; index < points.length; index += 1) {
+    const current = points[index]
+    const next = points[(index + 1) % points.length]
+    area += current.x * next.y - next.x * current.y
+  }
+  return area / 2
+}
+
+function getEditableSegmentOutwardNormal(segmentRef: EditableSegmentRefWithTarget) {
+  const from = getEditableSegmentScenePoint(segmentRef.target, segmentRef, 0)
+  const to = getEditableSegmentScenePoint(segmentRef.target, segmentRef, 1)
+  const edgeVector = normalizeSceneVector(to.x - from.x, to.y - from.y)
+  if (!edgeVector) return null
+  if (!segmentRef.contour.closed) {
+    return { x: edgeVector.y, y: -edgeVector.x }
+  }
+  const signedArea = getEditableContourSignedArea(segmentRef.contour.points)
+  if (signedArea === 0) {
+    return { x: edgeVector.y, y: -edgeVector.x }
+  }
+  return signedArea > 0
+    ? { x: edgeVector.y, y: -edgeVector.x }
+    : { x: -edgeVector.y, y: edgeVector.x }
+}
+
+function projectScenePointToSegment(point: Point, from: Point, to: Point) {
+  const dx = to.x - from.x
+  const dy = to.y - from.y
+  const lenSq = dx * dx + dy * dy
+  const ratio = lenSq > 0 ? clampEndpointAttachmentRatio(((point.x - from.x) * dx + (point.y - from.y) * dy) / lenSq) : 0
+  const scenePoint = lerpScenePoint(from, to, ratio)
+  const distance = Math.hypot(scenePoint.x - point.x, scenePoint.y - point.y)
+  return { ratio, scenePoint, distance }
+}
+
+function resolveBoundsEndpointAttachmentPoint(target: FabricObject, attachment: BoundsEndpointAttachment) {
+  const bounds = getObjectSceneBounds(target)
+  if (!bounds) return null
+  const [from, to] = getObjectSceneEdge(bounds, attachment.edge)
+  const basePoint = lerpScenePoint(from, to, attachment.ratio)
+  return offsetScenePoint(basePoint, getBoundsEdgeOutwardNormal(bounds, attachment.edge), getObjectEndpointSnapMargin(target))
+}
+
+function getEditableSegmentPoint(segmentRef: EditableSegmentRef, ratio: number): EditablePoint {
+  const amount = clampEndpointAttachmentRatio(ratio)
+  const segment = segmentRef.segment
+  if (segment.type === 'cubic' && segment.cp1 && segment.cp2) {
+    const inverse = 1 - amount
+    return {
+      x: inverse ** 3 * segmentRef.fromPoint.x
+        + 3 * inverse ** 2 * amount * segment.cp1.x
+        + 3 * inverse * amount ** 2 * segment.cp2.x
+        + amount ** 3 * segmentRef.toPoint.x,
+      y: inverse ** 3 * segmentRef.fromPoint.y
+        + 3 * inverse ** 2 * amount * segment.cp1.y
+        + 3 * inverse * amount ** 2 * segment.cp2.y
+        + amount ** 3 * segmentRef.toPoint.y
+    }
+  }
+  return lerpEditablePoint(segmentRef.fromPoint, segmentRef.toPoint, amount)
+}
+
+function getEditableSegmentScenePoint(obj: EditablePathObject, segmentRef: EditableSegmentRef, ratio: number) {
+  const point = getEditableSegmentPoint(segmentRef, ratio)
+  return new Point(point.x, point.y)
+    .subtract(obj.pathOffset)
+    .transform(obj.calcTransformMatrix())
+}
+
+function getEditablePathScenePoint(obj: EditablePathObject, point: EditablePoint) {
+  return new Point(point.x, point.y)
+    .subtract(obj.pathOffset)
+    .transform(obj.calcTransformMatrix())
+}
+
+function intersectSceneSegments(fromA: Point, toA: Point, fromB: Point, toB: Point) {
+  const ax = toA.x - fromA.x
+  const ay = toA.y - fromA.y
+  const bx = toB.x - fromB.x
+  const by = toB.y - fromB.y
+  const denominator = ax * by - ay * bx
+  if (Math.abs(denominator) < 1e-6) return null
+  const cx = fromB.x - fromA.x
+  const cy = fromB.y - fromA.y
+  const ratioA = (cx * by - cy * bx) / denominator
+  const ratioB = (cx * ay - cy * ax) / denominator
+  if (ratioA < -1e-6 || ratioA > 1 + 1e-6 || ratioB < -1e-6 || ratioB > 1 + 1e-6) return null
+  const lineRatio = clampEndpointAttachmentRatio(ratioA)
+  const segmentRatio = clampEndpointAttachmentRatio(ratioB)
+  return {
+    lineRatio,
+    segmentRatio,
+    scenePoint: lerpScenePoint(fromA, toA, lineRatio)
+  }
+}
+
+function getEndpointReferenceScenePoint(obj: EditablePathObject, pointIndex: number) {
+  const endpointInfo = getEditablePointEndpointInfo(obj, pointIndex)
+  if (!endpointInfo.isEndpoint) return null
+  const segmentRef = getEditableSegments(obj).find((item) => (
+    endpointInfo.isStart ? item.fromGlobalIndex === pointIndex : item.toGlobalIndex === pointIndex
+  ))
+  if (!segmentRef) return null
+  const endpointPoint = endpointInfo.isStart ? segmentRef.fromPoint : segmentRef.toPoint
+  const candidates: EditablePoint[] = []
+  if (segmentRef.segment.type === 'cubic') {
+    if (endpointInfo.isStart) {
+      candidates.push(segmentRef.segment.cp1, segmentRef.segment.cp2)
+    } else {
+      candidates.push(segmentRef.segment.cp2, segmentRef.segment.cp1)
+    }
+  }
+  candidates.push(endpointInfo.isStart ? segmentRef.toPoint : segmentRef.fromPoint)
+  const referencePoint = candidates.find((candidate) => Math.hypot(candidate.x - endpointPoint.x, candidate.y - endpointPoint.y) > 1e-6)
+  return referencePoint ? getEditablePathScenePoint(obj, referencePoint) : null
+}
+
+function buildExpandedSnapOutlineHelper(target: FabricObject) {
+  const pathKit = peekPathKit()
+  if (!pathKit) return null
+  const converted = fabricObjectToPathKitWithApi(pathKit, target)
+  if (!converted.path) return null
+  const snapMargin = getObjectEndpointSnapMargin(target)
+  const basePath = converted.path
+  let expandedPath: ReturnType<typeof basePath.copy> | null = null
+  let strokePath: ReturnType<typeof basePath.copy> | null = null
+  try {
+    expandedPath = basePath.copy()
+    if (snapMargin > 0) {
+      strokePath = basePath.copy()
+      if (!strokePath.stroke({
+        width: snapMargin * 2,
+        cap: pathKit.StrokeCap.ROUND,
+        join: pathKit.StrokeJoin.ROUND,
+        miter_limit: 4
+      })) return null
+      if (!expandedPath.op(strokePath, pathKit.PathOp.UNION)) return null
+      if (!expandedPath.simplify()) return null
+    }
+    return pathKitToEditablePathObject(expandedPath)
+  } finally {
+    basePath.delete()
+    strokePath?.delete()
+    expandedPath?.delete()
+  }
+}
+
+function findCenterDirectedSnapOutlineAttachmentCandidate(
+  target: FabricObject,
+  targetId: string,
+  referenceScenePoint: Point
+) {
+  const helper = buildExpandedSnapOutlineHelper(target)
+  if (!helper) return null
+  const center = getObjectCenter(target)
+  let best: { lineRatio: number, scenePoint: Point } | null = null
+  for (const segmentRef of getEditableSegments(helper)) {
+    if (!segmentRef.contour.closed) continue
+    const steps = segmentRef.segment.type === 'cubic' ? 24 : 1
+    let previousRatio = 0
+    let previousPoint = getEditableSegmentScenePoint(helper, segmentRef, previousRatio)
+    for (let index = 1; index <= steps; index += 1) {
+      const nextRatio = index / steps
+      const nextPoint = getEditableSegmentScenePoint(helper, segmentRef, nextRatio)
+      const intersection = intersectSceneSegments(referenceScenePoint, center, previousPoint, nextPoint)
+      if (intersection && (!best || intersection.lineRatio < best.lineRatio)) {
+        best = {
+          lineRatio: intersection.lineRatio,
+          scenePoint: intersection.scenePoint
+        }
+      }
+      previousRatio = nextRatio
+      previousPoint = nextPoint
+    }
+  }
+  if (!best) return null
+  const baseCandidate = findBestEndpointAttachmentCandidateOnTarget(target, best.scenePoint)
+  if (!baseCandidate) return null
+  return {
+    target,
+    attachment: baseCandidate.attachment,
+    scenePoint: best.scenePoint,
+    distance: 0
+  } satisfies EndpointSnapCandidate
+}
+
+function findCenterDirectedBoundsAttachmentCandidate(target: FabricObject, targetId: string, referenceScenePoint: Point) {
+  const bounds = getObjectSceneBounds(target)
+  if (!bounds) return null
+  const center = getObjectCenter(target)
+  const snapMargin = getObjectEndpointSnapMargin(target)
+  const edges: EndpointAttachmentEdge[] = ['left', 'right', 'top', 'bottom']
+  let best: { lineRatio: number, candidate: EndpointSnapCandidate } | null = null
+  for (const edge of edges) {
+    const [from, to] = getObjectSceneEdge(bounds, edge)
+    const normal = getBoundsEdgeOutwardNormal(bounds, edge)
+    const intersection = intersectSceneSegments(referenceScenePoint, center, from, to)
+    if (!intersection) continue
+    const candidate: EndpointSnapCandidate = {
+      target,
+      attachment: { targetId, kind: 'bounds', edge, ratio: intersection.segmentRatio },
+      scenePoint: offsetScenePoint(intersection.scenePoint, normal, snapMargin),
+      distance: 0
+    }
+    if (!best || intersection.lineRatio < best.lineRatio) {
+      best = { lineRatio: intersection.lineRatio, candidate }
+    }
+  }
+  return best?.candidate ?? null
+}
+
+function findCenterDirectedEditableAttachmentCandidate(target: EditablePathObject, targetId: string, referenceScenePoint: Point) {
+  const center = getObjectCenter(target)
+  const snapMargin = getObjectEndpointSnapMargin(target)
+  let best: { lineRatio: number, candidate: EndpointSnapCandidate } | null = null
+  for (const segmentRef of getEditableSegments(target)) {
+    if (!segmentRef.contour.closed) continue
+    const normal = getEditableSegmentOutwardNormal({ ...segmentRef, target })
+    if (!normal) continue
+    const steps = segmentRef.segment.type === 'cubic' ? 24 : 1
+    let previousRatio = 0
+    let previousPoint = getEditableSegmentScenePoint(target, segmentRef, previousRatio)
+    for (let index = 1; index <= steps; index += 1) {
+      const nextRatio = index / steps
+      const nextPoint = getEditableSegmentScenePoint(target, segmentRef, nextRatio)
+      const intersection = intersectSceneSegments(referenceScenePoint, center, previousPoint, nextPoint)
+      if (intersection && (!best || intersection.lineRatio < best.lineRatio)) {
+        const ratio = clampEndpointAttachmentRatio(previousRatio + (nextRatio - previousRatio) * intersection.segmentRatio)
+        const basePoint = getEditableSegmentScenePoint(target, segmentRef, ratio)
+        best = {
+          lineRatio: intersection.lineRatio,
+          candidate: {
+            target,
+            attachment: {
+              targetId,
+              kind: 'segment',
+              contourIndex: segmentRef.contourIndex,
+              segmentIndex: segmentRef.segmentIndex,
+              ratio,
+              normalSign: 1
+            },
+            scenePoint: offsetScenePoint(basePoint, normal, snapMargin),
+            distance: 0
+          }
+        }
+      }
+      previousRatio = nextRatio
+      previousPoint = nextPoint
+    }
+  }
+  return best?.candidate ?? null
+}
+
+function findCenterDirectedEndpointAttachmentCandidateOnTarget(target: FabricObject, referenceScenePoint: Point) {
+  const targetId = ensureEditorObjectId(target)
+  if (!targetId) return null
+  const helperCandidate = findCenterDirectedSnapOutlineAttachmentCandidate(target, targetId, referenceScenePoint)
+  if (helperCandidate) return helperCandidate
+  if (isEditablePathObject(target)) {
+    return findCenterDirectedEditableAttachmentCandidate(target, targetId, referenceScenePoint)
+  }
+  return findCenterDirectedBoundsAttachmentCandidate(target, targetId, referenceScenePoint)
+}
+
+function findBestEndpointAttachmentCandidateOnTarget(target: FabricObject, scenePoint: Point) {
+  const targetId = ensureEditorObjectId(target)
+  if (!targetId) return null
+  const candidates: EndpointSnapCandidate[] = []
+  addEditableSegmentSnapCandidates(target, targetId, scenePoint, Infinity, candidates)
+  if (!isEditablePathObject(target)) {
+    addBoundsSnapCandidates(target, targetId, scenePoint, Infinity, candidates)
+  }
+  candidates.sort((a, b) => a.distance - b.distance)
+  return candidates[0] ?? null
+}
+
+function resolveDynamicEndpointAttachment(target: FabricObject, owner: EditablePathObject, pointIndex: number) {
+  const referenceScenePoint = getEndpointReferenceScenePoint(owner, pointIndex)
+  if (!referenceScenePoint) return null
+  return findCenterDirectedEndpointAttachmentCandidateOnTarget(target, referenceScenePoint)
+    ?? findBestEndpointAttachmentCandidateOnTarget(target, referenceScenePoint)
+}
+
+function projectScenePointToEditableSegment(obj: EditablePathObject, segmentRef: EditableSegmentRef, point: Point) {
+  if (segmentRef.segment.type !== 'cubic') {
+    return projectScenePointToSegment(
+      point,
+      getEditableSegmentScenePoint(obj, segmentRef, 0),
+      getEditableSegmentScenePoint(obj, segmentRef, 1)
+    )
+  }
+  const steps = 24
+  let best: ReturnType<typeof projectScenePointToSegment> | null = null
+  for (let index = 0; index < steps; index += 1) {
+    const fromRatio = index / steps
+    const toRatio = (index + 1) / steps
+    const projected = projectScenePointToSegment(
+      point,
+      getEditableSegmentScenePoint(obj, segmentRef, fromRatio),
+      getEditableSegmentScenePoint(obj, segmentRef, toRatio)
+    )
+    const resolved = {
+      ...projected,
+      ratio: fromRatio + (toRatio - fromRatio) * projected.ratio
+    }
+    if (!best || resolved.distance < best.distance) best = resolved
+  }
+  return best ?? projectScenePointToSegment(
+    point,
+    getEditableSegmentScenePoint(obj, segmentRef, 0),
+    getEditableSegmentScenePoint(obj, segmentRef, 1)
+  )
+}
+
+function resolveSegmentEndpointAttachmentPoint(target: FabricObject, attachment: SegmentEndpointAttachment) {
+  if (!isEditablePathObject(target)) return null
+  const segments = getEditableSegments(target)
+  const segmentRef = segments.find((item) => item.contourIndex === attachment.contourIndex && item.segmentIndex === attachment.segmentIndex)
+  if (!segmentRef) return null
+  const basePoint = getEditableSegmentScenePoint(target, segmentRef, attachment.ratio)
+  const normalSign = attachment.normalSign === -1 ? -1 : 1
+  const normal = getEditableSegmentOutwardNormal({ ...segmentRef, target })
+  return offsetScenePoint(basePoint, normal ? { x: normal.x * normalSign, y: normal.y * normalSign } : null, getObjectEndpointSnapMargin(target))
+}
+
+function resolveEndpointAttachmentPoint(target: FabricObject, attachment: EndpointAttachment) {
+  if (attachment.kind === 'segment') return resolveSegmentEndpointAttachmentPoint(target, attachment)
+  return resolveBoundsEndpointAttachmentPoint(target, attachment)
+}
+
+
+function getEditableLocalPointFromScene(obj: EditablePathObject, point: Point) {
+  return point.transform(util.invertTransform(obj.calcOwnMatrix())).add(obj.pathOffset)
+}
+
+function addEditableSegmentSnapCandidates(target: FabricObject, targetId: string, scenePoint: Point, snapDistance: number, candidates: EndpointSnapCandidate[]) {
+  if (!isEditablePathObject(target)) return
+  const segments = getEditableSegments(target)
+  const snapMargin = getObjectEndpointSnapMargin(target)
+  for (const segmentRef of segments) {
+    const projected = projectScenePointToEditableSegment(target, segmentRef, scenePoint)
+    if (projected.distance > snapDistance) continue
+    const normal = getEditableSegmentOutwardNormal({ ...segmentRef, target })
+    const sign = segmentRef.contour.closed || !normal
+      ? 1
+      : ((scenePoint.x - projected.scenePoint.x) * normal.x + (scenePoint.y - projected.scenePoint.y) * normal.y) < 0 ? -1 : 1
+    const snappedPoint = offsetScenePoint(
+      projected.scenePoint,
+      normal ? { x: normal.x * sign, y: normal.y * sign } : null,
+      snapMargin
+    )
+    candidates.push({
+      target,
+      attachment: {
+        targetId,
+        kind: 'segment',
+        contourIndex: segmentRef.contourIndex,
+        segmentIndex: segmentRef.segmentIndex,
+        ratio: projected.ratio,
+        normalSign: sign as 1 | -1
+      },
+      scenePoint: snappedPoint,
+      distance: projected.distance
+    })
+  }
+}
+
+function addBoundsSnapCandidates(target: FabricObject, targetId: string, scenePoint: Point, snapDistance: number, candidates: EndpointSnapCandidate[]) {
+  const bounds = getObjectSceneBounds(target)
+  if (!bounds) return
+  const snapMargin = getObjectEndpointSnapMargin(target)
+  const edges: EndpointAttachmentEdge[] = ['left', 'right', 'top', 'bottom']
+  for (const edge of edges) {
+    const [from, to] = getObjectSceneEdge(bounds, edge)
+    const projected = projectScenePointToSegment(scenePoint, from, to)
+    if (projected.distance > snapDistance) continue
+    const snappedPoint = offsetScenePoint(projected.scenePoint, getBoundsEdgeOutwardNormal(bounds, edge), snapMargin)
+    candidates.push({
+      target,
+      attachment: { targetId, kind: 'bounds', edge, ratio: projected.ratio },
+      scenePoint: snappedPoint,
+      distance: projected.distance
+    })
+  }
+}
+
+
+function getEndpointSnapCandidates(owner: EditablePathObject, scenePoint: Point) {
+  if (!fabricCanvas) return []
+  const snapDistance = ENDPOINT_SNAP_MARGIN / (fabricCanvas.getZoom() || 1)
+  const candidates: EndpointSnapCandidate[] = []
+  const objects = fabricCanvas.getObjects()
+  for (let i = objects.length - 1; i >= 0; i--) {
+    const target = objects[i]
+    if (target === owner) continue
+    if (isBooleanPreviewObject(target)) continue
+    const targetId = ensureEditorObjectId(target)
+    if (!targetId) continue
+    addEditableSegmentSnapCandidates(target, targetId, scenePoint, snapDistance, candidates)
+    if (!isEditablePathObject(target)) {
+      addBoundsSnapCandidates(target, targetId, scenePoint, snapDistance, candidates)
+    }
+  }
+  candidates.sort((a, b) => a.distance - b.distance)
+  return candidates
+}
+
+function findEndpointSnapCandidate(owner: EditablePathObject, scenePoint: Point) {
+  return getEndpointSnapCandidates(owner, scenePoint)[0] ?? null
+}
+
+function normalizeEndpointAttachments(obj: FabricObject) {
+  const target = obj as AnyFabricObject
+  const raw = target.endpointAttachments
+  const next: EndpointAttachmentMap = {}
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    Object.entries(raw as Record<string, unknown>).forEach(([key, value]) => {
+      const attachment = value as Partial<EndpointAttachment> | null
+      if (!attachment || typeof attachment.targetId !== 'string') return
+      if (!Number.isFinite(attachment.ratio)) return
+      if (attachment.kind === 'segment') {
+        const contourIndex = Number(attachment.contourIndex)
+        const segmentIndex = Number(attachment.segmentIndex)
+        if (!Number.isFinite(contourIndex) || !Number.isFinite(segmentIndex)) return
+        const normalSign = attachment.normalSign === -1 ? -1 : 1
+        next[key] = {
+          targetId: attachment.targetId,
+          kind: 'segment',
+          contourIndex: Math.max(0, Math.round(contourIndex)),
+          segmentIndex: Math.max(0, Math.round(segmentIndex)),
+          ratio: clampEndpointAttachmentRatio(attachment.ratio),
+          normalSign
+        }
+        return
+      }
+      if (attachment.edge !== 'left' && attachment.edge !== 'right' && attachment.edge !== 'top' && attachment.edge !== 'bottom') return
+      next[key] = {
+        targetId: attachment.targetId,
+        kind: 'bounds',
+        edge: attachment.edge,
+        ratio: clampEndpointAttachmentRatio(attachment.ratio)
+      }
+    })
+  }
+  target.endpointAttachments = next
+}
+
+function ensureCanvasObjectMetadata() {
+  if (!fabricCanvas) return
+  const seen = new Set<string>()
+  fabricCanvas.getObjects().forEach((obj) => {
+    let id = String((obj as AnyFabricObject).editorObjectId || '').trim()
+    if (!id || seen.has(id)) {
+      id = createEditorObjectId()
+      ;(obj as AnyFabricObject).editorObjectId = id
+    }
+    seen.add(id)
+    applyDefaultEndpointSnapMargin(obj)
+    normalizeEndpointAttachments(obj)
+  })
+}
+
+function removeEndpointAttachmentsReferencing(target: FabricObject) {
+  if (!fabricCanvas) return
+  const targetId = (target as AnyFabricObject).editorObjectId
+  if (typeof targetId !== 'string' || !targetId) return
+  fabricCanvas.getObjects().forEach((obj) => {
+    if (obj === target) return
+    const raw = (obj as AnyFabricObject).endpointAttachments
+    if (!raw || typeof raw !== 'object') return
+    const map = raw as EndpointAttachmentMap
+    let touched = false
+    Object.entries(map).forEach(([key, attachment]) => {
+      if (attachment?.targetId === targetId) {
+        delete map[key]
+        touched = true
+      }
+    })
+    if (touched) (obj as AnyFabricObject).endpointAttachments = { ...map }
+  })
+}
+
+function moveEndpointToScenePoint(obj: EditablePathObject, pointIndex: number, scenePoint: Point) {
+  moveEditablePoint(obj, pointIndex, getEditableLocalPointFromScene(obj, scenePoint))
+}
+
+function moveEndpointWithSnap(obj: EditablePathObject, pointIndex: number, scenePoint: Point) {
+  if (!isEditablePointOpenEndpoint(obj, pointIndex)) {
+    moveEndpointToScenePoint(obj, pointIndex, scenePoint)
+    setEndpointAttachment(obj, pointIndex, null)
+    return null
+  }
+  const candidate = findEndpointSnapCandidate(obj, scenePoint)
+  if (!candidate) {
+    moveEndpointToScenePoint(obj, pointIndex, scenePoint)
+    setEndpointAttachment(obj, pointIndex, null)
+    return null
+  }
+  moveEndpointToScenePoint(obj, pointIndex, candidate.scenePoint)
+  ensureEditorObjectId(candidate.target)
+  setEndpointAttachment(obj, pointIndex, candidate.attachment)
+  return candidate
+}
+
+function syncEndpointsAttachedToTarget(target: FabricObject) {
+  if (!fabricCanvas) return false
+  const targetId = (target as AnyFabricObject).editorObjectId
+  if (typeof targetId !== 'string' || !targetId) return false
+  let touched = false
+  fabricCanvas.getObjects().forEach((obj) => {
+    if (obj === target || !isEditablePathObject(obj)) return
+    const map = getEndpointAttachmentMap(obj)
+    Object.entries(map).forEach(([key, attachment]) => {
+      if (!attachment || attachment.targetId !== targetId) return
+      const pointIndex = Number(key)
+      if (!Number.isInteger(pointIndex) || !isEditablePointOpenEndpoint(obj, pointIndex)) return
+      const dynamicCandidate = resolveDynamicEndpointAttachment(target, obj, pointIndex)
+      if (dynamicCandidate) {
+        moveEndpointToScenePoint(obj, pointIndex, dynamicCandidate.scenePoint)
+        setEndpointAttachment(obj, pointIndex, dynamicCandidate.attachment)
+        touched = true
+        return
+      }
+      const scenePoint = resolveEndpointAttachmentPoint(target, attachment)
+      if (!scenePoint) return
+      moveEndpointToScenePoint(obj, pointIndex, scenePoint)
+      touched = true
+    })
+  })
+  return touched
+}
+
+function syncEndpointsForChangedObject(target: FabricObject | null | undefined) {
+  if (!target) return false
+  if (target instanceof ActiveSelection || target instanceof Group) {
+    let touched = false
+    ;(target as ActiveSelection | Group).getObjects().forEach((child) => {
+      touched = syncEndpointsAttachedToTarget(child) || touched
+    })
+    touched = syncEndpointsAttachedToTarget(target) || touched
+    return touched
+  }
+  return syncEndpointsAttachedToTarget(target)
+}
+
+function syncAllEndpointAttachments() {
+  if (!fabricCanvas) return false
+  let touched = false
+  fabricCanvas.getObjects().forEach((obj) => {
+    touched = syncEndpointsAttachedToTarget(obj) || touched
+  })
+  return touched
+}
+
+function prepareClonedObjectMetadata(obj: FabricObject) {
+  ensureEditorObjectId(obj)
+  ;(obj as AnyFabricObject).editorObjectId = createEditorObjectId()
+  ;(obj as AnyFabricObject).endpointAttachments = {}
 }
 
 // 对象命名计数
@@ -1240,6 +2091,9 @@ function setKaleidoscopeInstanceMetadata(source: FabricObject, instance: FabricO
   target.kaleidoscopeManaged = true
   target.kaleidoscopeInstanceOf = sourceId
   target.kaleidoscopeInstanceIndex = instanceIndex
+  applyDefaultEndpointSnapMargin(source)
+  applyDefaultEndpointSnapMargin(instance)
+  ;(instance as AnyFabricObject).endpointSnapMargin = getObjectEndpointSnapMargin(source)
   setKaleidoscopeInstanceManagedState(instance, true)
   ;(instance as AnyFabricObject).name = `${(source as AnyFabricObject).name || source.type || '对象'} · ${instanceIndex}`
 }
@@ -1258,6 +2112,78 @@ function moveKaleidoscopeInstanceNearSource(source: FabricObject, instance: Fabr
   if (sourceIndex < 0) return
   const nextIndex = Math.min(sourceIndex + instanceIndex, fabricCanvas.getObjects().length - 1)
   fabricCanvas.moveObjectTo(instance, nextIndex)
+}
+
+const KALEIDOSCOPE_INSTANCE_OWN_KEYS = new Set([
+  'editorObjectId',
+  'endpointAttachments',
+  'name',
+  'kaleidoscopeEnabled',
+  'kaleidoscopeCenterX',
+  'kaleidoscopeCenterY',
+  'kaleidoscopeFollowRotation',
+  'kaleidoscopeCount',
+  'kaleidoscopeSourceId',
+  'kaleidoscopeManaged',
+  'kaleidoscopeInstanceOf',
+  'kaleidoscopeInstanceIndex',
+  'path'
+])
+
+function cloneKaleidoscopeSyncValue<T>(value: T): T {
+  if (value == null || typeof value !== 'object') return value
+  if (typeof structuredClone === 'function') return structuredClone(value)
+  return JSON.parse(JSON.stringify(value)) as T
+}
+
+function applyKaleidoscopeSourceContentToInstance(source: FabricObject, instance: FabricObject) {
+  if (source.type !== instance.type) return false
+  const serialized = (source as AnyFabricObject).toObject(SERIALIZED_OBJECT_PROPS as unknown as string[]) as Record<string, unknown>
+  const patch: Record<string, unknown> = {}
+  Object.entries(serialized).forEach(([key, value]) => {
+    if (KALEIDOSCOPE_INSTANCE_OWN_KEYS.has(key)) return
+    patch[key] = cloneKaleidoscopeSyncValue(value)
+  })
+  instance.set(patch as any)
+  if (source instanceof Path && instance instanceof Path) {
+    const pathData = Array.isArray(serialized.path) && serialized.path.length
+      ? cloneKaleidoscopeSyncValue(serialized.path)
+      : [['M', 0, 0]]
+    ;(instance as AnyFabricObject)._setPath(pathData, false)
+  }
+  instance.dirty = true
+  instance.setCoords()
+  return true
+}
+
+function syncKaleidoscopeContent(source: FabricObject) {
+  if (!fabricCanvas || !isKaleidoscopeSource(source)) return false
+  const sourceId = ensureKaleidoscopeSourceId(source)
+  const expectedCount = getKaleidoscopeCount(source) - 1
+  const instances = findKaleidoscopeInstancesBySourceId(sourceId)
+  if (expectedCount <= 0) return false
+  if (instances.length !== expectedCount) {
+    void rebuildKaleidoscopeInstances(source)
+    return false
+  }
+  let requiresRebuild = false
+  instances.forEach((instance) => {
+    const instanceIndex = getKaleidoscopeMetadata(instance)?.kaleidoscopeInstanceIndex || 1
+    if (!applyKaleidoscopeSourceContentToInstance(source, instance)) {
+      requiresRebuild = true
+      return
+    }
+    applyDefaultKaleidoscopeMetadata(instance)
+    setKaleidoscopeInstanceMetadata(source, instance, instanceIndex)
+    positionKaleidoscopeInstance(source, instance, instanceIndex)
+  })
+  if (requiresRebuild) {
+    void rebuildKaleidoscopeInstances(source)
+    return false
+  }
+  fabricCanvas.requestRenderAll()
+  refreshLayers()
+  return true
 }
 
 function removeKaleidoscopeInstancesBySourceId(sourceId: string) {
@@ -1374,6 +2300,12 @@ async function syncAllKaleidoscopes() {
 function triggerKaleidoscopeTransformSync(obj: FabricObject | null | undefined) {
   if (obj && isKaleidoscopeSource(obj)) {
     syncKaleidoscopeTransforms(obj)
+  }
+}
+
+function triggerKaleidoscopeContentSync(obj: FabricObject | null | undefined) {
+  if (obj && isKaleidoscopeSource(obj)) {
+    syncKaleidoscopeContent(obj)
   }
 }
 
@@ -1786,6 +2718,61 @@ const selectedEditableSegment = computed(() => resolveSelectedEditableSegment())
 
 const hasSelectedCurveSegment = computed(() => !!selectedEditableSegment.value)
 
+const selectedArrowEndpointIndices = computed<number[]>(() => {
+  void editablePathMetadataVersion.value
+  const obj = activeEditablePathObject.value
+  const indices = selectedPointIndices.value
+  if (!obj || !indices.length) return []
+  const result: number[] = []
+  for (const index of indices) {
+    if (!isEditablePointOpenEndpoint(obj, index)) return []
+    result.push(index)
+  }
+  return result
+})
+
+const hasSelectedArrowEndpoint = computed(() => selectedArrowEndpointIndices.value.length > 0)
+
+type ArrowAggregated = {
+  enabled: boolean | null
+  shape: ArrowHeadShape | null
+  angle: number | null
+  length: number | null
+}
+
+const arrowAggregated = computed<ArrowAggregated>(() => {
+  void editablePathMetadataVersion.value
+  const obj = activeEditablePathObject.value
+  const indices = selectedArrowEndpointIndices.value
+  const empty: ArrowAggregated = { enabled: null, shape: null, angle: null, length: null }
+  if (!obj || !indices.length) return empty
+  let enabled: boolean | null = null
+  let shape: ArrowHeadShape | null = null
+  let angle: number | null = null
+  let length: number | null = null
+  let first = true
+  for (const index of indices) {
+    const head: ArrowHead | null = getEditablePointArrowHead(obj, index)
+    const e = !!head?.enabled
+    const s = head?.shape ?? 'hollow'
+    const a = head?.angle ?? 60
+    const l = head?.length ?? 16
+    if (first) {
+      enabled = e
+      shape = s
+      angle = a
+      length = l
+      first = false
+    } else {
+      if (enabled !== e) enabled = null
+      if (shape !== s) shape = null
+      if (angle !== a) angle = null
+      if (length !== l) length = null
+    }
+  }
+  return { enabled, shape, angle, length }
+})
+
 function getSelectableCanvasObjects() {
   if (!fabricCanvas) return []
   return fabricCanvas.getObjects().filter((obj) => {
@@ -1828,6 +2815,7 @@ async function cloneClipboardEntry(entry: ClipboardEntry, offset: number) {
     top: (clone.top ?? 0) + offset,
     name: nextName(`${entry.sourceName} 副本`)
   })
+  prepareClonedObjectMetadata(clone)
   applyCanvasThemeToObject(clone)
   applyDefaultKaleidoscopeMetadata(clone)
   const metadata = getKaleidoscopeMetadata(clone)
@@ -2250,9 +3238,13 @@ function restorePointControls() {
   const original = originalControlsMap.get(owner)
   if (original) {
     owner.controls = original
-    owner.setCoords()
     originalControlsMap.delete(owner)
   }
+  if (originalHasBordersMap.has(owner)) {
+    owner.set('hasBorders', originalHasBordersMap.get(owner) ?? true)
+    originalHasBordersMap.delete(owner)
+  }
+  owner.setCoords()
   pointControlsOwner.value = null
 }
 
@@ -2577,6 +3569,7 @@ function createCurveHandleControl(editable: EditablePathObject, controlPoint: Cu
       const segmentRef = selectedEditableSegment.value
       if (!segmentRef) return false
       setEditableSegmentControlPoint(editable, segmentRef, controlPoint, getLocalPointFromCanvas(editable, x, y))
+      triggerKaleidoscopeContentSync(editable)
       // 拖动过程中保持 segmentRef 与最新模型同步
       const liveSegmentRef = resolveEditableSegmentRef(editable, segmentRef)
       if (liveSegmentRef) selectedSegmentRef.value = liveSegmentRef
@@ -2614,19 +3607,94 @@ function createCurveHandleControl(editable: EditablePathObject, controlPoint: Cu
   } as Partial<Control> & { pointIndex: CurveControlPointKey })
 }
 
+function setSelectedDirectSegmentEditablePoints(obj: EditablePathObject, indices: number[]) {
+  const segment = getSpecialDirectEditSegment(obj)
+  if (!segment) return
+  selectedSegmentRef.value = segment
+  selectedPointIndices.value = normalizeSelectedPointIndices(obj, indices)
+  syncObjProps()
+  obj.canvas?.requestRenderAll()
+}
+
+function selectDirectSegmentEditablePoint(obj: EditablePathObject, pointIndex: number, multi = false) {
+  const next = multi
+    ? selectedPointIndices.value.includes(pointIndex)
+      ? selectedPointIndices.value.filter((index) => index !== pointIndex)
+      : [...selectedPointIndices.value, pointIndex]
+    : [pointIndex]
+  setSelectedDirectSegmentEditablePoints(obj, next)
+}
+
+function canEditDirectSegmentPoints(editable: EditablePathObject) {
+  return canEditSegments(editable) && !!getSpecialDirectEditSegment(editable)
+}
+
+function createDirectSegmentPointControl(editable: EditablePathObject, index: number) {
+  return new Control({
+    actionName: 'modifyEditablePath',
+    cursorStyle: 'crosshair',
+    sizeX: 10,
+    sizeY: 10,
+    touchSizeX: 18,
+    touchSizeY: 18,
+    pointIndex: index,
+    positionHandler: () => getViewportPointForEditablePoint(editable, index),
+    getVisibility: () => canEditDirectSegmentPoints(editable),
+    mouseDownHandler: (eventData) => {
+      if (!canEditDirectSegmentPoints(editable)) return false
+      selectDirectSegmentEditablePoint(editable, index, isMultiSelectModifierPressed(eventData as MouseEvent))
+      return false
+    },
+    actionHandler: (_eventData, _transform, x, y) => {
+      if (!canEditDirectSegmentPoints(editable)) return false
+      const indices = normalizeSelectedPointIndices(editable, selectedPointIndices.value)
+      const moveIndices = indices.includes(index) ? indices : [index]
+      const scenePoint = new Point(x, y)
+      if (moveIndices.length > 1) {
+        moveEditablePoints(editable, moveIndices, index, getEditableLocalPointFromScene(editable, scenePoint))
+        clearEndpointAttachmentsForPoints(editable, moveIndices)
+      } else {
+        moveEndpointWithSnap(editable, index, scenePoint)
+      }
+      const segment = getSpecialDirectEditSegment(editable)
+      if (segment) selectedSegmentRef.value = segment
+      syncObjProps()
+      triggerKaleidoscopeContentSync(editable)
+      fabricCanvas?.requestRenderAll()
+      return true
+    },
+    mouseUpHandler: () => {
+      snapshot()
+      return false
+    },
+    render: renderPointControl
+  } as Partial<Control> & { pointIndex: number })
+}
+
 function attachPointControls(obj: FabricObject | null) {
   restorePointControls()
   if (!obj || !isEditablePathObject(obj) || getSelectableEditablePoints(obj).length === 0) return
   if (selectionMode.value === 'shape') return
   const editable = obj
+  const showPointControlsInSegmentMode = selectionMode.value === 'segment' && !!getSpecialDirectEditSegment(editable)
   originalControlsMap.set(editable, editable.controls as FabricControls)
   const controls: FabricControls = { ...(editable.controls as FabricControls) }
+  if (shouldHideTransformControlsInEditMode(editable)) {
+    originalHasBordersMap.set(editable, editable.hasBorders)
+    editable.set('hasBorders', false)
+    hideFabricTransformControls(controls)
+  }
   // 边选择模式下，不展示选点的辅助点，仅展示每条边的中点辅助器，方便直接点击边来选中
   if (selectionMode.value === 'segment') {
     getEditableSegments(editable).forEach((segmentRef) => {
       const key = `es${segmentRef.contourIndex}_${segmentRef.segmentIndex}`
       controls[key] = createSegmentSelectControl(editable, segmentRef)
     })
+    if (showPointControlsInSegmentMode) {
+      getSelectableEditablePoints(editable).forEach(({ index }) => {
+        controls[`ep${index}`] = createDirectSegmentPointControl(editable, index)
+      })
+    }
   }
   else {
     getSelectableEditablePoints(editable).forEach(({ index }) => {
@@ -2659,16 +3727,20 @@ function attachPointControls(obj: FabricObject | null) {
             const indices = pointGestureState.initialSelection.length
               ? pointGestureState.initialSelection
               : [index]
-            moveEditablePoints(editable, indices, index, getLocalPointFromCanvas(editable, x, y))
+            const scenePoint = new Point(x, y)
+            moveEditablePoints(editable, indices, index, getEditableLocalPointFromScene(editable, scenePoint))
+            clearEndpointAttachmentsForPoints(editable, indices)
             updateCurveControls()
             syncObjProps()
+            triggerKaleidoscopeContentSync(editable)
             return true
           }
           // 单点拖拽
           if (pointGestureState.kind === 'single-drag') {
-            moveEditablePoint(editable, index, getLocalPointFromCanvas(editable, x, y))
+            moveEndpointWithSnap(editable, index, new Point(x, y))
             updateCurveControls()
             syncObjProps()
+            triggerKaleidoscopeContentSync(editable)
             return true
           }
           // 仍处在 pending：等 mouse:move 越过阈值后决议手势类型
@@ -2886,6 +3958,8 @@ function undo() {
   skipSnapshot = true
   fabricCanvas.loadFromJSON(undoStack[undoStack.length - 1]).then(async () => {
     await syncAllKaleidoscopes()
+    ensureCanvasObjectMetadata()
+    syncAllEndpointAttachments()
     fabricCanvas!.discardActiveObject()
     syncActiveObject(null)
     syncCanvasBgFromFabric()
@@ -2904,6 +3978,8 @@ function redo() {
   skipSnapshot = true
   fabricCanvas.loadFromJSON(json).then(async () => {
     await syncAllKaleidoscopes()
+    ensureCanvasObjectMetadata()
+    syncAllEndpointAttachments()
     fabricCanvas!.discardActiveObject()
     syncActiveObject(null)
     syncCanvasBgFromFabric()
@@ -3115,6 +4191,8 @@ function syncObjProps() {
   objProps.scaleY = obj.scaleY ?? 1
   objProps.angle = obj.angle ?? 0
   objProps.opacity = obj.opacity ?? 1
+  objProps.endpointSnapMargin = getObjectEndpointSnapMargin(obj)
+  objProps.endpointSnapMarginInput = formatNumericInputValue(objProps.endpointSnapMargin)
 
   const panelSource = activeKaleidoscopePanelSource.value
   if (panelSource) {
@@ -3162,7 +4240,7 @@ function syncObjProps() {
       clearEditableAssistSelection()
     } else if (selectionMode.value === 'point') {
       clearSelectedSegment()
-    } else {
+    } else if (!getSpecialDirectEditSegment(obj)) {
       clearSelectedPoint()
     }
     objProps.cornerRadius = obj.cornerRadius ?? 0
@@ -3174,6 +4252,11 @@ function syncObjProps() {
         ? ''
         : String(Math.round(pointRadiusState.value))
       : '0'
+
+    const arrowLength = arrowAggregated.value.length
+    objProps.arrowLengthInput = arrowLength == null
+      ? ''
+      : String(Math.round(arrowLength))
 
     const segmentRef = resolveSelectedEditableSegment()
     const segment = getLiveEditableSegment(segmentRef)
@@ -3193,6 +4276,7 @@ function syncObjProps() {
     objProps.pointCornerRadius = 0
     objProps.cornerRadiusInput = '0'
     objProps.pointCornerRadiusInput = '0'
+    objProps.arrowLengthInput = '16'
     resetCurveProps()
   }
 }
@@ -3235,18 +4319,61 @@ function setObjProp(prop: string, value: any) {
   if (obj instanceof Group && (prop === 'fill' || prop === 'stroke' || prop === 'strokeWidth')) {
     obj.triggerLayout()
   }
+  if (prop === 'left' || prop === 'top' || prop === 'angle') {
+    clearOwnedEndpointAttachmentsForTransformedObject(obj)
+  }
   obj.dirty = true
   obj.setCoords()
+  syncEndpointsForChangedObject(obj)
+  if (prop === 'fill' || prop === 'stroke' || prop === 'strokeWidth' || prop === 'opacity') {
+    triggerKaleidoscopeContentSync(obj)
+  } else {
+    triggerKaleidoscopeTransformSync(obj)
+  }
   fabricCanvas.requestRenderAll()
   refreshLayers()
   snapshot()
   syncObjProps()
 }
 
+
+function setEndpointSnapMargin(value: number) {
+  const obj = activeObject.value
+  if (!obj || !fabricCanvas || obj instanceof ActiveSelection) return
+  const next = normalizeEndpointSnapMargin(value)
+  const target = getEndpointSnapMarginMetadata(obj)
+  if (!target) return
+  target.endpointSnapMargin = next
+  objProps.endpointSnapMargin = next
+  objProps.endpointSnapMarginInput = formatNumericInputValue(next)
+  obj.dirty = true
+  obj.setCoords()
+  const endpointsTouched = syncEndpointsForChangedObject(obj)
+  if (isKaleidoscopeSource(obj)) {
+    const contentSynced = syncKaleidoscopeContent(obj)
+    if (contentSynced) syncEndpointsForChangedObject(obj)
+  }
+  fabricCanvas.requestRenderAll()
+  refreshLayers()
+  if (endpointsTouched) refreshEditablePathMetadata()
+  snapshot()
+  syncObjProps()
+}
+
+function setEndpointSnapMarginFromInput(value: string | number) {
+  commitNumericInput(
+    value,
+    objProps.endpointSnapMargin,
+    setEndpointSnapMargin,
+    (next) => { objProps.endpointSnapMarginInput = formatNumericInputValue(normalizeEndpointSnapMargin(next)) }
+  )
+}
+
 function setCornerRadius(value: number) {
   const obj = activeEditablePathObject.value
   if (!obj || !fabricCanvas) return
   setObjectCornerRadius(obj, value)
+  triggerKaleidoscopeContentSync(obj)
   fabricCanvas.requestRenderAll()
   refreshLayers()
   snapshot()
@@ -3271,6 +4398,7 @@ function setSelectedPointCornerRadius(value: number) {
   } else {
     setPointsCornerRadius(obj, pointIndices, value)
   }
+  triggerKaleidoscopeContentSync(obj)
   fabricCanvas.requestRenderAll()
   refreshLayers()
   snapshot()
@@ -3287,6 +4415,78 @@ function setSelectedPointCornerRadiusFromInput(value: string | number) {
     objProps.pointCornerRadius,
     setSelectedPointCornerRadius,
     (next) => { objProps.pointCornerRadiusInput = next }
+  )
+}
+
+function ensureFillForSolidArrow(obj: EditablePathObject) {
+  if (!pathHasSolidArrowHead(obj)) return
+  const target = obj as AnyFabricObject
+  const stroke = typeof target.stroke === 'string' ? target.stroke : ''
+  if (!isFillEnabled(stroke)) return
+  if (isFillEnabled(target.fill)) return
+  target.set('fill', stroke)
+  target.autoFillForSolidArrow = true
+}
+
+function clearAutoFillForHollowArrow(obj: EditablePathObject) {
+  const target = obj as AnyFabricObject
+  if (pathHasSolidArrowHead(obj)) return
+  if (!target.autoFillForSolidArrow) return
+  if (isFillEnabled(target.fill)) target.lastFill = target.fill
+  target.set('fill', 'transparent')
+  target.autoFillForSolidArrow = false
+}
+
+function applyArrowChange(partial: Partial<ArrowHead>) {
+  const obj = activeEditablePathObject.value
+  const indices = selectedArrowEndpointIndices.value
+  if (!obj || !indices.length || !fabricCanvas) return
+  setEditablePointsArrowHead(obj, indices, partial)
+  refreshEditablePathMetadata()
+  if (partial.shape === 'hollow' || partial.enabled === false) {
+    clearAutoFillForHollowArrow(obj)
+  } else {
+    ensureFillForSolidArrow(obj)
+  }
+  obj.dirty = true
+  obj.setCoords()
+  triggerKaleidoscopeContentSync(obj)
+  fabricCanvas.requestRenderAll()
+  refreshLayers()
+  snapshot()
+  syncObjProps()
+}
+
+function toggleSelectedArrowEnabled(enabled: boolean) {
+  applyArrowChange({ enabled: !!enabled })
+}
+
+function setSelectedArrowShape(shape: ArrowHeadShape) {
+  applyArrowChange({ shape })
+}
+
+function setSelectedArrowAngle(angle: number) {
+  if (!Number.isFinite(angle)) return
+  applyArrowChange({ angle: Math.max(15, Math.min(150, angle)) })
+}
+
+function setSelectedArrowLength(length: number) {
+  if (!Number.isFinite(length)) return
+  applyArrowChange({ length: Math.max(0, length) })
+}
+
+function setSelectedArrowLengthFromInput(value: string | number) {
+  const trimmed = normalizeInputValue(value)
+  if (trimmed === '' && selectedArrowEndpointIndices.value.length > 1) {
+    syncObjProps()
+    return
+  }
+  const fallback = arrowAggregated.value.length ?? 16
+  commitNumericInput(
+    value,
+    fallback,
+    setSelectedArrowLength,
+    (next) => { objProps.arrowLengthInput = next }
   )
 }
 
@@ -3318,6 +4518,7 @@ function setSelectedSegmentCurveEnabled(enabled: boolean) {
   const segmentRef = selectedEditableSegment.value
   if (!obj || !segmentRef || !fabricCanvas) return
   setEditableSegmentType(obj, segmentRef, enabled ? 'cubic' : 'line')
+  triggerKaleidoscopeContentSync(obj)
   // 重新解析为最新的 segmentRef，避免后续操作引用过期数据
   const liveSegmentRef = resolveEditableSegmentRef(obj, segmentRef)
   if (liveSegmentRef) selectedSegmentRef.value = liveSegmentRef
@@ -3333,6 +4534,7 @@ function setSelectedSegmentControlPoint(controlPoint: CurveControlPointKey, next
   const segmentRef = selectedEditableSegment.value
   if (!obj || !segmentRef || !fabricCanvas) return
   setEditableSegmentControlPoint(obj, segmentRef, controlPoint, nextPoint)
+  triggerKaleidoscopeContentSync(obj)
   // 操作后路径数据已更新，刷新 segmentRef 以引用最新模型
   const liveSegmentRef = resolveEditableSegmentRef(obj, segmentRef)
   if (liveSegmentRef) selectedSegmentRef.value = liveSegmentRef
@@ -3402,6 +4604,7 @@ function setStrokeLineType(value: string) {
   if (obj instanceof Group) obj.triggerLayout()
   obj.dirty = true
   obj.setCoords()
+  triggerKaleidoscopeContentSync(obj)
   fabricCanvas.requestRenderAll()
   refreshLayers()
   snapshot()
@@ -3426,6 +4629,7 @@ function setStrokeDashValue(index: 0 | 1, value: number) {
   if (obj instanceof Group) obj.triggerLayout()
   obj.dirty = true
   obj.setCoords()
+  triggerKaleidoscopeContentSync(obj)
   fabricCanvas.requestRenderAll()
   refreshLayers()
   snapshot()
@@ -3473,6 +4677,7 @@ function toggleFill(enabled: boolean) {
   if (obj instanceof Group) obj.triggerLayout()
   obj.dirty = true
   obj.setCoords()
+  triggerKaleidoscopeContentSync(obj)
   fabricCanvas.requestRenderAll()
   refreshLayers()
   snapshot()
@@ -3504,6 +4709,7 @@ function toggleStroke(enabled: boolean) {
   if (obj instanceof Group) obj.triggerLayout()
   obj.dirty = true
   obj.setCoords()
+  triggerKaleidoscopeContentSync(obj)
   fabricCanvas.requestRenderAll()
   refreshLayers()
   snapshot()
@@ -3524,8 +4730,11 @@ function setObjSize(dim: 'width' | 'height', value: number) {
   } else {
     obj.scaleToHeight(value)
   }
+  clearOwnedEndpointAttachmentsForTransformedObject(obj)
   obj.dirty = true
   obj.setCoords()
+  syncEndpointsForChangedObject(obj)
+  triggerKaleidoscopeTransformSync(obj)
   fabricCanvas?.requestRenderAll()
   refreshLayers()
   snapshot()
@@ -3603,7 +4812,10 @@ function alignToCanvas(positionId: AlignPositionId) {
   const dy = targetTop - bounds.top
   if (dx === 0 && dy === 0) return
   obj.set({ left: (obj.left ?? 0) + dx, top: (obj.top ?? 0) + dy })
+  clearOwnedEndpointAttachmentsForTransformedObject(obj)
   obj.setCoords()
+  syncEndpointsForChangedObject(obj)
+  triggerKaleidoscopeTransformSync(obj)
   fabricCanvas.requestRenderAll()
   refreshLayers()
   snapshot()
@@ -3698,10 +4910,35 @@ function setZoom(value: number) {
   applyCanvasZoom(value)
 }
 
+function getSpecialDirectEditSegment(obj: FabricObject | null | undefined) {
+  if (!obj || !isEditablePathObject(obj) || !DIRECT_EDIT_SHAPE_IDS.has(String((obj as AnyFabricObject).shapeId ?? ''))) return null
+  const segments = getEditableSegments(obj)
+  return segments.length === 1 ? segments[0] : null
+}
+
+function getSpecialDirectEditMode(obj: FabricObject | null | undefined): 'point' | 'segment' | null {
+  const segment = getSpecialDirectEditSegment(obj)
+  if (!segment) return null
+  return segment.segment.type === 'cubic' ? 'segment' : 'point'
+}
+
+function shouldHideTransformControlsInEditMode(obj: FabricObject | null | undefined) {
+  return selectionMode.value !== 'shape' && !!getSpecialDirectEditSegment(obj)
+}
+
+function hideFabricTransformControls(controls: FabricControls) {
+  FABRIC_TRANSFORM_CONTROL_KEYS.forEach((key) => {
+    delete controls[key]
+  })
+}
+
 function syncActiveObject(obj: FabricObject | null) {
   clearPointEditing()
   const constrained = applyKaleidoscopeSelectionConstraints(obj)
-  if (constrained && isKaleidoscopeInstance(constrained)) {
+  const directEditMode = getSpecialDirectEditMode(constrained)
+  if (directEditMode) {
+    selectionMode.value = directEditMode
+  } else if (constrained && isKaleidoscopeInstance(constrained)) {
     selectionMode.value = 'shape'
   }
   if (!constrained) selectionMode.value = 'shape'
@@ -3711,7 +4948,11 @@ function syncActiveObject(obj: FabricObject | null) {
     applyCanvasThemeToObject(constrained)
   }
   syncCanvasInteractionMode()
-  updateCurveControls()
+  if (directEditMode === 'segment' && isEditablePathObject(constrained)) {
+    setSelectedEditableSegment(constrained, getSpecialDirectEditSegment(constrained))
+  } else {
+    updateCurveControls()
+  }
   refreshLayers()
   if (constrained) {
     if (sizeRatioLocked.value) {
@@ -3745,6 +4986,7 @@ function addShape(item: ShapeLibraryItem) {
     top: canvasHeight.value / 2,
     name: nextName(item.label)
   })
+  ensureEditorObjectId(shape)
   shape.setCoords()
   fabricCanvas.add(shape)
   refreshLayers()
@@ -3765,6 +5007,8 @@ function addText(preset: TextLibraryItem) {
     width: 200
   })
   applyDefaultKaleidoscopeMetadata(t)
+  applyDefaultEndpointSnapMargin(t)
+  ensureEditorObjectId(t)
   fabricCanvas.add(t)
   refreshLayers()
   fabricCanvas.setActiveObject(t)
@@ -3783,11 +5027,13 @@ async function onImageFileChosen(e: Event) {
   const url = URL.createObjectURL(file)
   const img = await FabricImage.fromURL(url)
   applyDefaultKaleidoscopeMetadata(img)
+  applyDefaultEndpointSnapMargin(img)
   img.set({
     left: canvasWidth.value / 2 - (img.width || 60) / 2,
     top: canvasHeight.value / 2 - (img.height || 60) / 2,
     name: nextName(file.name)
   })
+  ensureEditorObjectId(img)
   img.setCoords()
   fabricCanvas.add(img)
   refreshLayers()
@@ -3849,7 +5095,10 @@ function deleteObjects(objects?: FabricObject[]) {
     syncActiveObject(null)
   }
   withSnapshotSuppressed(() => {
-    targets.forEach((obj) => fabricCanvas!.remove(obj as AnyFabricObject))
+    targets.forEach((obj) => {
+      removeEndpointAttachmentsReferencing(obj)
+      fabricCanvas!.remove(obj as AnyFabricObject)
+    })
   })
   refreshLayers()
   if (shouldClearSelection) {
@@ -4121,7 +5370,9 @@ function nudgeActiveObject(dx: number, dy: number) {
   if (nextLeft === currentLeft && nextTop === currentTop) return false
   clearBooleanPreview()
   obj.set({ left: nextLeft, top: nextTop })
+  clearOwnedEndpointAttachmentsForTransformedObject(obj)
   obj.setCoords()
+  syncEndpointsForChangedObject(obj)
   fabricCanvas.requestRenderAll()
   triggerKaleidoscopeTransformSync(obj)
   refreshLayers()
@@ -4370,37 +5621,53 @@ function setupCanvasEvents() {
   fabricCanvas.on('object:modified', (event) => {
     if (isBooleanPreviewObject(event.target ?? null)) return
     clearBooleanPreview()
+    syncEndpointsForChangedObject(event.target ?? null)
+    triggerKaleidoscopeContentSync(event.target ?? null)
     triggerKaleidoscopeTransformSync(event.target ?? null)
     snapshot()
     syncObjProps()
     refreshLayers()
   })
   // Real-time sync during drag interactions
-  fabricCanvas.on('object:scaling', () => {
+  fabricCanvas.on('object:scaling', (event) => {
     clearBooleanPreview()
+    clearOwnedEndpointAttachmentsForTransformedObject(event.target ?? null)
+    syncEndpointsForChangedObject(event.target ?? null)
     syncObjProps()
+    triggerKaleidoscopeTransformSync(event.target ?? null)
   })
   fabricCanvas.on('object:moving', (event) => {
     clearBooleanPreview()
+    clearOwnedEndpointAttachmentsForTransformedObject(event.target ?? null)
+    syncEndpointsForChangedObject(event.target ?? null)
     syncObjProps()
     triggerKaleidoscopeTransformSync(event.target ?? null)
   })
   fabricCanvas.on('object:rotating', (event) => {
     clearBooleanPreview()
+    clearOwnedEndpointAttachmentsForTransformedObject(event.target ?? null)
+    syncEndpointsForChangedObject(event.target ?? null)
     syncObjProps()
     triggerKaleidoscopeTransformSync(event.target ?? null)
   })
 
   // 对象添加/删除时快照
   fabricCanvas.on('object:added', (event) => {
-    if (isBooleanPreviewObject(event.target ?? null)) return
-    applyCanvasThemeToObject(event.target ?? null)
+    const target = event.target ?? null
+    if (isBooleanPreviewObject(target)) return
+    if (target) {
+      ensureEditorObjectId(target)
+      normalizeEndpointAttachments(target)
+      applyCanvasThemeToObject(target)
+    }
     refreshLayers()
     snapshot()
   })
   fabricCanvas.on('object:removed', (event) => {
-    if (isBooleanPreviewObject(event.target ?? null)) return
-    removeKaleidoscopeInstancesForRemovedSource(event.target ?? null)
+    const target = event.target ?? null
+    if (isBooleanPreviewObject(target)) return
+    if (target) removeEndpointAttachmentsReferencing(target)
+    removeKaleidoscopeInstancesForRemovedSource(target)
     refreshLayers()
     snapshot()
   })
@@ -4409,6 +5676,7 @@ function setupCanvasEvents() {
 // ── 初始化 ──
 onMounted(() => {
   if (!canvasElRef.value) return
+  void getPathKit()
   fabricCanvas = new Canvas(canvasElRef.value, {
     width: canvasWidth.value,
     height: canvasHeight.value,
@@ -4420,6 +5688,7 @@ onMounted(() => {
   })
 
   loadShortcutBindings()
+  ensureCanvasObjectMetadata()
   applyCanvasTheme()
   syncCanvasInteractionMode()
   initAligningGuidelines()
@@ -4768,10 +6037,10 @@ $panel-bg: #fff;
   display: flex;
   flex-direction: column;
 }
-.left-tabs-pane-wrapper,
-.left-tabs-pane,
-.right-tabs-pane-wrapper,
-.right-tabs-pane {
+:deep(.left-tabs-pane-wrapper),
+:deep(.left-tabs-pane),
+:deep(.right-tabs-pane-wrapper),
+:deep(.right-tabs-pane) {
   flex: 1;
   min-height: 0;
   display: flex;
@@ -4956,13 +6225,35 @@ $panel-bg: #fff;
   }
 
   &:hover:not(:disabled) {
-    background: #fafafa;
+    background-color: #fafafa;
     border-color: color-mix(in srgb, var(--primary-color), black 15%);
   }
 
   &.active {
     border-color: var(--primary-color);
     box-shadow: 0 0 0 3px var(--primary-light-bg);
+  }
+}
+
+.arrow-shape-picker {
+  .stroke-line-swatch {
+    &::before {
+      display: none;
+    }
+    background-color: #fafafa;
+    background-position: center;
+    background-repeat: no-repeat;
+    background-size: 18px 16px;
+
+    &:hover:not(:disabled) {
+      background-color: #fafafa;
+    }
+  }
+  .arrow-shape-solid {
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 16'><path d='M2 8H11' fill='none' stroke='%23333' stroke-width='2.4' stroke-linecap='round'/><path d='M10.2 4.15C10.2 3.57 10.85 3.23 11.33 3.55L15.32 6.22C16.5 7.01 16.5 8.99 15.32 9.78L11.33 12.45C10.85 12.77 10.2 12.43 10.2 11.85V4.15Z' fill='%23333'/></svg>");
+  }
+  .arrow-shape-hollow {
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 16'><path d='M2 8H11' fill='none' stroke='%23333' stroke-width='2.4' stroke-linecap='round'/><path d='M10.4 4.5L13.9 8L10.4 11.5' fill='none' stroke='%23333' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/></svg>");
   }
 }
 

@@ -71,11 +71,19 @@ type PathKitInitOptions = {
 type PathKitInitFn = (options?: PathKitInitOptions) => Promise<PathKitApi>
 
 let pathKitPromise: Promise<PathKitApi> | null = null
+let pathKitInstance: PathKitApi | null = null
+
+export function peekPathKit() {
+  return pathKitInstance
+}
 
 export function getPathKit(): Promise<PathKitApi> {
   if (!pathKitPromise) {
     pathKitPromise = (PathKitInit as PathKitInitFn)({
       locateFile: () => wasmUrl
+    }).then((api) => {
+      pathKitInstance = api
+      return api
     })
   }
   return pathKitPromise

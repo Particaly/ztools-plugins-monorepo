@@ -131,6 +131,47 @@ function createEditableBooleanResult(
   return result
 }
 
+export function pathKitToEditablePathObject(path: PathKitPath) {
+  const bounds = getPathBounds(path)
+  if (!bounds) return null
+
+  const normalizedPath = path.copy()
+  try {
+    translatePath(normalizedPath, -bounds.fLeft, -bounds.fTop)
+    const svgPath = normalizedPath.toSVGString()
+    if (!svgPath.trim()) return null
+
+    const parsed = editablePathFromPathData(new Path(svgPath).path as TSimplePathData)
+    if (!parsed) return null
+
+    const result = createEditablePathObject(parsed, 0)
+    result.set({
+      left: bounds.fLeft,
+      top: bounds.fTop,
+      originX: 'left',
+      originY: 'top',
+      fill: 'transparent',
+      stroke: 'transparent',
+      strokeWidth: 0,
+      opacity: 0,
+      visible: false,
+      selectable: false,
+      evented: false,
+      hasControls: false,
+      hasBorders: false
+    })
+    const custom = result as AnyFabricPath
+    custom.shapeId = 'snap-outline-helper'
+    custom.booleanEligible = false
+    custom.excludeFromExport = true
+    applyDefaultKaleidoscopeMetadata(result)
+    result.setCoords()
+    return result
+  } finally {
+    normalizedPath.delete()
+  }
+}
+
 export function pathKitToFabricPath(path: PathKitPath, options: PathKitToFabricOptions) {
   const bounds = getPathBounds(path)
   if (!bounds) return null

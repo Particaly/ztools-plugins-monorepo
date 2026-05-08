@@ -333,9 +333,13 @@ function createObjectPath(pathKit: PathKitApi, obj: FabricObject): FabricToPathK
   }
 }
 
+export function fabricObjectToPathKitWithApi(pathKit: PathKitApi, obj: FabricObject): FabricToPathKitResult {
+  return createObjectPath(pathKit, obj)
+}
+
 export async function fabricObjectToPathKit(obj: FabricObject): Promise<FabricToPathKitResult> {
   const pathKit = await getPathKit()
-  return createObjectPath(pathKit, obj)
+  return fabricObjectToPathKitWithApi(pathKit, obj)
 }
 
 export async function canConvertToPathKit(obj: FabricObject): Promise<boolean> {

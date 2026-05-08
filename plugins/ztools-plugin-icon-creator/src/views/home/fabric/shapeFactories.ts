@@ -1,6 +1,6 @@
 import { Circle, FabricObject } from 'fabric'
 import type { ShapeLibraryItem } from '../editorCatalog'
-import { createEditablePathObject, pathEditableModel, polygonEditablePath, type EditablePathSegment } from '../geometry/editablePath'
+import { createDefaultArrowHead, createEditablePathObject, pathEditableModel, polygonEditablePath, type EditablePathSegment, type EditablePoint } from '../geometry/editablePath'
 
 type AnyFabricObject = FabricObject & Record<string, any>
 type PointLike = { x: number; y: number }
@@ -24,6 +24,11 @@ function applyDefaultKaleidoscopeMetadata(obj: FabricObject) {
   target.kaleidoscopeInstanceIndex = 0
 }
 
+function applyDefaultEndpointSnapMargin(obj: FabricObject) {
+  const target = obj as AnyFabricObject
+  target.endpointSnapMargin = 0
+}
+
 function getDefaultStrokeDashArray(strokeWidth: number): [number, number] {
   return [Math.max(1, strokeWidth * 3), Math.max(1, strokeWidth * 2)]
 }
@@ -45,15 +50,16 @@ function withDefaultStyles<T extends FabricObject>(obj: T, item: ShapeLibraryIte
   target.shapeId = item.id
   target.booleanEligible = true
   applyDefaultKaleidoscopeMetadata(obj)
+  applyDefaultEndpointSnapMargin(obj)
   obj.setCoords()
   return obj
 }
 
-function editablePolygon(points: PointLike[], item: ShapeLibraryItem, cornerRadius = 0, closed = true) {
+function editablePolygon(points: EditablePoint[], item: ShapeLibraryItem, cornerRadius = 0, closed = true) {
   return withDefaultStyles(createEditablePathObject(polygonEditablePath(points, closed), cornerRadius), item)
 }
 
-function editablePath(points: PointLike[], segments: EditablePathSegment[], item: ShapeLibraryItem, cornerRadius = 0, closed = true) {
+function editablePath(points: EditablePoint[], segments: EditablePathSegment[], item: ShapeLibraryItem, cornerRadius = 0, closed = true) {
   return withDefaultStyles(createEditablePathObject(pathEditableModel(points, segments, closed), cornerRadius), item)
 }
 
@@ -206,16 +212,9 @@ export function createShape(item: ShapeLibraryItem): FabricObject {
     case 'base-pentagon':
       return editablePolygon(regularPolygon(5, w, h), item)
     case 'base-arrow-right': {
-      const path = editablePath([
+      const path = editablePolygon([
         { x: -w / 2, y: 0 },
-        { x: w * 0.22, y: 0 },
-        { x: w * 0.02, y: -h * 0.3 },
-        { x: w * 0.02, y: h * 0.3 }
-      ], [
-        { type: 'line', to: 1 },
-        { type: 'line', to: 2 },
-        { type: 'line', to: 1 },
-        { type: 'line', to: 3 }
+        { x: w / 2, y: 0, arrowHead: createDefaultArrowHead() }
       ], item, 0, false)
       path.set({ fill: 'transparent', strokeLineCap: 'round', strokeLineJoin: 'round' })
       return path
