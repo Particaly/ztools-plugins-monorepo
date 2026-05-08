@@ -1,6 +1,6 @@
 import { Circle, FabricObject } from 'fabric'
 import type { ShapeLibraryItem } from '../editorCatalog'
-import { createDefaultArrowHead, createEditablePathObject, pathEditableModel, polygonEditablePath, type EditablePathSegment, type EditablePoint } from '../geometry/editablePath'
+import { createDefaultArrowHead, createEditablePathObject, getHollowShaftArrowLineWidth, pathEditableModel, polygonEditablePath, rebuildEditablePathObject, type ArrowRenderMode, type EditablePathSegment, type EditablePoint } from '../geometry/editablePath'
 
 type AnyFabricObject = FabricObject & Record<string, any>
 type PointLike = { x: number; y: number }
@@ -59,8 +59,20 @@ function editablePolygon(points: EditablePoint[], item: ShapeLibraryItem, corner
   return withDefaultStyles(createEditablePathObject(polygonEditablePath(points, closed), cornerRadius), item)
 }
 
-function editablePath(points: EditablePoint[], segments: EditablePathSegment[], item: ShapeLibraryItem, cornerRadius = 0, closed = true) {
-  return withDefaultStyles(createEditablePathObject(pathEditableModel(points, segments, closed), cornerRadius), item)
+function editablePath(
+  points: EditablePoint[],
+  segments: EditablePathSegment[],
+  item: ShapeLibraryItem,
+  cornerRadius = 0,
+  closed = true,
+  arrowRenderMode?: ArrowRenderMode
+) {
+  const obj = withDefaultStyles(createEditablePathObject(pathEditableModel(points, segments, closed), cornerRadius), item)
+  if (arrowRenderMode) {
+    ;(obj as AnyFabricObject).arrowRenderMode = arrowRenderMode
+    rebuildEditablePathObject(obj)
+  }
+  return obj
 }
 
 function regularPolygon(sides: number, width: number, height: number, rotation = -Math.PI / 2) {
@@ -219,16 +231,19 @@ export function createShape(item: ShapeLibraryItem): FabricObject {
       path.set({ fill: 'transparent', strokeLineCap: 'round', strokeLineJoin: 'round' })
       return path
     }
-    case 'base-solid-shaft-arrow':
-      return editablePolygon([
-        { x: -w / 2, y: -h * 0.22 },
-        { x: w * 0.12, y: -h * 0.22 },
-        { x: w * 0.12, y: -h / 2 },
-        { x: w / 2, y: 0 },
-        { x: w * 0.12, y: h / 2 },
-        { x: w * 0.12, y: h * 0.22 },
-        { x: -w / 2, y: h * 0.22 }
-      ], item)
+    case 'base-solid-shaft-arrow': {
+      const arrowHead = createDefaultArrowHead({ length: h })
+      const path = editablePath([
+        { x: -w / 2, y: 0 },
+        { x: w / 2, y: 0, arrowHead }
+      ], [
+        { type: 'line', to: 1 }
+      ], item, 0, false, 'hollow-shaft')
+      ;(path as AnyFabricObject).arrowLineWidth = getHollowShaftArrowLineWidth(path, arrowHead)
+      path.set({ fill: 'transparent', strokeLineCap: 'round', strokeLineJoin: 'round' })
+      rebuildEditablePathObject(path)
+      return path
+    }
     case 'base-double-solid-shaft-arrow':
       return editablePolygon([
         { x: -w / 2, y: 0 },

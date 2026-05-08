@@ -343,7 +343,7 @@
                     />
                   </div>
                   <template v-if="arrowAggregated.enabled === true">
-                    <div class="prop-group">
+                    <div v-if="!isHollowShaftArrow" class="prop-group">
                       <label>形状</label>
                       <div class="stroke-line-type-picker arrow-shape-picker">
                         <button
@@ -360,7 +360,7 @@
                         />
                       </div>
                     </div>
-                    <div class="prop-group rotation-row">
+                    <div v-if="!isHollowShaftArrow" class="prop-group rotation-row">
                       <label>夹角</label>
                       <ZSlider
                         :model-value="arrowAggregated.angle ?? 60"
@@ -372,8 +372,42 @@
                       />
                       <span class="val-label">{{ arrowAggregated.angle == null ? '—' : `${Math.round(arrowAggregated.angle)}°` }}</span>
                     </div>
+                    <div v-if="isHollowShaftArrow" class="prop-group style-color-row">
+                      <label>线宽</label>
+                      <ZInput
+                        size="small"
+                        type="text"
+                        :model-value="objProps.arrowLineWidthInput"
+                        @update:model-value="objProps.arrowLineWidthInput = String($event)"
+                        @change="setHollowArrowLineWidthFromInput"
+                      />
+                    </div>
+                    <div v-if="isHollowShaftArrow" class="prop-group rotation-row">
+                      <label>顶角</label>
+                      <ZSlider
+                        :model-value="objProps.arrowTipAngle"
+                        :min="15"
+                        :max="165"
+                        :step="1"
+                        :formatter="(value) => `${Math.round(value)}°`"
+                        @change="setHollowArrowTipAngle"
+                      />
+                      <span class="val-label">{{ `${Math.round(objProps.arrowTipAngle)}°` }}</span>
+                    </div>
+                    <div v-if="isHollowShaftArrow" class="prop-group rotation-row">
+                      <label>边角</label>
+                      <ZSlider
+                        :model-value="objProps.arrowSideAngle"
+                        :min="15"
+                        :max="90"
+                        :step="1"
+                        :formatter="(value) => `${Math.round(value)}°`"
+                        @change="setHollowArrowSideAngle"
+                      />
+                      <span class="val-label">{{ `${Math.round(objProps.arrowSideAngle)}°` }}</span>
+                    </div>
                     <div class="prop-group style-color-row">
-                      <label>长度</label>
+                      <label>{{ isHollowShaftArrow ? '高度' : '长度' }}</label>
                       <ZInput
                         size="small"
                         type="text"
@@ -677,7 +711,11 @@ import { pathKitToEditablePathObject, pathKitToFabricPath } from './geometry/pat
 import { getPathKit, peekPathKit } from './geometry/pathkit'
 import {
   editablePointToLocalObjectPoint,
+  getArrowRenderMode,
   getEditablePointArrowHead,
+  getHollowShaftArrowLineWidth,
+  getHollowShaftArrowSideAngle,
+  getHollowShaftArrowTipAngle,
   getEditablePointEndpointInfo,
   getEditableSegmentByLocalPoint,
   getEditableSegmentMidpoint,
@@ -690,15 +728,20 @@ import {
   moveEditablePoint,
   moveEditablePoints,
   pathHasSolidArrowHead,
+  rebuildEditablePathObject,
+  rebuildEditablePathObjectFromPoint,
   resolveEditableSegmentRef,
   setEditablePointsArrowHead,
   setEditableSegmentControlPoint,
   setEditableSegmentType,
+  createDefaultArrowHead,
+  pathEditableModel,
   setObjectCornerRadius,
   setPointCornerRadius,
   setPointsCornerRadius,
   type ArrowHead,
   type ArrowHeadShape,
+  type ArrowRenderMode,
   type EditablePathObject,
   type EditablePoint,
   type EditableSegmentRef
@@ -827,7 +870,16 @@ const DEFAULT_KALEIDOSCOPE_COUNT = 6
 const MIN_KALEIDOSCOPE_COUNT = 1
 const MAX_KALEIDOSCOPE_COUNT = 36
 const KALEIDOSCOPE_CENTER_CONTROL_KEY = 'kaleidoscopeCenter'
-const DIRECT_EDIT_SHAPE_IDS = new Set(['base-line', 'base-arrow-right'])
+const HOLLOW_ARROW_LEGACY_SIGNATURE = [
+  [-0.5, -0.22],
+  [0.12, -0.22],
+  [0.12, -0.5],
+  [0.5, 0],
+  [0.12, 0.5],
+  [0.12, 0.22],
+  [-0.5, 0.22]
+] as const
+const DIRECT_EDIT_SHAPE_IDS = new Set(['base-line', 'base-arrow-right', 'base-solid-shaft-arrow'])
 const FABRIC_TRANSFORM_CONTROL_KEYS = ['tl', 'tr', 'br', 'bl', 'ml', 'mt', 'mr', 'mb', 'mtr']
 const ENDPOINT_SNAP_MARGIN = 4
 const EDITOR_OBJECT_ID_PREFIX = 'editor-object-'
@@ -872,6 +924,10 @@ const SERIALIZED_OBJECT_PROPS = [
   'lastStrokeWidth',
   'lastStrokeDashArray',
   'shapeId',
+  'arrowRenderMode',
+  'arrowLineWidth',
+  'arrowTipAngle',
+  'arrowSideAngle',
   'editorObjectId',
   'endpointAttachments',
   'endpointSnapMargin',
@@ -966,10 +1022,16 @@ const objProps = reactive({
   cornerRadius: 0,
   pointCornerRadius: 0,
   endpointSnapMargin: 0,
+  arrowLineWidth: 0,
+  arrowTipAngle: 0,
+  arrowSideAngle: 0,
   cornerRadiusInput: '0',
   pointCornerRadiusInput: '0',
   endpointSnapMarginInput: '0',
   arrowLengthInput: '16',
+  arrowLineWidthInput: '0',
+  arrowTipAngleInput: '0',
+  arrowSideAngleInput: '0',
   curveEnabled: false,
   curveCp1XInput: '0',
   curveCp1YInput: '0',
@@ -1761,6 +1823,53 @@ function normalizeEndpointAttachments(obj: FabricObject) {
   target.endpointAttachments = next
 }
 
+function isLegacyHollowArrowShape(obj: EditablePathObject) {
+  const target = obj as AnyFabricObject
+  if (target.shapeId !== 'base-solid-shaft-arrow') return false
+  if (target.arrowRenderMode === 'hollow-shaft') return false
+  const model = obj.editablePath
+  const contours = Array.isArray((model as any)?.contours) ? (model as any).contours : Array.isArray((model as any)?.points) ? [model] : []
+  if (contours.length !== 1) return false
+  const contour = contours[0]
+  if (!contour?.closed || contour.points.length !== HOLLOW_ARROW_LEGACY_SIGNATURE.length) return false
+  if (Array.isArray(contour.segments) && contour.segments.length) return false
+  const xs = contour.points.map((point: EditablePoint) => point.x)
+  const ys = contour.points.map((point: EditablePoint) => point.y)
+  const minX = Math.min(...xs)
+  const maxX = Math.max(...xs)
+  const minY = Math.min(...ys)
+  const maxY = Math.max(...ys)
+  const width = maxX - minX
+  const height = maxY - minY
+  if (width <= 1e-6 || height <= 1e-6) return false
+  return contour.points.every((point: EditablePoint, index: number) => {
+    const [rx, ry] = HOLLOW_ARROW_LEGACY_SIGNATURE[index]
+    const normalizedX = (point.x - minX) / width - 0.5
+    const normalizedY = (point.y - minY) / height - 0.5
+    return Math.abs(normalizedX - rx) < 0.03 && Math.abs(normalizedY - ry) < 0.03
+  })
+}
+
+function migrateLegacyHollowArrow(obj: FabricObject | null | undefined) {
+  if (!obj || !isEditablePathObject(obj) || !isLegacyHollowArrowShape(obj)) return
+  const target = obj as AnyFabricObject & EditablePathObject
+  const width = Math.max(1, obj.width ?? obj.getScaledWidth() ?? 1)
+  const height = Math.max(1, obj.height ?? obj.getScaledHeight() ?? 1)
+  target.editablePath = pathEditableModel([
+    { x: -width / 2, y: 0 },
+    { x: width / 2, y: 0, arrowHead: createDefaultArrowHead({ length: height }) }
+  ], [
+    { type: 'line', to: 1 }
+  ], false)
+  target.cornerRadius = 0
+  target.cornerRadiusOverrides = [null, null]
+  target.arrowRenderMode = 'hollow-shaft'
+  target.arrowLineWidth = getHollowShaftArrowLineWidth(target, createDefaultArrowHead({ length: height }))
+  target.arrowTipAngle = getHollowShaftArrowTipAngle(target)
+  target.arrowSideAngle = getHollowShaftArrowSideAngle(target)
+  rebuildEditablePathObject(target, true)
+}
+
 function ensureCanvasObjectMetadata() {
   if (!fabricCanvas) return
   const seen = new Set<string>()
@@ -1771,6 +1880,7 @@ function ensureCanvasObjectMetadata() {
       ;(obj as AnyFabricObject).editorObjectId = id
     }
     seen.add(id)
+    migrateLegacyHollowArrow(obj)
     applyDefaultEndpointSnapMargin(obj)
     normalizeEndpointAttachments(obj)
   })
@@ -2716,7 +2826,17 @@ function resolveSelectedEditableSegment() {
 
 const selectedEditableSegment = computed(() => resolveSelectedEditableSegment())
 
-const hasSelectedCurveSegment = computed(() => !!selectedEditableSegment.value)
+const activeArrowRenderMode = computed<ArrowRenderMode>(() => {
+  const obj = activeEditablePathObject.value
+  return obj ? getArrowRenderMode(obj) : 'standard'
+})
+
+const isHollowShaftArrow = computed(() => activeArrowRenderMode.value === 'hollow-shaft')
+
+const hasSelectedCurveSegment = computed(() => {
+  if (isHollowShaftArrow.value) return false
+  return !!selectedEditableSegment.value
+})
 
 const selectedArrowEndpointIndices = computed<number[]>(() => {
   void editablePathMetadataVersion.value
@@ -3497,7 +3617,9 @@ function canEditPoints(editable: EditablePathObject) {
 }
 
 function canEditSegments(editable: EditablePathObject) {
-  return activeEditablePathObject.value === editable && selectionMode.value === 'segment'
+  return activeEditablePathObject.value === editable
+    && selectionMode.value === 'segment'
+    && getArrowRenderMode(editable) !== 'hollow-shaft'
 }
 
 function getViewportPointForLocalEditablePoint(obj: EditablePathObject, point: EditablePoint) {
@@ -4133,8 +4255,11 @@ function syncCanvasInteractionMode() {
 
 function setSelectionMode(mode: 'shape' | 'point' | 'segment') {
   const editable = activeEditablePathObject.value
-  if (mode === 'shape' || editable) {
-    selectionMode.value = mode
+  const nextMode = mode === 'segment' && editable && getArrowRenderMode(editable) === 'hollow-shaft'
+    ? 'point'
+    : mode
+  if (nextMode === 'shape' || editable) {
+    selectionMode.value = nextMode
   } else {
     selectionMode.value = 'shape'
   }
@@ -4167,7 +4292,7 @@ function getSegmentPickTolerance(obj: EditablePathObject) {
 
 function handleSegmentPointerDown(sceneX: number, sceneY: number) {
   const obj = activeEditablePathObject.value
-  if (!obj || selectionMode.value !== 'segment') return false
+  if (!obj || selectionMode.value !== 'segment' || getArrowRenderMode(obj) === 'hollow-shaft') return false
   const segmentRef = getEditableSegmentByLocalPoint(
     obj,
     getLocalPointFromCanvas(obj, sceneX, sceneY),
@@ -4257,10 +4382,18 @@ function syncObjProps() {
     objProps.arrowLengthInput = arrowLength == null
       ? ''
       : String(Math.round(arrowLength))
+    objProps.arrowLineWidth = isHollowShaftArrow.value ? getHollowShaftArrowLineWidth(obj) : 0
+    objProps.arrowLineWidthInput = isHollowShaftArrow.value
+      ? formatNumericInputValue(objProps.arrowLineWidth)
+      : '0'
+    objProps.arrowTipAngle = isHollowShaftArrow.value ? getHollowShaftArrowTipAngle(obj) : 0
+    objProps.arrowSideAngle = isHollowShaftArrow.value ? getHollowShaftArrowSideAngle(obj) : 0
+    objProps.arrowTipAngleInput = isHollowShaftArrow.value ? formatNumericInputValue(objProps.arrowTipAngle) : '0'
+    objProps.arrowSideAngleInput = isHollowShaftArrow.value ? formatNumericInputValue(objProps.arrowSideAngle) : '0'
 
-    const segmentRef = resolveSelectedEditableSegment()
+    const segmentRef = isHollowShaftArrow.value ? null : resolveSelectedEditableSegment()
     const segment = getLiveEditableSegment(segmentRef)
-    objProps.curveEnabled = segment?.type === 'cubic'
+    objProps.curveEnabled = !isHollowShaftArrow.value && segment?.type === 'cubic'
     if (segmentRef && segment) {
       const cp1 = getEditableSegmentControlPoint(segmentRef, 'cp1')
       const cp2 = getEditableSegmentControlPoint(segmentRef, 'cp2')
@@ -4274,9 +4407,15 @@ function syncObjProps() {
   } else {
     objProps.cornerRadius = 0
     objProps.pointCornerRadius = 0
+    objProps.arrowLineWidth = 0
+    objProps.arrowTipAngle = 0
+    objProps.arrowSideAngle = 0
     objProps.cornerRadiusInput = '0'
     objProps.pointCornerRadiusInput = '0'
     objProps.arrowLengthInput = '16'
+    objProps.arrowLineWidthInput = '0'
+    objProps.arrowTipAngleInput = '0'
+    objProps.arrowSideAngleInput = '0'
     resetCurveProps()
   }
 }
@@ -4443,7 +4582,9 @@ function applyArrowChange(partial: Partial<ArrowHead>) {
   if (!obj || !indices.length || !fabricCanvas) return
   setEditablePointsArrowHead(obj, indices, partial)
   refreshEditablePathMetadata()
-  if (partial.shape === 'hollow' || partial.enabled === false) {
+  if (getArrowRenderMode(obj) === 'hollow-shaft') {
+    clearAutoFillForHollowArrow(obj)
+  } else if (partial.shape === 'hollow' || partial.enabled === false) {
     clearAutoFillForHollowArrow(obj)
   } else {
     ensureFillForSolidArrow(obj)
@@ -4462,11 +4603,12 @@ function toggleSelectedArrowEnabled(enabled: boolean) {
 }
 
 function setSelectedArrowShape(shape: ArrowHeadShape) {
+  if (isHollowShaftArrow.value) return
   applyArrowChange({ shape })
 }
 
 function setSelectedArrowAngle(angle: number) {
-  if (!Number.isFinite(angle)) return
+  if (isHollowShaftArrow.value || !Number.isFinite(angle)) return
   applyArrowChange({ angle: Math.max(15, Math.min(150, angle)) })
 }
 
@@ -4487,6 +4629,63 @@ function setSelectedArrowLengthFromInput(value: string | number) {
     fallback,
     setSelectedArrowLength,
     (next) => { objProps.arrowLengthInput = next }
+  )
+}
+
+function setHollowArrowLineWidth(lineWidth: number) {
+  const obj = activeEditablePathObject.value
+  if (!obj || !fabricCanvas || getArrowRenderMode(obj) !== 'hollow-shaft' || !Number.isFinite(lineWidth)) return
+  ;(obj as AnyFabricObject).arrowLineWidth = Math.max(0, lineWidth)
+  refreshEditablePathMetadata()
+  rebuildEditablePathObjectFromPoint(obj, 0)
+  obj.dirty = true
+  obj.setCoords()
+  triggerKaleidoscopeContentSync(obj)
+  fabricCanvas.requestRenderAll()
+  refreshLayers()
+  snapshot()
+  syncObjProps()
+}
+
+function setHollowArrowTipAngle(angle: number) {
+  const obj = activeEditablePathObject.value
+  if (!obj || !fabricCanvas || getArrowRenderMode(obj) !== 'hollow-shaft' || !Number.isFinite(angle)) return
+  ;(obj as AnyFabricObject).arrowTipAngle = Math.max(15, Math.min(165, angle))
+  refreshEditablePathMetadata()
+  rebuildEditablePathObjectFromPoint(obj, 0)
+  obj.dirty = true
+  obj.setCoords()
+  triggerKaleidoscopeContentSync(obj)
+  fabricCanvas.requestRenderAll()
+  refreshLayers()
+  snapshot()
+  syncObjProps()
+}
+
+function setHollowArrowSideAngle(angle: number) {
+  const obj = activeEditablePathObject.value
+  if (!obj || !fabricCanvas || getArrowRenderMode(obj) !== 'hollow-shaft' || !Number.isFinite(angle)) return
+  ;(obj as AnyFabricObject).arrowSideAngle = Math.max(15, Math.min(90, angle))
+  refreshEditablePathMetadata()
+  rebuildEditablePathObjectFromPoint(obj, 0)
+  obj.dirty = true
+  obj.setCoords()
+  triggerKaleidoscopeContentSync(obj)
+  fabricCanvas.requestRenderAll()
+  refreshLayers()
+  snapshot()
+  syncObjProps()
+}
+
+function setHollowArrowLineWidthFromInput(value: string | number) {
+  const obj = activeEditablePathObject.value
+  if (!obj || getArrowRenderMode(obj) !== 'hollow-shaft') return
+  const fallback = getHollowShaftArrowLineWidth(obj)
+  commitNumericInput(
+    value,
+    fallback,
+    setHollowArrowLineWidth,
+    (next) => { objProps.arrowLineWidthInput = next }
   )
 }
 
@@ -4516,7 +4715,7 @@ function updateCurveControls() {
 function setSelectedSegmentCurveEnabled(enabled: boolean) {
   const obj = activeEditablePathObject.value
   const segmentRef = selectedEditableSegment.value
-  if (!obj || !segmentRef || !fabricCanvas) return
+  if (!obj || getArrowRenderMode(obj) === 'hollow-shaft' || !segmentRef || !fabricCanvas) return
   setEditableSegmentType(obj, segmentRef, enabled ? 'cubic' : 'line')
   triggerKaleidoscopeContentSync(obj)
   // 重新解析为最新的 segmentRef，避免后续操作引用过期数据
@@ -4532,7 +4731,7 @@ function setSelectedSegmentCurveEnabled(enabled: boolean) {
 function setSelectedSegmentControlPoint(controlPoint: CurveControlPointKey, nextPoint: EditablePoint) {
   const obj = activeEditablePathObject.value
   const segmentRef = selectedEditableSegment.value
-  if (!obj || !segmentRef || !fabricCanvas) return
+  if (!obj || getArrowRenderMode(obj) === 'hollow-shaft' || !segmentRef || !fabricCanvas) return
   setEditableSegmentControlPoint(obj, segmentRef, controlPoint, nextPoint)
   triggerKaleidoscopeContentSync(obj)
   // 操作后路径数据已更新，刷新 segmentRef 以引用最新模型

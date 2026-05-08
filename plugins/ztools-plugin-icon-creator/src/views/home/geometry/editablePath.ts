@@ -4,6 +4,7 @@ import type { TComplexPathData, TSimplePathData } from 'fabric'
 type AnyFabricPath = Path & Record<string, any>
 
 export type ArrowHeadShape = 'hollow' | 'solid'
+export type ArrowRenderMode = 'standard' | 'hollow-shaft'
 
 export type ArrowHead = {
   enabled: boolean
@@ -40,6 +41,10 @@ export type EditablePathObject = AnyFabricPath & {
   cornerRadius: number
   cornerRadiusOverrides: Array<number | null>
   editablePathVersion: number
+  arrowRenderMode?: ArrowRenderMode
+  arrowLineWidth?: number
+  arrowTipAngle?: number
+  arrowSideAngle?: number
 }
 
 type BuildSegment = {
@@ -358,9 +363,15 @@ function pushLine(commands: TComplexPathData, point: EditablePoint) {
 }
 
 const DEFAULT_ARROW_HEAD: ArrowHead = { enabled: true, shape: 'hollow', angle: 60, length: 16 }
+const DEFAULT_HOLLOW_SHAFT_LINE_WIDTH_RATIO = 0.44
+const DEFAULT_HOLLOW_SHAFT_TIP_ANGLE = 81
+const DEFAULT_HOLLOW_SHAFT_SIDE_ANGLE = 90
 
-export function createDefaultArrowHead(): ArrowHead {
-  return { ...DEFAULT_ARROW_HEAD }
+export function createDefaultArrowHead(overrides: Partial<ArrowHead> = {}): ArrowHead {
+  return normalizeArrowHead({
+    ...DEFAULT_ARROW_HEAD,
+    ...overrides
+  })
 }
 
 function normalizeArrowHead(head: ArrowHead): ArrowHead {
@@ -450,6 +461,76 @@ function buildArrowHeadCommands(contour: EditablePathContour, isStart: boolean, 
   ]
 }
 
+export function getArrowRenderMode(obj: EditablePathObject | null | undefined): ArrowRenderMode {
+  return obj?.arrowRenderMode === 'hollow-shaft' ? 'hollow-shaft' : 'standard'
+}
+
+export function getHollowShaftArrowLineWidth(obj: EditablePathObject | null | undefined, headRaw?: ArrowHead | null) {
+  const raw = Number(obj?.arrowLineWidth)
+  if (Number.isFinite(raw) && raw >= 0) return raw
+  const head = headRaw ? normalizeArrowHead(headRaw) : null
+  const fallbackLength = head?.length ?? DEFAULT_ARROW_HEAD.length
+  return Math.max(0, fallbackLength * DEFAULT_HOLLOW_SHAFT_LINE_WIDTH_RATIO)
+}
+
+export function getHollowShaftArrowTipAngle(obj: EditablePathObject | null | undefined) {
+  const raw = Number(obj?.arrowTipAngle)
+  if (!Number.isFinite(raw)) return DEFAULT_HOLLOW_SHAFT_TIP_ANGLE
+  return Math.max(15, Math.min(165, raw))
+}
+
+export function getHollowShaftArrowSideAngle(obj: EditablePathObject | null | undefined) {
+  const raw = Number(obj?.arrowSideAngle)
+  if (!Number.isFinite(raw)) return DEFAULT_HOLLOW_SHAFT_SIDE_ANGLE
+  return Math.max(15, Math.min(90, raw))
+}
+
+function buildHollowShaftArrowCommands(obj: EditablePathObject, contour: EditablePathContour, headRaw: ArrowHead): TComplexPathData | null {
+  if (contour.closed || contour.points.length !== 2) return null
+  const segment = getBuildSegments(contour)[0]
+  if (!segment || segment.type !== 'line') return null
+  const head = normalizeArrowHead(headRaw)
+  if (!head.enabled || head.length <= 0) return null
+  const tail = contour.points[0]
+  const tip = contour.points[1]
+  if (!tail || !tip) return null
+  const dx = tip.x - tail.x
+  const dy = tip.y - tail.y
+  const totalLength = Math.hypot(dx, dy)
+  if (totalLength <= 1e-6) return null
+
+  const ux = dx / totalLength
+  const uy = dy / totalLength
+  const nx = -uy
+  const ny = ux
+  const halfHeight = head.length / 2
+  if (halfHeight <= 0) return null
+  const shaftHalfHeight = Math.min(halfHeight, Math.max(0, getHollowShaftArrowLineWidth(obj, head) / 2))
+  const tipHalfAngle = (getHollowShaftArrowTipAngle(obj) / 2) * Math.PI / 180
+  const sideAngle = getHollowShaftArrowSideAngle(obj) * Math.PI / 180
+  const tipDepthFromAngle = halfHeight / Math.max(Math.tan(tipHalfAngle), 1e-4)
+  const sideDepthFromAngle = Math.abs(halfHeight - shaftHalfHeight) / Math.max(Math.tan(sideAngle), 1e-4)
+  const headDepth = Math.min(
+    Math.max(tipDepthFromAngle, sideDepthFromAngle),
+    Math.max(totalLength - 1e-4, 0)
+  )
+  const baseX = tip.x - ux * headDepth
+  const baseY = tip.y - uy * headDepth
+  const shaftJoinX = baseX + ux * sideDepthFromAngle
+  const shaftJoinY = baseY + uy * sideDepthFromAngle
+
+  return [
+    ['M', tail.x + nx * shaftHalfHeight, tail.y + ny * shaftHalfHeight],
+    ['L', shaftJoinX + nx * shaftHalfHeight, shaftJoinY + ny * shaftHalfHeight],
+    ['L', baseX + nx * halfHeight, baseY + ny * halfHeight],
+    ['L', tip.x, tip.y],
+    ['L', baseX - nx * halfHeight, baseY - ny * halfHeight],
+    ['L', shaftJoinX - nx * shaftHalfHeight, shaftJoinY - ny * shaftHalfHeight],
+    ['L', tail.x - nx * shaftHalfHeight, tail.y - ny * shaftHalfHeight],
+    ['Z']
+  ]
+}
+
 function pushCubic(commands: TComplexPathData, from: EditablePoint, cp1: EditablePoint, cp2: EditablePoint, to: EditablePoint) {
   if (samePoint(from, to)) return
   commands.push(['C', cp1.x, cp1.y, cp2.x, cp2.y, to.x, to.y])
@@ -459,6 +540,11 @@ function buildContourPathData(contour: EditablePathContour, obj: EditablePathObj
   const points = contour.points
   if (!points.length) return []
   if (points.length === 1) return [['M', points[0].x, points[0].y]]
+
+  if (!contour.closed && getArrowRenderMode(obj) === 'hollow-shaft') {
+    const hollowCommands = buildHollowShaftArrowCommands(obj, contour, points[points.length - 1]?.arrowHead ?? createDefaultArrowHead())
+    if (hollowCommands) return hollowCommands
+  }
 
   const rounded = createRoundedPoints(contour, obj, startIndex)
   const segments = getBuildSegments(contour)
@@ -649,6 +735,11 @@ export function getEditablePointArrowHead(obj: EditablePathObject, globalIndex: 
   return ref.point.arrowHead ? normalizeArrowHead(ref.point.arrowHead) : null
 }
 
+export function getEditablePointByIndex(obj: EditablePathObject, globalIndex: number): EditablePoint | null {
+  const model = ensureEditablePathObject(obj)
+  return resolveEditablePoint(model, globalIndex)?.point ?? null
+}
+
 export function pathHasSolidArrowHead(obj: EditablePathObject) {
   const model = ensureEditablePathObject(obj)
   for (const contour of model.contours) {
@@ -669,6 +760,11 @@ export function setEditablePointsArrowHead(
   const model = ensureEditablePathObject(obj)
   let touched = false
   const seen = new Set<number>()
+  const anchorIndex = Array.from(new Set(indices))
+    .filter((globalIndex) => {
+      const ref = resolveEditablePoint(model, globalIndex)
+      return !!ref && !ref.contour.closed && ref.pointIndex === 0
+    })[0] ?? Array.from(new Set(indices))[0] ?? 0
   indices.forEach((globalIndex) => {
     if (seen.has(globalIndex)) return
     seen.add(globalIndex)
@@ -686,7 +782,7 @@ export function setEditablePointsArrowHead(
     ref.point.arrowHead = next
     touched = true
   })
-  if (touched) rebuildEditablePathObject(obj)
+  if (touched) rebuildEditablePathObjectFromPoint(obj, anchorIndex)
 }
 
 export function setObjectCornerRadius(obj: EditablePathObject, radius: number) {
@@ -960,6 +1056,11 @@ export function rebuildEditablePathObject(obj: EditablePathObject, adjustPositio
   ;(obj as any)._setPath((path.length ? path : [['M', 0, 0]]) as TSimplePathData, adjustPosition)
   obj.dirty = true
   obj.setCoords()
+}
+
+export function rebuildEditablePathObjectFromPoint(obj: EditablePathObject, globalIndex: number) {
+  const anchorPoint = getEditablePointByIndex(obj, globalIndex)
+  rebuildEditablePathObjectKeepingAnchor(obj, anchorPoint)
 }
 
 export function polygonEditablePath(points: EditablePoint[], closed = true): EditablePathModel {
