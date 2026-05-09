@@ -700,9 +700,37 @@ import { ZInput, ZSelect, ZColorPicker, ZSwitch, ZSlider, ZPopover, ZButton, ZTa
 import { Icon } from '@iconify/vue'
 import { Canvas, Control, FabricObject, Textbox, Group, ActiveSelection, FabricImage, Path, Point, util } from 'fabric'
 import { AligningGuidelines } from '../../fabric-aligning-guidelines'
-import { basicShapes, textPresets, canvasPresets } from './editorCatalog'
+import { basicShapes, textPresets, canvasPresets, shapePreviewPaths } from './editorCatalog'
 import type { ShapeLibraryItem, TextLibraryItem } from './editorCatalog'
+import {
+  DEFAULT_KALEIDOSCOPE_COUNT,
+  EDITOR_OBJECT_ID_PREFIX,
+  SERIALIZED_OBJECT_PROPS,
+  applyDefaultEndpointSnapMargin,
+  applyDefaultKaleidoscopeMetadata,
+  clearKaleidoscopeMetadata,
+  getEndpointSnapMarginMetadata,
+  getKaleidoscopeMetadata,
+  getObjectEndpointSnapMargin,
+  normalizeEndpointSnapMargin,
+  normalizeKaleidoscopeCount,
+  type AnyFabricObject
+} from './fabric/objectMetadata'
 import { createShape } from './fabric/shapeFactories'
+import {
+  SHORTCUT_ACTIONS,
+  SHORTCUT_DISPLAY_GROUPS,
+  SHORTCUT_STORAGE_KEY,
+  createDefaultShortcutBindings,
+  formatShortcutForDisplay,
+  getEditorPlatform,
+  normalizeKeyboardEventShortcut,
+  normalizeShortcutString,
+  sanitizeShortcutBindings,
+  type ShortcutActionDefinition,
+  type ShortcutActionId,
+  type ShortcutGroupId
+} from './shortcuts'
 import Ruler from './components/Ruler.vue'
 import { isBooleanCandidate, fabricObjectToPathKitWithApi, type FabricBooleanStyleSnapshot } from './geometry/fabricToPathKit'
 import { applyBooleanOperation, computeBooleanResult } from './geometry/booleanOps'
@@ -748,7 +776,6 @@ import {
 } from './geometry/editablePath'
 
 // ── 类型工具 ──
-type AnyFabricObject = FabricObject & Record<string, any>
 type FabricControls = Record<string, Control>
 type BooleanPreviewHiddenObject = {
   object: FabricObject
@@ -756,46 +783,6 @@ type BooleanPreviewHiddenObject = {
 }
 type StrokeLineType = 'solid' | 'dashed'
 type CurveControlPointKey = 'cp1' | 'cp2'
-type EditorPlatform = 'darwin' | 'win32' | 'linux'
-type ShortcutGroupId = 'edit' | 'mode' | 'select' | 'organize' | 'layer' | 'view'
-type ShortcutActionId =
-  | 'edit.copy'
-  | 'edit.paste'
-  | 'edit.duplicate'
-  | 'edit.delete'
-  | 'edit.undo'
-  | 'edit.redo'
-  | 'mode.shape'
-  | 'mode.point'
-  | 'mode.segment'
-  | 'select.all'
-  | 'organize.group'
-  | 'organize.ungroup'
-  | 'layer.up'
-  | 'layer.down'
-  | 'layer.top'
-  | 'layer.bottom'
-  | 'view.zoomIn'
-  | 'view.zoomOut'
-  | 'view.fit'
-  | 'view.actualSize'
-  | 'view.toggleRuler'
-
-type ShortcutActionDefinition = {
-  id: ShortcutActionId
-  group: ShortcutGroupId
-  name: string
-  description: string
-  defaultBindings: (platform: EditorPlatform) => string[]
-  requiresSelection?: boolean
-  shapeOnly?: boolean
-}
-
-type ShortcutGroupDefinition = {
-  id: ShortcutGroupId
-  label: string
-}
-
 type ClipboardEntry = {
   object: Record<string, unknown>
   sourceName: string
@@ -814,22 +801,6 @@ type SpacePanStart = {
   y: number
   scrollLeft: number
   scrollTop: number
-}
-
-type KaleidoscopeMetadata = {
-  kaleidoscopeEnabled?: boolean
-  kaleidoscopeCenterX?: number
-  kaleidoscopeCenterY?: number
-  kaleidoscopeFollowRotation?: boolean
-  kaleidoscopeCount?: number
-  kaleidoscopeSourceId?: string
-  kaleidoscopeManaged?: boolean
-  kaleidoscopeInstanceOf?: string
-  kaleidoscopeInstanceIndex?: number
-}
-
-type EndpointSnapMarginMetadata = {
-  endpointSnapMargin?: number
 }
 
 type EndpointAttachmentEdge = 'left' | 'right' | 'top' | 'bottom'
@@ -866,9 +837,6 @@ type EditableSegmentRefWithTarget = EditableSegmentRef & {
   target: EditablePathObject
 }
 
-const DEFAULT_KALEIDOSCOPE_COUNT = 6
-const MIN_KALEIDOSCOPE_COUNT = 1
-const MAX_KALEIDOSCOPE_COUNT = 36
 const KALEIDOSCOPE_CENTER_CONTROL_KEY = 'kaleidoscopeCenter'
 const HOLLOW_ARROW_LEGACY_SIGNATURE = [
   [-0.5, -0.22],
@@ -882,71 +850,7 @@ const HOLLOW_ARROW_LEGACY_SIGNATURE = [
 const DIRECT_EDIT_SHAPE_IDS = new Set(['base-line', 'base-arrow-right', 'base-solid-shaft-arrow'])
 const FABRIC_TRANSFORM_CONTROL_KEYS = ['tl', 'tr', 'br', 'bl', 'ml', 'mt', 'mr', 'mb', 'mtr']
 const ENDPOINT_SNAP_MARGIN = 4
-const EDITOR_OBJECT_ID_PREFIX = 'editor-object-'
 let editorObjectIdSeed = 0
-const SHORTCUT_STORAGE_KEY = 'icon-creator:editor-shortcuts:v1'
-const SHORTCUT_DISPLAY_GROUPS: ShortcutGroupDefinition[] = [
-  { id: 'edit', label: '编辑' },
-  { id: 'mode', label: '模式' },
-  { id: 'select', label: '选择' },
-  { id: 'organize', label: '组织' },
-  { id: 'layer', label: '图层' },
-  { id: 'view', label: '视图' }
-]
-const SHORTCUT_ACTIONS: ShortcutActionDefinition[] = [
-  { id: 'edit.copy', group: 'edit', name: '复制', description: '复制当前选择的图形对象', defaultBindings: (platform) => [platform === 'darwin' ? 'Meta+C' : 'Ctrl+C'], requiresSelection: true },
-  { id: 'edit.paste', group: 'edit', name: '粘贴', description: '粘贴内部剪贴板中的对象', defaultBindings: (platform) => [platform === 'darwin' ? 'Meta+V' : 'Ctrl+V'] },
-  { id: 'edit.duplicate', group: 'edit', name: '复制副本', description: '复制当前选择并立即粘贴，不覆盖剪贴板', defaultBindings: (platform) => [platform === 'darwin' ? 'Meta+D' : 'Ctrl+D'], requiresSelection: true },
-  { id: 'edit.delete', group: 'edit', name: '删除', description: '删除当前选中的图形对象', defaultBindings: () => ['Delete', 'Backspace'], requiresSelection: true },
-  { id: 'edit.undo', group: 'edit', name: '撤销', description: '撤销上一步编辑操作', defaultBindings: (platform) => [platform === 'darwin' ? 'Meta+Z' : 'Ctrl+Z'] },
-  { id: 'edit.redo', group: 'edit', name: '重做', description: '恢复刚撤销的编辑操作', defaultBindings: (platform) => (platform === 'darwin' ? ['Meta+Shift+Z'] : ['Ctrl+Y', 'Ctrl+Shift+Z']) },
-  { id: 'mode.shape', group: 'mode', name: '图形模式', description: '切换到图形选择模式', defaultBindings: () => ['Alt+1'] },
-  { id: 'mode.point', group: 'mode', name: '点位模式', description: '切换到点位编辑模式', defaultBindings: () => ['Alt+2'] },
-  { id: 'mode.segment', group: 'mode', name: '线段模式', description: '切换到线段编辑模式', defaultBindings: () => ['Alt+3'] },
-  { id: 'select.all', group: 'select', name: '全选', description: '按当前模式选择全部可编辑内容', defaultBindings: (platform) => [platform === 'darwin' ? 'Meta+A' : 'Ctrl+A'] },
-  { id: 'organize.group', group: 'organize', name: '成组', description: '将多个已选对象组合成组', defaultBindings: (platform) => [platform === 'darwin' ? 'Meta+G' : 'Ctrl+G'], requiresSelection: true, shapeOnly: true },
-  { id: 'organize.ungroup', group: 'organize', name: '解组', description: '拆分当前组对象', defaultBindings: (platform) => [platform === 'darwin' ? 'Meta+Shift+G' : 'Ctrl+Shift+G'], requiresSelection: true, shapeOnly: true },
-  { id: 'layer.up', group: 'layer', name: '上移一层', description: '将当前对象上移一层', defaultBindings: () => ['Alt+ArrowUp'], requiresSelection: true, shapeOnly: true },
-  { id: 'layer.down', group: 'layer', name: '下移一层', description: '将当前对象下移一层', defaultBindings: () => ['Alt+ArrowDown'], requiresSelection: true, shapeOnly: true },
-  { id: 'layer.top', group: 'layer', name: '置顶', description: '将当前对象移动到最上层', defaultBindings: () => ['Alt+Shift+ArrowUp'], requiresSelection: true, shapeOnly: true },
-  { id: 'layer.bottom', group: 'layer', name: '置底', description: '将当前对象移动到最下层', defaultBindings: () => ['Alt+Shift+ArrowDown'], requiresSelection: true, shapeOnly: true },
-  { id: 'view.zoomIn', group: 'view', name: '放大', description: '放大画布视图', defaultBindings: (platform) => (platform === 'darwin' ? ['Meta+=', 'Meta+Shift+='] : ['Ctrl+=', 'Ctrl+Shift+=']) },
-  { id: 'view.zoomOut', group: 'view', name: '缩小', description: '缩小画布视图', defaultBindings: (platform) => [platform === 'darwin' ? 'Meta+-' : 'Ctrl+-'] },
-  { id: 'view.fit', group: 'view', name: '适应画布', description: '让画布完整适应当前视图', defaultBindings: (platform) => [platform === 'darwin' ? 'Meta+0' : 'Ctrl+0'] },
-  { id: 'view.actualSize', group: 'view', name: '1:1', description: '将画布缩放恢复到 100%', defaultBindings: (platform) => [platform === 'darwin' ? 'Meta+1' : 'Ctrl+1'] },
-  { id: 'view.toggleRuler', group: 'view', name: '切换标尺', description: '显示或隐藏画布标尺', defaultBindings: (platform) => [platform === 'darwin' ? 'Meta+R' : 'Ctrl+R'] }
-]
-const SERIALIZED_OBJECT_PROPS = [
-  'name',
-  'strokeUniform',
-  'lastFill',
-  'lastStroke',
-  'lastStrokeWidth',
-  'lastStrokeDashArray',
-  'shapeId',
-  'arrowRenderMode',
-  'arrowLineWidth',
-  'arrowTipAngle',
-  'arrowSideAngle',
-  'editorObjectId',
-  'endpointAttachments',
-  'endpointSnapMargin',
-  'booleanEligible',
-  'fillRule',
-  'editablePath',
-  'cornerRadius',
-  'cornerRadiusOverrides',
-  'editablePathVersion',
-  'kaleidoscopeEnabled',
-  'kaleidoscopeCenterX',
-  'kaleidoscopeCenterY',
-  'kaleidoscopeFollowRotation',
-  'kaleidoscopeCount',
-  'kaleidoscopeSourceId',
-  'kaleidoscopeManaged',
-  'kaleidoscopeInstanceOf',
-  'kaleidoscopeInstanceIndex'
-] as const
 
 // ── refs ──
 const canvasElRef = ref<HTMLCanvasElement | null>(null)
@@ -983,30 +887,6 @@ const canvasPresetValue = ref('512x512')
 const canvasPresetOptions = computed(() => canvasPresets.map(({ label, value }) => ({ label, value })))
 const isCanvasBgTransparent = computed(() => isTransparentCanvasBg(canvasBg.value))
 const canvasBgPickerValue = computed(() => (isCanvasBgTransparent.value ? lastOpaqueCanvasBg.value : canvasBg.value))
-const shapePreviewPaths: Record<ShapeLibraryItem['id'], string> = {
-  'base-rectangle': 'M 8 20 H 56 V 44 H 8 Z',
-  'base-square': 'M 14 14 H 50 V 50 H 14 Z',
-  'base-circle': 'M 32 14 A 18 18 0 1 1 31.9 14 Z',
-  'base-line': 'M 10 32 H 54',
-  'base-triangle': 'M 32 10 L 54 54 H 10 Z',
-  'base-inverted-triangle': 'M 10 10 H 54 L 32 54 Z',
-  'base-rhombus': 'M 32 8 L 56 32 L 32 56 L 8 32 Z',
-  'base-wide-cross': 'M 25 8 H 39 V 25 H 56 V 39 H 39 V 56 H 25 V 39 H 8 V 25 H 25 Z',
-  'base-parallelogram': 'M 18 20 H 56 L 46 44 H 8 Z',
-  'base-inverted-parallelogram': 'M 8 20 H 46 L 56 44 H 18 Z',
-  'base-trapezoid': 'M 20 20 H 44 L 56 44 H 8 Z',
-  'base-inverted-trapezoid': 'M 8 20 H 56 L 44 44 H 20 Z',
-  'base-doorway': 'M 14 56 V 32 A 18 18 0 0 1 50 32 V 56 Z',
-  'base-inverted-arch': 'M 14 8 H 50 V 32 A 18 18 0 0 1 14 32 Z',
-  'base-rotated-right-triangle': 'M 12 12 L 52 52 H 12 Z',
-  'base-half-moon': 'M 32 14 C 46 14 54 30 54 50 H 10 C 10 30 18 14 32 14 Z',
-  'base-pentagon': 'M 32 8 L 55 26 L 46 56 H 18 L 9 26 Z',
-  'base-arrow-right': 'M 10 32 H 52 M 52 32 L 40 20 M 52 32 L 40 44',
-  'base-solid-shaft-arrow': 'M 8 24 H 38 V 14 L 56 32 L 38 50 V 40 H 8 Z',
-  'base-double-solid-shaft-arrow': 'M 8 32 L 24 14 V 24 H 40 V 14 L 56 32 L 40 50 V 40 H 24 V 50 Z',
-  'base-star': 'M 32 8 L 38 25 H 56 L 42 36 L 48 54 L 32 43 L 16 54 L 22 36 L 8 25 H 26 Z',
-  'base-heart': 'M 32 54 C 16 40 8 32 8 22 C 8 14 14 10 21 10 C 26 10 30 13 32 18 C 34 13 38 10 43 10 C 50 10 56 14 56 22 C 56 32 48 40 32 54 Z'
-}
 const booleanBusy = ref(false)
 const booleanError = ref('')
 const subtractPopoverVisible = ref(false)
@@ -1224,26 +1104,6 @@ function ensureEditorObjectId(obj: FabricObject | null | undefined) {
   return next
 }
 
-function getEndpointSnapMarginMetadata(obj: FabricObject | null | undefined) {
-  return obj ? (obj as AnyFabricObject & EndpointSnapMarginMetadata) : null
-}
-
-function normalizeEndpointSnapMargin(value: unknown) {
-  const parsed = Number(value)
-  if (!Number.isFinite(parsed)) return 0
-  return Math.max(0, parsed)
-}
-
-function applyDefaultEndpointSnapMargin(obj: FabricObject | null | undefined) {
-  const target = getEndpointSnapMarginMetadata(obj)
-  if (!target) return
-  target.endpointSnapMargin = normalizeEndpointSnapMargin(target.endpointSnapMargin)
-}
-
-function getObjectEndpointSnapMargin(obj: FabricObject | null | undefined) {
-  applyDefaultEndpointSnapMargin(obj)
-  return getEndpointSnapMarginMetadata(obj)?.endpointSnapMargin ?? 0
-}
 function getEndpointAttachmentMap(obj: FabricObject | null | undefined): EndpointAttachmentMap {
   if (!obj) return {}
   const target = obj as AnyFabricObject
@@ -1994,49 +1854,6 @@ function createKaleidoscopeSourceId() {
   return `kaleidoscope-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 }
 
-function getKaleidoscopeMetadata(obj: FabricObject | null | undefined) {
-  return obj ? (obj as AnyFabricObject & KaleidoscopeMetadata) : null
-}
-
-function normalizeFiniteNumber(value: unknown, fallback = 0) {
-  const parsed = Number(value)
-  return Number.isFinite(parsed) ? parsed : fallback
-}
-
-function normalizeKaleidoscopeCount(value: unknown) {
-  const parsed = Math.round(Number(value))
-  if (!Number.isFinite(parsed)) return DEFAULT_KALEIDOSCOPE_COUNT
-  return Math.min(MAX_KALEIDOSCOPE_COUNT, Math.max(MIN_KALEIDOSCOPE_COUNT, parsed))
-}
-
-function applyDefaultKaleidoscopeMetadata(obj: FabricObject) {
-  const target = getKaleidoscopeMetadata(obj)
-  if (!target) return
-  target.kaleidoscopeEnabled = target.kaleidoscopeEnabled === true
-  target.kaleidoscopeCenterX = normalizeFiniteNumber(target.kaleidoscopeCenterX)
-  target.kaleidoscopeCenterY = normalizeFiniteNumber(target.kaleidoscopeCenterY)
-  target.kaleidoscopeFollowRotation = target.kaleidoscopeFollowRotation === true
-  target.kaleidoscopeCount = normalizeKaleidoscopeCount(target.kaleidoscopeCount)
-  target.kaleidoscopeSourceId = typeof target.kaleidoscopeSourceId === 'string' ? target.kaleidoscopeSourceId : ''
-  target.kaleidoscopeManaged = target.kaleidoscopeManaged === true
-  target.kaleidoscopeInstanceOf = typeof target.kaleidoscopeInstanceOf === 'string' ? target.kaleidoscopeInstanceOf : ''
-  target.kaleidoscopeInstanceIndex = Math.max(0, Math.round(normalizeFiniteNumber(target.kaleidoscopeInstanceIndex)))
-}
-
-function clearKaleidoscopeMetadata(obj: FabricObject) {
-  const target = getKaleidoscopeMetadata(obj)
-  if (!target) return
-  target.kaleidoscopeEnabled = false
-  target.kaleidoscopeCenterX = 0
-  target.kaleidoscopeCenterY = 0
-  target.kaleidoscopeFollowRotation = false
-  target.kaleidoscopeCount = DEFAULT_KALEIDOSCOPE_COUNT
-  target.kaleidoscopeSourceId = ''
-  target.kaleidoscopeManaged = false
-  target.kaleidoscopeInstanceOf = ''
-  target.kaleidoscopeInstanceIndex = 0
-}
-
 function canUseKaleidoscopeAsSource(obj: FabricObject | null | undefined) {
   if (!obj) return false
   if (obj instanceof Group || obj instanceof ActiveSelection) return false
@@ -2452,117 +2269,6 @@ function applyKaleidoscopeSelectionConstraints(obj: FabricObject | null, event?:
   return resolved
 }
 
-function getEditorPlatform(): EditorPlatform {
-  if (typeof navigator === 'undefined') return 'win32'
-  const platform = navigator.platform.toLowerCase()
-  const userAgent = navigator.userAgent.toLowerCase()
-  if (platform.includes('mac') || userAgent.includes('mac os')) return 'darwin'
-  if (platform.includes('linux') || userAgent.includes('linux')) return 'linux'
-  return 'win32'
-}
-
-function normalizeShortcutKeyName(key: string) {
-  if (key === ' ') return 'Space'
-  if (key === 'Esc') return 'Escape'
-  if (key === 'Del') return 'Delete'
-  if (key === 'Up') return 'ArrowUp'
-  if (key === 'Down') return 'ArrowDown'
-  if (key === 'Left') return 'ArrowLeft'
-  if (key === 'Right') return 'ArrowRight'
-  if (key === '+') return '='
-  if (key.length === 1) return key.toUpperCase()
-  return key.slice(0, 1).toUpperCase() + key.slice(1)
-}
-
-function normalizeShortcutString(value: unknown) {
-  if (typeof value !== 'string') return ''
-  const parts = value
-    .split('+')
-    .map((part) => part.trim())
-    .filter(Boolean)
-  if (!parts.length) return ''
-  const modifiers = new Set<string>()
-  let key = ''
-  for (const part of parts) {
-    const normalized = part.toLowerCase()
-    if (normalized === 'cmd' || normalized === 'command' || normalized === 'meta' || normalized === '⌘') {
-      modifiers.add('Meta')
-    } else if (normalized === 'ctrl' || normalized === 'control' || normalized === '⌃') {
-      modifiers.add('Ctrl')
-    } else if (normalized === 'alt' || normalized === 'option' || normalized === 'opt' || normalized === '⌥') {
-      modifiers.add('Alt')
-    } else if (normalized === 'shift' || normalized === '⇧') {
-      modifiers.add('Shift')
-    } else {
-      key = normalizeShortcutKeyName(part)
-    }
-  }
-  if (!key) return ''
-  return ['Ctrl', 'Alt', 'Shift', 'Meta']
-    .filter((modifier) => modifiers.has(modifier))
-    .concat(key)
-    .join('+')
-}
-
-function normalizeKeyboardEventShortcut(event: KeyboardEvent) {
-  const key = normalizeShortcutKeyName(event.key)
-  if (!key || key === 'Control' || key === 'Alt' || key === 'Shift' || key === 'Meta') return ''
-  return [
-    event.ctrlKey ? 'Ctrl' : '',
-    event.altKey ? 'Alt' : '',
-    event.shiftKey ? 'Shift' : '',
-    event.metaKey ? 'Meta' : '',
-    key
-  ].filter(Boolean).join('+')
-}
-
-function formatShortcutForDisplay(value: string) {
-  const normalized = normalizeShortcutString(value)
-  if (!normalized) return ''
-  if (shortcutPlatform !== 'darwin') return normalized.replace(/Meta/g, 'Cmd')
-  return normalized
-    .replace(/Meta/g, 'Cmd')
-    .replace(/Alt/g, 'Option')
-}
-
-function createDefaultShortcutBindings(platform: EditorPlatform) {
-  const result = {} as Record<ShortcutActionId, string[]>
-  SHORTCUT_ACTIONS.forEach((action) => {
-    result[action.id] = action.defaultBindings(platform)
-      .map(normalizeShortcutString)
-      .filter(Boolean)
-  })
-  return result
-}
-
-function sanitizeShortcutBindings(input: unknown, fallback: Record<ShortcutActionId, string[]>) {
-  const raw = typeof input === 'string'
-    ? (() => {
-        try { return JSON.parse(input) } catch { return null }
-      })()
-    : input
-  const candidate = raw && typeof raw === 'object' && 'bindings' in raw
-    ? (raw as { bindings?: unknown }).bindings
-    : raw
-  const result = {} as Record<ShortcutActionId, string[]>
-  const occupied = new Set<string>()
-  SHORTCUT_ACTIONS.forEach((action) => {
-    const rawBindings = candidate && typeof candidate === 'object'
-      ? (candidate as Record<string, unknown>)[action.id]
-      : undefined
-    const source = Array.isArray(rawBindings) ? rawBindings : fallback[action.id]
-    const clean: string[] = []
-    source.forEach((item) => {
-      const normalized = normalizeShortcutString(item)
-      if (!normalized || clean.includes(normalized) || occupied.has(normalized)) return
-      clean.push(normalized)
-      occupied.add(normalized)
-    })
-    result[action.id] = clean
-  })
-  return result
-}
-
 function assignShortcutBindings(next: Record<ShortcutActionId, string[]>) {
   SHORTCUT_ACTIONS.forEach((action) => {
     shortcutBindings[action.id] = [...next[action.id]]
@@ -2619,7 +2325,7 @@ function applyShortcutBinding(actionId: ShortcutActionId, oldValue: string, next
   }
   const conflict = findShortcutConflict(next, actionId)
   if (conflict) {
-    const confirmed = window.confirm(`快捷键 ${formatShortcutForDisplay(next)} 已分配给“${conflict.name}”。是否覆盖？`)
+    const confirmed = window.confirm(`快捷键 ${formatShortcutForDisplay(next, shortcutPlatform)} 已分配给“${conflict.name}”。是否覆盖？`)
     if (!confirmed) {
       if (currentIndex >= 0 && bindings[currentIndex] === '') {
         bindings.splice(currentIndex, 1)
@@ -2670,7 +2376,7 @@ function shortcutMatchesSearch(action: ShortcutActionDefinition) {
   const query = shortcutSearch.value.trim().toLowerCase()
   if (!query) return true
   const groupLabel = getShortcutGroupLabel(action.group)
-  const bindingsText = shortcutBindings[action.id].map(formatShortcutForDisplay).join(' ')
+  const bindingsText = shortcutBindings[action.id].map((binding) => formatShortcutForDisplay(binding, shortcutPlatform)).join(' ')
   return [action.name, action.description, groupLabel, bindingsText]
     .some((text) => text.toLowerCase().includes(query))
 }

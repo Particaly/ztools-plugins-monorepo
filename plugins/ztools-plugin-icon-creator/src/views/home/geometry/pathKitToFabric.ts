@@ -10,6 +10,7 @@ import {
   type EditablePathObject
 } from './editablePath'
 import type { PathKitBounds, PathKitPath } from './pathkit'
+import { applyDefaultKaleidoscopeMetadata, type AnyFabricObject } from '../fabric/objectMetadata'
 
 export type PathKitToFabricOptions = {
   name?: string
@@ -19,22 +20,7 @@ export type PathKitToFabricOptions = {
   sourceCornerRadius?: number | null
 }
 
-type AnyFabricPath = Path & Record<string, any>
-
-const DEFAULT_KALEIDOSCOPE_COUNT = 6
-
-function applyDefaultKaleidoscopeMetadata(obj: Path) {
-  const target = obj as AnyFabricPath
-  target.kaleidoscopeEnabled = false
-  target.kaleidoscopeCenterX = 0
-  target.kaleidoscopeCenterY = 0
-  target.kaleidoscopeFollowRotation = false
-  target.kaleidoscopeCount = DEFAULT_KALEIDOSCOPE_COUNT
-  target.kaleidoscopeSourceId = ''
-  target.kaleidoscopeManaged = false
-  target.kaleidoscopeInstanceOf = ''
-  target.kaleidoscopeInstanceIndex = 0
-}
+type AnyFabricPath = Path & AnyFabricObject
 
 type EditableCornerRadiusState = {
   cornerRadius: number
