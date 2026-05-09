@@ -485,17 +485,20 @@ export function getHollowShaftArrowSideAngle(obj: EditablePathObject | null | un
   return Math.max(15, Math.min(90, raw))
 }
 
-function buildHollowShaftArrowCommands(obj: EditablePathObject, contour: EditablePathContour, headRaw: ArrowHead): TComplexPathData | null {
+function buildHollowShaftArrowCommands(obj: EditablePathObject, contour: EditablePathContour): TComplexPathData | null {
   if (contour.closed || contour.points.length !== 2) return null
   const segment = getBuildSegments(contour)[0]
   if (!segment || segment.type !== 'line') return null
-  const head = normalizeArrowHead(headRaw)
-  if (!head.enabled || head.length <= 0) return null
-  const tail = contour.points[0]
-  const tip = contour.points[1]
-  if (!tail || !tip) return null
-  const dx = tip.x - tail.x
-  const dy = tip.y - tail.y
+  const start = contour.points[0]
+  const end = contour.points[1]
+  if (!start || !end) return null
+
+  const startHead = start.arrowHead ? normalizeArrowHead(start.arrowHead) : null
+  const endHead = end.arrowHead ? normalizeArrowHead(end.arrowHead) : null
+  if (!startHead?.enabled && !endHead?.enabled) return null
+
+  const dx = end.x - start.x
+  const dy = end.y - start.y
   const totalLength = Math.hypot(dx, dy)
   if (totalLength <= 1e-6) return null
 
@@ -503,32 +506,91 @@ function buildHollowShaftArrowCommands(obj: EditablePathObject, contour: Editabl
   const uy = dy / totalLength
   const nx = -uy
   const ny = ux
-  const halfHeight = head.length / 2
-  if (halfHeight <= 0) return null
-  const shaftHalfHeight = Math.min(halfHeight, Math.max(0, getHollowShaftArrowLineWidth(obj, head) / 2))
+  const fallbackHead = endHead ?? startHead ?? undefined
+  const enabledHeads = [startHead, endHead].filter((head): head is ArrowHead => !!head?.enabled && head.length > 0)
+  if (!enabledHeads.length) return null
+
+  const shaftHalfHeight = Math.min(
+    Math.max(0, getHollowShaftArrowLineWidth(obj, fallbackHead) / 2),
+    ...enabledHeads.map((head) => head.length / 2)
+  )
   const tipHalfAngle = (getHollowShaftArrowTipAngle(obj) / 2) * Math.PI / 180
   const sideAngle = getHollowShaftArrowSideAngle(obj) * Math.PI / 180
-  const tipDepthFromAngle = halfHeight / Math.max(Math.tan(tipHalfAngle), 1e-4)
-  const sideDepthFromAngle = Math.abs(halfHeight - shaftHalfHeight) / Math.max(Math.tan(sideAngle), 1e-4)
-  const headDepth = Math.min(
-    Math.max(tipDepthFromAngle, sideDepthFromAngle),
-    Math.max(totalLength - 1e-4, 0)
-  )
-  const baseX = tip.x - ux * headDepth
-  const baseY = tip.y - uy * headDepth
-  const shaftJoinX = baseX + ux * sideDepthFromAngle
-  const shaftJoinY = baseY + uy * sideDepthFromAngle
 
-  return [
-    ['M', tail.x + nx * shaftHalfHeight, tail.y + ny * shaftHalfHeight],
-    ['L', shaftJoinX + nx * shaftHalfHeight, shaftJoinY + ny * shaftHalfHeight],
-    ['L', baseX + nx * halfHeight, baseY + ny * halfHeight],
-    ['L', tip.x, tip.y],
-    ['L', baseX - nx * halfHeight, baseY - ny * halfHeight],
-    ['L', shaftJoinX - nx * shaftHalfHeight, shaftJoinY - ny * shaftHalfHeight],
-    ['L', tail.x - nx * shaftHalfHeight, tail.y - ny * shaftHalfHeight],
-    ['Z']
-  ]
+  function createHeadMetrics(head: ArrowHead | null) {
+    if (!head?.enabled || head.length <= 0) return null
+    const halfHeight = head.length / 2
+    const tipDepth = halfHeight / Math.max(Math.tan(tipHalfAngle), 1e-4)
+    const sideDepth = Math.abs(halfHeight - shaftHalfHeight) / Math.max(Math.tan(sideAngle), 1e-4)
+    return {
+      halfHeight,
+      headDepth: Math.max(tipDepth, sideDepth),
+      sideDepth
+    }
+  }
+
+  const startMetricsRaw = createHeadMetrics(startHead)
+  const endMetricsRaw = createHeadMetrics(endHead)
+  const totalHeadDepth = (startMetricsRaw?.headDepth ?? 0) + (endMetricsRaw?.headDepth ?? 0)
+  const maxDepth = Math.max(totalLength - 1e-4, 0)
+  const headScale = totalHeadDepth > maxDepth && totalHeadDepth > 0 ? maxDepth / totalHeadDepth : 1
+
+  function normalizeHeadMetrics(metrics: { halfHeight: number; headDepth: number; sideDepth: number } | null) {
+    if (!metrics) return null
+    const headDepth = metrics.headDepth * headScale
+    const sideDepth = metrics.sideDepth * headScale
+    return {
+      halfHeight: metrics.halfHeight,
+      headDepth,
+      joinDistance: Math.max(headDepth - sideDepth, 0)
+    }
+  }
+
+  const startMetrics = normalizeHeadMetrics(startMetricsRaw)
+  const endMetrics = normalizeHeadMetrics(endMetricsRaw)
+
+  const startTop = { x: start.x + nx * shaftHalfHeight, y: start.y + ny * shaftHalfHeight }
+  const startBottom = { x: start.x - nx * shaftHalfHeight, y: start.y - ny * shaftHalfHeight }
+  const endTop = { x: end.x + nx * shaftHalfHeight, y: end.y + ny * shaftHalfHeight }
+  const endBottom = { x: end.x - nx * shaftHalfHeight, y: end.y - ny * shaftHalfHeight }
+
+  const commands: TComplexPathData = []
+
+  if (startMetrics) {
+    const startBase = { x: start.x + ux * startMetrics.headDepth, y: start.y + uy * startMetrics.headDepth }
+    const startJoin = { x: start.x + ux * startMetrics.joinDistance, y: start.y + uy * startMetrics.joinDistance }
+    commands.push(['M', start.x, start.y])
+    commands.push(['L', startBase.x + nx * startMetrics.halfHeight, startBase.y + ny * startMetrics.halfHeight])
+    commands.push(['L', startJoin.x + nx * shaftHalfHeight, startJoin.y + ny * shaftHalfHeight])
+  } else {
+    commands.push(['M', startTop.x, startTop.y])
+  }
+
+  if (endMetrics) {
+    const endBase = { x: end.x - ux * endMetrics.headDepth, y: end.y - uy * endMetrics.headDepth }
+    const endJoin = { x: end.x - ux * endMetrics.joinDistance, y: end.y - uy * endMetrics.joinDistance }
+    commands.push(['L', endJoin.x + nx * shaftHalfHeight, endJoin.y + ny * shaftHalfHeight])
+    commands.push(['L', endBase.x + nx * endMetrics.halfHeight, endBase.y + ny * endMetrics.halfHeight])
+    commands.push(['L', end.x, end.y])
+    commands.push(['L', endBase.x - nx * endMetrics.halfHeight, endBase.y - ny * endMetrics.halfHeight])
+    commands.push(['L', endJoin.x - nx * shaftHalfHeight, endJoin.y - ny * shaftHalfHeight])
+  } else {
+    commands.push(['L', endTop.x, endTop.y])
+    commands.push(['L', endBottom.x, endBottom.y])
+  }
+
+  if (startMetrics) {
+    const startBase = { x: start.x + ux * startMetrics.headDepth, y: start.y + uy * startMetrics.headDepth }
+    const startJoin = { x: start.x + ux * startMetrics.joinDistance, y: start.y + uy * startMetrics.joinDistance }
+    commands.push(['L', startJoin.x - nx * shaftHalfHeight, startJoin.y - ny * shaftHalfHeight])
+    commands.push(['L', startBase.x - nx * startMetrics.halfHeight, startBase.y - ny * startMetrics.halfHeight])
+    commands.push(['L', start.x, start.y])
+  } else {
+    commands.push(['L', startBottom.x, startBottom.y])
+  }
+
+  commands.push(['Z'])
+  return commands
 }
 
 function pushCubic(commands: TComplexPathData, from: EditablePoint, cp1: EditablePoint, cp2: EditablePoint, to: EditablePoint) {
@@ -542,7 +604,7 @@ function buildContourPathData(contour: EditablePathContour, obj: EditablePathObj
   if (points.length === 1) return [['M', points[0].x, points[0].y]]
 
   if (!contour.closed && getArrowRenderMode(obj) === 'hollow-shaft') {
-    const hollowCommands = buildHollowShaftArrowCommands(obj, contour, points[points.length - 1]?.arrowHead ?? createDefaultArrowHead())
+    const hollowCommands = buildHollowShaftArrowCommands(obj, contour)
     if (hollowCommands) return hollowCommands
   }
 

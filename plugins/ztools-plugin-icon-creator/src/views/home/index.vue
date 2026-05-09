@@ -838,16 +838,7 @@ type EditableSegmentRefWithTarget = EditableSegmentRef & {
 }
 
 const KALEIDOSCOPE_CENTER_CONTROL_KEY = 'kaleidoscopeCenter'
-const HOLLOW_ARROW_LEGACY_SIGNATURE = [
-  [-0.5, -0.22],
-  [0.12, -0.22],
-  [0.12, -0.5],
-  [0.5, 0],
-  [0.12, 0.5],
-  [0.12, 0.22],
-  [-0.5, 0.22]
-] as const
-const DIRECT_EDIT_SHAPE_IDS = new Set(['base-line', 'base-arrow-right', 'base-solid-shaft-arrow'])
+const DIRECT_EDIT_SHAPE_IDS = new Set(['base-line', 'base-arrow-right', 'base-solid-shaft-arrow', 'base-double-solid-shaft-arrow'])
 const FABRIC_TRANSFORM_CONTROL_KEYS = ['tl', 'tr', 'br', 'bl', 'ml', 'mt', 'mr', 'mb', 'mtr']
 const ENDPOINT_SNAP_MARGIN = 4
 let editorObjectIdSeed = 0
@@ -1683,53 +1674,6 @@ function normalizeEndpointAttachments(obj: FabricObject) {
   target.endpointAttachments = next
 }
 
-function isLegacyHollowArrowShape(obj: EditablePathObject) {
-  const target = obj as AnyFabricObject
-  if (target.shapeId !== 'base-solid-shaft-arrow') return false
-  if (target.arrowRenderMode === 'hollow-shaft') return false
-  const model = obj.editablePath
-  const contours = Array.isArray((model as any)?.contours) ? (model as any).contours : Array.isArray((model as any)?.points) ? [model] : []
-  if (contours.length !== 1) return false
-  const contour = contours[0]
-  if (!contour?.closed || contour.points.length !== HOLLOW_ARROW_LEGACY_SIGNATURE.length) return false
-  if (Array.isArray(contour.segments) && contour.segments.length) return false
-  const xs = contour.points.map((point: EditablePoint) => point.x)
-  const ys = contour.points.map((point: EditablePoint) => point.y)
-  const minX = Math.min(...xs)
-  const maxX = Math.max(...xs)
-  const minY = Math.min(...ys)
-  const maxY = Math.max(...ys)
-  const width = maxX - minX
-  const height = maxY - minY
-  if (width <= 1e-6 || height <= 1e-6) return false
-  return contour.points.every((point: EditablePoint, index: number) => {
-    const [rx, ry] = HOLLOW_ARROW_LEGACY_SIGNATURE[index]
-    const normalizedX = (point.x - minX) / width - 0.5
-    const normalizedY = (point.y - minY) / height - 0.5
-    return Math.abs(normalizedX - rx) < 0.03 && Math.abs(normalizedY - ry) < 0.03
-  })
-}
-
-function migrateLegacyHollowArrow(obj: FabricObject | null | undefined) {
-  if (!obj || !isEditablePathObject(obj) || !isLegacyHollowArrowShape(obj)) return
-  const target = obj as AnyFabricObject & EditablePathObject
-  const width = Math.max(1, obj.width ?? obj.getScaledWidth() ?? 1)
-  const height = Math.max(1, obj.height ?? obj.getScaledHeight() ?? 1)
-  target.editablePath = pathEditableModel([
-    { x: -width / 2, y: 0 },
-    { x: width / 2, y: 0, arrowHead: createDefaultArrowHead({ length: height }) }
-  ], [
-    { type: 'line', to: 1 }
-  ], false)
-  target.cornerRadius = 0
-  target.cornerRadiusOverrides = [null, null]
-  target.arrowRenderMode = 'hollow-shaft'
-  target.arrowLineWidth = getHollowShaftArrowLineWidth(target, createDefaultArrowHead({ length: height }))
-  target.arrowTipAngle = getHollowShaftArrowTipAngle(target)
-  target.arrowSideAngle = getHollowShaftArrowSideAngle(target)
-  rebuildEditablePathObject(target, true)
-}
-
 function ensureCanvasObjectMetadata() {
   if (!fabricCanvas) return
   const seen = new Set<string>()
@@ -1740,7 +1684,6 @@ function ensureCanvasObjectMetadata() {
       ;(obj as AnyFabricObject).editorObjectId = id
     }
     seen.add(id)
-    migrateLegacyHollowArrow(obj)
     applyDefaultEndpointSnapMargin(obj)
     normalizeEndpointAttachments(obj)
   })

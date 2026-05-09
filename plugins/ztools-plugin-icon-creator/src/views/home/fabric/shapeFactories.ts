@@ -225,19 +225,20 @@ export function createShape(item: ShapeLibraryItem): FabricObject {
       rebuildEditablePathObject(path)
       return path
     }
-    case 'base-double-solid-shaft-arrow':
-      return editablePolygon([
-        { x: -w / 2, y: 0 },
-        { x: -w * 0.12, y: -h / 2 },
-        { x: -w * 0.12, y: -h * 0.22 },
-        { x: w * 0.12, y: -h * 0.22 },
-        { x: w * 0.12, y: -h / 2 },
-        { x: w / 2, y: 0 },
-        { x: w * 0.12, y: h / 2 },
-        { x: w * 0.12, y: h * 0.22 },
-        { x: -w * 0.12, y: h * 0.22 },
-        { x: -w * 0.12, y: h / 2 }
-      ], item)
+    case 'base-double-solid-shaft-arrow': {
+      const arrowHead = createDefaultArrowHead({ length: h })
+      const path = editablePath([
+        { x: -w / 2, y: 0, arrowHead },
+        { x: w / 2, y: 0, arrowHead }
+      ], [
+        { type: 'line', to: 1 }
+      ], item, 0, false, 'hollow-shaft')
+      ;(path as AnyFabricObject).arrowLineWidth = getHollowShaftArrowLineWidth(path, arrowHead)
+      path.set({ fill: 'transparent', strokeLineCap: 'round', strokeLineJoin: 'round' })
+      rebuildEditablePathObject(path)
+      return path
+    }
+
     case 'base-star':
       return editablePolygon(starPoints(w, h), item)
     case 'base-heart': {
