@@ -1,5 +1,6 @@
 import { ActiveSelection, Circle, FabricImage, FabricObject, Group, Line, Path, Polygon, Rect, Textbox, Triangle, util } from 'fabric'
 import { getPathKit, type PathKitApi, type PathKitPath } from './pathkit'
+import { applyDefaultFillGradientMetadata, cloneFillGradientStops, type FillGradientStop, type FillGradientType } from '../fabric/objectMetadata'
 
 type TSimplePathData = Array<
   | ['M', number, number]
@@ -26,6 +27,13 @@ export type FabricBooleanStyleSnapshot = {
   lastStroke?: string
   lastStrokeWidth?: number
   lastStrokeDashArray?: number[] | null
+  fillMode?: 'solid' | 'gradient'
+  fillGradientType?: FillGradientType
+  fillGradientStops?: FillGradientStop[]
+  fillGradientAngle?: number
+  fillGradientCenterX?: number
+  fillGradientCenterY?: number
+  fillGradientRadius?: number
 }
 
 export type FabricToPathKitResult = {
@@ -245,6 +253,7 @@ function normalizeStrokeDashArray(value: unknown): number[] | null {
 
 function getStyleSnapshot(obj: FabricObject): FabricBooleanStyleSnapshot {
   const target = obj as AnyFabricObject
+  applyDefaultFillGradientMetadata(target)
   const hasVisibleFill = typeof obj.fill === 'string' && isVisiblePaint(obj.fill)
   const hasVisibleStroke = typeof obj.stroke === 'string' && isVisiblePaint(obj.stroke) && Number(obj.strokeWidth || 0) > 0
   return {
@@ -266,7 +275,14 @@ function getStyleSnapshot(obj: FabricObject): FabricBooleanStyleSnapshot {
         ? obj.stroke as string
         : undefined,
     lastStrokeWidth: getLastStrokeWidth(target) ?? (hasVisibleStroke ? Number(obj.strokeWidth || 0) : undefined),
-    lastStrokeDashArray: normalizeStrokeDashArray(target.lastStrokeDashArray)
+    lastStrokeDashArray: normalizeStrokeDashArray(target.lastStrokeDashArray),
+    fillMode: target.fillMode === 'gradient' ? 'gradient' : 'solid',
+    fillGradientType: target.fillGradientType,
+    fillGradientStops: cloneFillGradientStops(target.fillGradientStops),
+    fillGradientAngle: Number(target.fillGradientAngle),
+    fillGradientCenterX: Number(target.fillGradientCenterX),
+    fillGradientCenterY: Number(target.fillGradientCenterY),
+    fillGradientRadius: Number(target.fillGradientRadius)
   }
 }
 

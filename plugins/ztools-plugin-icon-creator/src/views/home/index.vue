@@ -225,15 +225,106 @@
                     <label>填充</label>
                     <ZSwitch size="small" :model-value="objProps.fillEnabled" @change="toggleFill" />
                   </div>
-                  <div v-if="objProps.fillEnabled" class="prop-group style-color-row">
+                  <div v-if="objProps.fillEnabled" class="prop-group">
+                    <label>模式</label>
+                    <div class="stroke-line-type-picker fill-style-picker">
+                      <button
+                        class="stroke-line-swatch fill-style-solid"
+                        :class="{ active: currentFillStyleMode === 'solid' }"
+                        title="纯色"
+                        @click="setFillStyleMode('solid')"
+                      />
+                      <button
+                        class="stroke-line-swatch fill-style-radial"
+                        :class="{ active: currentFillStyleMode === 'radial' }"
+                        title="径向渐变"
+                        @click="setFillStyleMode('radial')"
+                      />
+                      <button
+                        class="stroke-line-swatch fill-style-linear"
+                        :class="{ active: currentFillStyleMode === 'linear' }"
+                        title="线性渐变"
+                        @click="setFillStyleMode('linear')"
+                      />
+                    </div>
+                  </div>
+                  <div v-if="objProps.fillEnabled && currentFillStyleMode === 'solid'" class="prop-group style-color-row">
                     <label>填充色</label>
                     <ZColorPicker
                       size="small"
                       show-alpha
                       :model-value="objProps.fill || '#000000'"
-                      @change="setObjProp('fill', String($event))"
+                      @change="setSolidFillColor(String($event))"
                     />
                   </div>
+                  <template v-if="objProps.fillEnabled && objProps.fillMode === 'gradient'">
+                    <VueDraggable
+                      v-model="objProps.fillGradientStops"
+                      class="gradient-stop-list"
+                      item-key="id"
+                      handle=".gradient-stop-handle"
+                      @end="reorderFillGradientStops"
+                    >
+                      <div
+                        v-for="(stop, stopIndex) in objProps.fillGradientStops"
+                        :key="stop.id"
+                        class="prop-group gradient-stop-row"
+                      >
+                        <button class="gradient-stop-handle" type="button" title="拖动排序">
+                          <Icon icon="mdi:drag-vertical" />
+                        </button>
+                        <ZColorPicker
+                          size="small"
+                          :show-input="false"
+                          show-alpha
+                          :model-value="stop.color"
+                          @change="setFillGradientStopColor(stopIndex, String($event))"
+                        />
+                        <ZSlider
+                          :model-value="Math.round(stop.offset * 100)"
+                          :min="0"
+                          :max="100"
+                          :step="1"
+                          :formatter="(value) => `${Math.round(value)}%`"
+                          :disabled-value="(value) => isFillGradientStopPercentDisabled(stopIndex, value)"
+                          @change="setFillGradientStopOffset(stopIndex, $event)"
+                        />
+                        <span class="val-label">{{ `${Math.round(stop.offset * 100)}%` }}</span>
+                        <button class="layer-icon-btn danger" :disabled="objProps.fillGradientStops.length <= 2" title="删除色标" @click="removeFillGradientStop(stopIndex)">
+                          <Icon icon="mdi:close" />
+                        </button>
+                      </div>
+                    </VueDraggable>
+                    <div class="gradient-stop-actions">
+                      <button class="tb-btn sm gradient-stop-add-btn" @click="addFillGradientStop">添加渐变</button>
+                    </div>
+                    <div v-if="objProps.fillGradientType === 'linear'" class="prop-group rotation-row">
+                      <label>角度</label>
+                      <ZSlider
+                        :model-value="objProps.fillGradientAngle"
+                        :min="0"
+                        :max="359"
+                        :step="1"
+                        :formatter="(value) => `${Math.round(value)}°`"
+                        @change="setFillGradientAngleValue($event)"
+                      />
+                      <span class="val-label">{{ `${Math.round(objProps.fillGradientAngle)}°` }}</span>
+                    </div>
+                    <template v-if="objProps.fillGradientType === 'radial'">
+                      <div class="prop-group gradient-radius-row">
+                        <label>扩散范围</label>
+                        <ZSlider
+                          :model-value="objProps.fillGradientRadius"
+                          :min="0.05"
+                          :max="2"
+                          :step="0.01"
+                          :formatter="(value) => `${Number(value).toFixed(2)}`"
+                          @change="setFillGradientRadiusValue($event)"
+                        />
+                        <span class="val-label">{{ objProps.fillGradientRadius.toFixed(2) }}</span>
+                      </div>
+                    </template>
+                  </template>
                 </div>
                 <div class="prop-section">
                   <div class="prop-group style-toggle-row">
@@ -696,25 +787,36 @@
 
 <script setup lang="ts">
 import { ref, shallowRef, triggerRef, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
+import { VueDraggable } from 'vue-draggable-plus'
 import { ZInput, ZSelect, ZColorPicker, ZSwitch, ZSlider, ZPopover, ZButton, ZTabs, ZTabPane, ZHotkeyInput, ZDrawer, useZtoolsTheme } from 'ztools-ui'
 import { Icon } from '@iconify/vue'
-import { Canvas, Control, FabricObject, Textbox, Group, ActiveSelection, FabricImage, Path, Point, util } from 'fabric'
+import { Canvas, Control, FabricObject, Gradient, Textbox, Group, ActiveSelection, FabricImage, Path, Point, util } from 'fabric'
 import { AligningGuidelines } from '../../fabric-aligning-guidelines'
 import { basicShapes, textPresets, canvasPresets, shapePreviewPaths } from './editorCatalog'
 import type { ShapeLibraryItem, TextLibraryItem } from './editorCatalog'
 import {
+  DEFAULT_FILL_GRADIENT_ANGLE,
+  DEFAULT_FILL_GRADIENT_RADIUS,
+  DEFAULT_FILL_GRADIENT_TYPE,
   DEFAULT_KALEIDOSCOPE_COUNT,
   EDITOR_OBJECT_ID_PREFIX,
   SERIALIZED_OBJECT_PROPS,
   applyDefaultEndpointSnapMargin,
+  applyDefaultFillGradientMetadata,
   applyDefaultKaleidoscopeMetadata,
   clearKaleidoscopeMetadata,
+  cloneFillGradientStops,
+  createGradientFromMetadata,
   getEndpointSnapMarginMetadata,
+  getFillGradientMetadata,
+  getNormalizedGradientOffsetSlots,
   getKaleidoscopeMetadata,
   getObjectEndpointSnapMargin,
   normalizeEndpointSnapMargin,
   normalizeKaleidoscopeCount,
-  type AnyFabricObject
+  type AnyFabricObject,
+  type FillGradientStop,
+  type FillGradientType
 } from './fabric/objectMetadata'
 import { createShape } from './fabric/shapeFactories'
 import {
@@ -783,6 +885,10 @@ type BooleanPreviewHiddenObject = {
 }
 type StrokeLineType = 'solid' | 'dashed'
 type CurveControlPointKey = 'cp1' | 'cp2'
+type FillModeOption = 'solid' | 'gradient'
+type UiFillGradientStop = FillGradientStop & {
+  id: string
+}
 type ClipboardEntry = {
   object: Record<string, unknown>
   sourceName: string
@@ -838,6 +944,7 @@ type EditableSegmentRefWithTarget = EditableSegmentRef & {
 }
 
 const KALEIDOSCOPE_CENTER_CONTROL_KEY = 'kaleidoscopeCenter'
+const RADIAL_GRADIENT_CENTER_CONTROL_KEY = 'radialGradientCenter'
 const DIRECT_EDIT_SHAPE_IDS = new Set(['base-line', 'base-arrow-right', 'base-solid-shaft-arrow', 'base-double-solid-shaft-arrow'])
 const FABRIC_TRANSFORM_CONTROL_KEYS = ['tl', 'tr', 'br', 'bl', 'ml', 'mt', 'mr', 'mb', 'mtr']
 const ENDPOINT_SNAP_MARGIN = 4
@@ -877,6 +984,10 @@ const lastOpaqueCanvasBg = ref('#ffffff')
 const canvasPresetValue = ref('512x512')
 const canvasPresetOptions = computed(() => canvasPresets.map(({ label, value }) => ({ label, value })))
 const isCanvasBgTransparent = computed(() => isTransparentCanvasBg(canvasBg.value))
+const currentFillStyleMode = computed<'solid' | FillGradientType>(() => {
+  if (objProps.fillMode !== 'gradient') return 'solid'
+  return objProps.fillGradientType === 'radial' ? 'radial' : 'linear'
+})
 const canvasBgPickerValue = computed(() => (isCanvasBgTransparent.value ? lastOpaqueCanvasBg.value : canvasBg.value))
 const booleanBusy = ref(false)
 const booleanError = ref('')
@@ -888,7 +999,7 @@ let booleanPreviewToken = 0
 const objProps = reactive({
   left: 0, top: 0, width: 0, height: 0,
   scaleX: 1, scaleY: 1, angle: 0,
-  fill: '#000000', fillEnabled: true,
+  fill: '#000000', fillEnabled: true, fillMode: 'solid' as FillModeOption, fillGradientType: DEFAULT_FILL_GRADIENT_TYPE as FillGradientType, fillGradientAngle: DEFAULT_FILL_GRADIENT_ANGLE, fillGradientAngleInput: String(DEFAULT_FILL_GRADIENT_ANGLE), fillGradientStops: decorateGradientStops(cloneFillGradientStops(undefined)), fillGradientCenterX: 0.5, fillGradientCenterY: 0.5, fillGradientRadius: DEFAULT_FILL_GRADIENT_RADIUS,
   stroke: '#000000', strokeEnabled: true, strokeWidth: 0, strokeWidthInput: '0', strokeLineType: 'solid' as StrokeLineType, strokeDashLength: 6, strokeDashGap: 4, strokeDashLengthInput: '6', strokeDashGapInput: '4', opacity: 1,
   cornerRadius: 0,
   pointCornerRadius: 0,
@@ -1685,6 +1796,7 @@ function ensureCanvasObjectMetadata() {
     }
     seen.add(id)
     applyDefaultEndpointSnapMargin(obj)
+    applyDefaultFillGradientMetadata(obj)
     normalizeEndpointAttachments(obj)
   })
 }
@@ -1785,6 +1897,7 @@ function prepareClonedObjectMetadata(obj: FabricObject) {
   ensureEditorObjectId(obj)
   ;(obj as AnyFabricObject).editorObjectId = createEditorObjectId()
   ;(obj as AnyFabricObject).endpointAttachments = {}
+  applyDefaultFillGradientMetadata(obj)
 }
 
 // 对象命名计数
@@ -2021,6 +2134,7 @@ function applyKaleidoscopeSourceContentToInstance(source: FabricObject, instance
       : [['M', 0, 0]]
     ;(instance as AnyFabricObject)._setPath(pathData, false)
   }
+  applyGradientMetadataToCanvasObject(instance)
   instance.dirty = true
   instance.setCoords()
   return true
@@ -2100,6 +2214,8 @@ async function rebuildKaleidoscopeInstances(source: FabricObject) {
   try {
     clones.forEach((clone, offset) => {
       applyDefaultKaleidoscopeMetadata(clone)
+      applyDefaultFillGradientMetadata(clone)
+      applyGradientMetadataToCanvasObject(clone)
       setKaleidoscopeInstanceMetadata(source, clone, offset + 1)
       positionKaleidoscopeInstance(source, clone, offset + 1)
       fabricCanvas!.add(clone as AnyFabricObject)
@@ -2374,6 +2490,44 @@ function getDefaultStrokeDashArray(strokeWidth: unknown = 2): [number, number] {
   return [Math.max(1, safeWidth * 3), Math.max(1, safeWidth * 2)]
 }
 
+function createGradientStopId(index: number) {
+  return `gradient-stop-${index}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function decorateGradientStops(stops: FillGradientStop[], previousStops: UiFillGradientStop[] = []) {
+  return cloneFillGradientStops(stops).map((stop, index) => ({
+    ...stop,
+    id: previousStops[index]?.id ?? createGradientStopId(index)
+  }))
+}
+
+function normalizeGradientOffsetPercentInput(value: string | number, fallback: number, min = 0, max = 100) {
+  const normalized = normalizeInputValue(value)
+  const parsed = Number(normalized)
+  if (normalized === '' || !Number.isFinite(parsed)) return fallback
+  return Math.min(max, Math.max(min, parsed))
+}
+
+function normalizeFillGradientRadiusInput(value: number) {
+  if (!Number.isFinite(value)) return DEFAULT_FILL_GRADIENT_RADIUS
+  return Math.min(2, Math.max(0.05, value))
+}
+
+function getFillGradientStopMinPercent(index: number) {
+  const previousStop = objProps.fillGradientStops[index - 1]
+  return previousStop ? Math.round(previousStop.offset * 100) : 0
+}
+
+function getFillGradientStopMaxPercent(index: number) {
+  const nextStop = objProps.fillGradientStops[index + 1]
+  return nextStop ? Math.round(nextStop.offset * 100) : 100
+}
+
+function isFillGradientStopPercentDisabled(index: number, value: number) {
+  if (index === 0 || index === objProps.fillGradientStops.length - 1) return true
+  return value < getFillGradientStopMinPercent(index) || value > getFillGradientStopMaxPercent(index)
+}
+
 function normalizeStrokeDashArray(
   value: unknown,
   fallback: [number, number] | null = null
@@ -2587,6 +2741,7 @@ async function cloneClipboardEntry(entry: ClipboardEntry, offset: number) {
   prepareClonedObjectMetadata(clone)
   applyCanvasThemeToObject(clone)
   applyDefaultKaleidoscopeMetadata(clone)
+  applyGradientMetadataToCanvasObject(clone)
   const metadata = getKaleidoscopeMetadata(clone)
   if (entry.kaleidoscopeEnabled && !entry.sourceMissing && canUseKaleidoscopeAsSource(clone)) {
     const center = getKaleidoscopeEffectiveCenter(clone)
@@ -2818,6 +2973,74 @@ function resetKaleidoscopeProps() {
   objProps.kaleidoscopeCountInput = String(DEFAULT_KALEIDOSCOPE_COUNT)
 }
 
+function createRadialGradientCenterControl(source: FabricObject) {
+  return new Control({
+    actionName: 'moveRadialGradientCenter',
+    cursorStyle: 'move',
+    sizeX: 14,
+    sizeY: 14,
+    touchSizeX: 20,
+    touchSizeY: 20,
+    positionHandler: () => {
+      const target = getGradientTarget(source)
+      if (!target) return new Point(0, 0)
+      applyDefaultFillGradientMetadata(target)
+      const localPoint = new Point(
+        (target.fillGradientCenterX ?? 0.5) * (source.width ?? 0) - (source.width ?? 0) / 2,
+        (target.fillGradientCenterY ?? 0.5) * (source.height ?? 0) - (source.height ?? 0) / 2
+      )
+      return localPoint.transform(util.multiplyTransformMatrices(source.getViewportTransform(), source.calcTransformMatrix()))
+    },
+    getVisibility: () => (
+      activeObject.value === source
+      && selectionMode.value === 'shape'
+      && objProps.fillEnabled
+      && objProps.fillMode === 'gradient'
+      && objProps.fillGradientType === 'radial'
+    ),
+    actionHandler: (_eventData, _transform, x, y) => {
+      const target = getGradientTarget(source)
+      if (!target || !fabricCanvas) return false
+      const local = new Point(x, y).transform(util.invertTransform(source.calcTransformMatrix()))
+      const width = Math.max(1, source.width ?? 1)
+      const height = Math.max(1, source.height ?? 1)
+      target.fillGradientCenterX = Math.min(1, Math.max(0, (local.x + width / 2) / width))
+      target.fillGradientCenterY = Math.min(1, Math.max(0, (local.y + height / 2) / height))
+      objProps.fillGradientCenterX = target.fillGradientCenterX
+      objProps.fillGradientCenterY = target.fillGradientCenterY
+      applyGradientFillToTarget(source)
+      triggerKaleidoscopeContentSync(source)
+      source.canvas?.requestRenderAll()
+      return true
+    },
+    mouseUpHandler: () => {
+      snapshot()
+      syncObjProps()
+      return false
+    },
+    render: (ctx, left, top) => {
+      const colors = getCanvasAssistColors()
+      ctx.save()
+      ctx.beginPath()
+      ctx.arc(left, top, 5, 0, Math.PI * 2)
+      ctx.fillStyle = colors.textOnPrimary
+      ctx.strokeStyle = colors.primary
+      ctx.lineWidth = 2
+      ctx.fill()
+      ctx.stroke()
+      ctx.beginPath()
+      ctx.moveTo(left - 7, top)
+      ctx.lineTo(left + 7, top)
+      ctx.moveTo(left, top - 7)
+      ctx.lineTo(left, top + 7)
+      ctx.strokeStyle = colors.primaryStrong
+      ctx.lineWidth = 1.5
+      ctx.stroke()
+      ctx.restore()
+    }
+  } as Partial<Control>)
+}
+
 function formatKaleidoscopeInputValue(value: number) {
   return String(Math.round(value * 100) / 100)
 }
@@ -2879,10 +3102,16 @@ function createKaleidoscopeCenterControl(source: FabricObject) {
 
 function attachKaleidoscopeCenterControl(obj: FabricObject | null) {
   restorePointControls()
-  if (!obj || !isKaleidoscopeSource(obj) || selectionMode.value !== 'shape') return
-  originalControlsMap.set(obj, obj.controls as FabricControls)
-  const controls: FabricControls = { ...(obj.controls as FabricControls) }
-  controls[KALEIDOSCOPE_CENTER_CONTROL_KEY] = createKaleidoscopeCenterControl(obj)
+  if (!obj || selectionMode.value !== 'shape') return
+  const controlsOwner = obj
+  originalControlsMap.set(controlsOwner, controlsOwner.controls as FabricControls)
+  const controls: FabricControls = { ...(controlsOwner.controls as FabricControls) }
+  if (isKaleidoscopeSource(obj)) {
+    controls[KALEIDOSCOPE_CENTER_CONTROL_KEY] = createKaleidoscopeCenterControl(obj)
+  }
+  if (activeObject.value === obj && objProps.fillEnabled && objProps.fillMode === 'gradient' && objProps.fillGradientType === 'radial') {
+    controls[RADIAL_GRADIENT_CENTER_CONTROL_KEY] = createRadialGradientCenterControl(obj)
+  }
   obj.controls = controls
   pointControlsOwner.value = obj
   obj.setCoords()
@@ -3730,6 +3959,7 @@ function undo() {
   fabricCanvas.loadFromJSON(undoStack[undoStack.length - 1]).then(async () => {
     await syncAllKaleidoscopes()
     ensureCanvasObjectMetadata()
+    rehydrateCanvasGradientFills()
     syncAllEndpointAttachments()
     fabricCanvas!.discardActiveObject()
     syncActiveObject(null)
@@ -3750,6 +3980,7 @@ function redo() {
   fabricCanvas.loadFromJSON(json).then(async () => {
     await syncAllKaleidoscopes()
     ensureCanvasObjectMetadata()
+    rehydrateCanvasGradientFills()
     syncAllEndpointAttachments()
     fabricCanvas!.discardActiveObject()
     syncActiveObject(null)
@@ -3816,6 +4047,75 @@ function isFillEnabled(fill: unknown) {
   if (typeof fill !== 'string') return true
   const normalized = fill.trim().toLowerCase()
   return normalized !== '' && normalized !== 'none' && normalized !== 'transparent'
+}
+
+function isGradientFill(value: unknown): value is Gradient<Record<string, unknown>> {
+  return value instanceof Gradient
+}
+
+function getGradientTarget(obj: FabricObject | null | undefined) {
+  return obj ? (obj as AnyFabricObject) : null
+}
+
+function getGradientFillMode(obj: FabricObject | null | undefined): FillModeOption {
+  const target = getGradientTarget(obj)
+  if (!target) return 'solid'
+  applyDefaultFillGradientMetadata(target)
+  return target.fillMode === 'gradient' ? 'gradient' : 'solid'
+}
+
+function applyGradientFillToTarget(target: FabricObject | null | undefined) {
+  const typedTarget = getGradientTarget(target)
+  if (!typedTarget) return false
+  applyDefaultFillGradientMetadata(typedTarget)
+  if (typedTarget.fillMode === 'gradient') {
+    const gradient = createGradientFromMetadata(typedTarget)
+    typedTarget.set('fill', gradient)
+    return true
+  }
+  const solid = typeof typedTarget.lastFill === 'string' && typedTarget.lastFill.trim()
+    ? typedTarget.lastFill
+    : objProps.fill || '#000000'
+  typedTarget.set('fill', solid)
+  return false
+}
+
+function syncGradientPropsFromObject(obj: FabricObject | null | undefined) {
+  const target = getGradientTarget(obj)
+  if (!target) return
+  applyDefaultFillGradientMetadata(target)
+  objProps.fillMode = target.fillMode === 'gradient' ? 'gradient' : 'solid'
+  objProps.fillGradientType = target.fillGradientType ?? DEFAULT_FILL_GRADIENT_TYPE
+  objProps.fillGradientAngle = Number(target.fillGradientAngle ?? DEFAULT_FILL_GRADIENT_ANGLE) || DEFAULT_FILL_GRADIENT_ANGLE
+  objProps.fillGradientAngleInput = formatNumericInputValue(objProps.fillGradientAngle)
+  objProps.fillGradientStops = decorateGradientStops(target.fillGradientStops ?? [], objProps.fillGradientStops as UiFillGradientStop[])
+  objProps.fillGradientCenterX = Number(target.fillGradientCenterX ?? 0.5) || 0.5
+  objProps.fillGradientCenterY = Number(target.fillGradientCenterY ?? 0.5) || 0.5
+  objProps.fillGradientRadius = Number(target.fillGradientRadius ?? DEFAULT_FILL_GRADIENT_RADIUS) || DEFAULT_FILL_GRADIENT_RADIUS
+}
+
+function rebuildObjectGradientFill(target: FabricObject | null | undefined) {
+  if (!target) return
+  if (target instanceof Group || target instanceof ActiveSelection) {
+    target.getObjects().forEach((child) => rebuildObjectGradientFill(child))
+    target.setCoords()
+    return
+  }
+  if (getGradientFillMode(target) !== 'gradient') return
+  applyGradientFillToTarget(target)
+  target.dirty = true
+  target.setCoords()
+}
+
+function applyGradientMetadataToCanvasObject(target: FabricObject | null | undefined) {
+  if (!target) return
+  applyDefaultFillGradientMetadata(target)
+  rebuildObjectGradientFill(target)
+}
+
+function rehydrateCanvasGradientFills() {
+  if (!fabricCanvas) return
+  fabricCanvas.getObjects().forEach((obj) => applyGradientMetadataToCanvasObject(obj))
 }
 
 function isStrokeEnabled(stroke: unknown, strokeWidth: unknown) {
@@ -3982,9 +4282,7 @@ function syncObjProps() {
   }
 
   const targets = getStyleTargets(obj)
-  const first = targets.find((child) => (
-    typeof child.fill === 'string' || typeof child.stroke === 'string' || child.strokeWidth != null
-  )) ?? targets[0]
+  const first = targets[0]
   const fill = first?.fill
   const enabled = isFillEnabled(fill)
   objProps.fillEnabled = enabled
@@ -3993,6 +4291,7 @@ function syncObjProps() {
     : typeof (first as AnyFabricObject | undefined)?.lastFill === 'string'
       ? (first as AnyFabricObject).lastFill
       : '#000000'
+  syncGradientPropsFromObject(first)
   objProps.stroke = first && typeof first.stroke === 'string'
     ? first.stroke
     : typeof (first as AnyFabricObject | undefined)?.lastStroke === 'string'
@@ -4075,12 +4374,15 @@ function setObjProp(prop: string, value: any) {
   if (!obj || !fabricCanvas) return
   if (prop === 'fill') {
     getStyleTargets(obj).forEach((target) => {
-      ;(target as AnyFabricObject).lastFill = value
+      const typedTarget = target as AnyFabricObject
+      typedTarget.fillMode = 'solid'
+      typedTarget.lastFill = value
       target.set('fill', value)
       target.dirty = true
       target.setCoords()
     })
     objProps.fillEnabled = true
+    objProps.fillMode = 'solid'
   } else if (prop === 'stroke') {
     getStyleTargets(obj).forEach((target) => {
       ;(target as AnyFabricObject).lastStroke = value
@@ -4339,7 +4641,7 @@ function setHollowArrowLineWidthFromInput(value: string | number) {
 }
 
 function updateCurveControls() {
-  const shapeObj = activeKaleidoscopeSource.value
+  const shapeObj = activeObject.value
   if (shapeObj && selectionMode.value === 'shape') {
     attachKaleidoscopeCenterControl(shapeObj)
     shapeObj.canvas?.requestRenderAll()
@@ -4513,10 +4815,12 @@ function toggleFill(enabled: boolean) {
   if (!obj || !fabricCanvas) return
   getStyleTargets(obj).forEach((target) => {
     const t = target as AnyFabricObject
+    applyDefaultFillGradientMetadata(t)
     if (enabled) {
-      target.set('fill', t.lastFill || objProps.fill || '#000000')
+      if (t.fillMode === 'gradient') applyGradientFillToTarget(target)
+      else target.set('fill', t.lastFill || objProps.fill || '#000000')
     } else {
-      if (isFillEnabled(target.fill)) t.lastFill = target.fill
+      if (typeof target.fill === 'string' && isFillEnabled(target.fill)) t.lastFill = target.fill
       target.set('fill', 'transparent')
     }
     target.dirty = true
@@ -4531,6 +4835,179 @@ function toggleFill(enabled: boolean) {
   snapshot()
   syncObjProps()
 }
+
+function updateFillGradientStops(mutator: (stops: FillGradientStop[]) => FillGradientStop[]) {
+  const obj = activeObject.value
+  if (!obj || !fabricCanvas) return
+  getStyleTargets(obj).forEach((target) => {
+    const typedTarget = target as AnyFabricObject
+    applyDefaultFillGradientMetadata(typedTarget)
+    typedTarget.fillMode = 'gradient'
+    typedTarget.fillGradientStops = mutator(cloneFillGradientStops(typedTarget.fillGradientStops))
+    applyGradientFillToTarget(target)
+    target.dirty = true
+    target.setCoords()
+  })
+  objProps.fillEnabled = true
+  objProps.fillMode = 'gradient'
+  triggerKaleidoscopeContentSync(obj)
+  fabricCanvas.requestRenderAll()
+  refreshLayers()
+  snapshot()
+  syncObjProps()
+}
+
+function setSolidFillColor(value: string) {
+  setObjProp('fill', value)
+}
+
+function setFillStyleMode(mode: 'solid' | FillGradientType) {
+  if (mode === 'solid') {
+    setFillMode('solid')
+    return
+  }
+  setFillGradientTypeValue(mode)
+}
+
+function setFillMode(mode: FillModeOption) {
+  const obj = activeObject.value
+  if (!obj || !fabricCanvas) return
+  getStyleTargets(obj).forEach((target) => {
+    const typedTarget = target as AnyFabricObject
+    applyDefaultFillGradientMetadata(typedTarget)
+    typedTarget.fillMode = mode
+    if (mode === 'gradient') applyGradientFillToTarget(target)
+    else target.set('fill', typedTarget.lastFill || objProps.fill || '#000000')
+    target.dirty = true
+    target.setCoords()
+  })
+  objProps.fillEnabled = true
+  objProps.fillMode = mode
+  triggerKaleidoscopeContentSync(obj)
+  updateCurveControls()
+  fabricCanvas.requestRenderAll()
+  refreshLayers()
+  snapshot()
+  syncObjProps()
+}
+
+function setFillGradientTypeValue(value: FillGradientType) {
+  const obj = activeObject.value
+  if (!obj || !fabricCanvas) return
+  getStyleTargets(obj).forEach((target) => {
+    const typedTarget = target as AnyFabricObject
+    applyDefaultFillGradientMetadata(typedTarget)
+    typedTarget.fillMode = 'gradient'
+    typedTarget.fillGradientType = value
+    applyGradientFillToTarget(target)
+    target.dirty = true
+    target.setCoords()
+  })
+  objProps.fillMode = 'gradient'
+  objProps.fillGradientType = value
+  triggerKaleidoscopeContentSync(obj)
+  updateCurveControls()
+  fabricCanvas.requestRenderAll()
+  refreshLayers()
+  snapshot()
+  syncObjProps()
+}
+
+function setFillGradientStopColor(index: number, color: string) {
+  updateFillGradientStops((stops) => {
+    if (!stops[index]) return stops
+    stops[index] = { ...stops[index], color }
+    return stops
+  })
+}
+
+function reorderFillGradientStops() {
+  const reorderedStops = objProps.fillGradientStops.map(({ color, offset }) => ({ color, offset }))
+  const offsetSlots = getNormalizedGradientOffsetSlots(reorderedStops, objProps.fill || '#000000')
+  updateFillGradientStops(() => reorderedStops.map((stop, index) => ({
+    ...stop,
+    offset: offsetSlots[index] ?? stop.offset
+  })))
+}
+
+function setFillGradientStopOffset(index: number, value: string | number) {
+  updateFillGradientStops((stops) => {
+    if (!stops[index]) return stops
+    if (index === 0 || index === stops.length - 1) return stops
+    const fallback = Math.round(stops[index].offset * 100)
+    const min = Math.round(stops[index - 1].offset * 100)
+    const max = Math.round(stops[index + 1].offset * 100)
+    const nextPercent = normalizeGradientOffsetPercentInput(value, fallback, min, max)
+    stops[index] = { ...stops[index], offset: nextPercent / 100 }
+    return stops
+  })
+}
+
+function addFillGradientStop() {
+  updateFillGradientStops((stops) => {
+    if (stops.length < 2) return [...stops, { color: objProps.fill || '#000000', offset: 1 }]
+    const prev = stops[stops.length - 2]
+    const next = stops[stops.length - 1]
+    return [
+      ...stops.slice(0, -1),
+      { color: next.color, offset: (prev.offset + next.offset) / 2 },
+      next
+    ].sort((a, b) => a.offset - b.offset)
+  })
+}
+
+function removeFillGradientStop(index: number) {
+  updateFillGradientStops((stops) => stops.filter((_, stopIndex) => stopIndex !== index))
+}
+
+function setFillGradientAngleValue(value: number) {
+  const obj = activeObject.value
+  if (!obj || !fabricCanvas) return
+  getStyleTargets(obj).forEach((target) => {
+    const typedTarget = target as AnyFabricObject
+    applyDefaultFillGradientMetadata(typedTarget)
+    typedTarget.fillMode = 'gradient'
+    typedTarget.fillGradientType = 'linear'
+    typedTarget.fillGradientAngle = value
+    applyGradientFillToTarget(target)
+    target.dirty = true
+    target.setCoords()
+  })
+  objProps.fillMode = 'gradient'
+  objProps.fillGradientType = 'linear'
+  objProps.fillGradientAngle = value
+  objProps.fillGradientAngleInput = formatNumericInputValue(value)
+  triggerKaleidoscopeContentSync(obj)
+  fabricCanvas.requestRenderAll()
+  refreshLayers()
+  snapshot()
+  syncObjProps()
+}
+
+function setFillGradientRadiusValue(value: number) {
+  const obj = activeObject.value
+  if (!obj || !fabricCanvas) return
+  const normalized = normalizeFillGradientRadiusInput(value)
+  getStyleTargets(obj).forEach((target) => {
+    const typedTarget = target as AnyFabricObject
+    applyDefaultFillGradientMetadata(typedTarget)
+    typedTarget.fillMode = 'gradient'
+    typedTarget.fillGradientType = 'radial'
+    typedTarget.fillGradientRadius = normalized
+    applyGradientFillToTarget(target)
+    target.dirty = true
+    target.setCoords()
+  })
+  objProps.fillMode = 'gradient'
+  objProps.fillGradientType = 'radial'
+  objProps.fillGradientRadius = normalized
+  triggerKaleidoscopeContentSync(obj)
+  fabricCanvas.requestRenderAll()
+  refreshLayers()
+  snapshot()
+  syncObjProps()
+}
+
 
 function toggleStroke(enabled: boolean) {
   const obj = activeObject.value
@@ -4578,6 +5055,7 @@ function setObjSize(dim: 'width' | 'height', value: number) {
   } else {
     obj.scaleToHeight(value)
   }
+  rebuildObjectGradientFill(obj)
   clearOwnedEndpointAttachmentsForTransformedObject(obj)
   obj.dirty = true
   obj.setCoords()
@@ -6083,7 +6561,8 @@ $panel-bg: #fff;
   }
 }
 
-.arrow-shape-picker {
+.arrow-shape-picker,
+.fill-style-picker {
   .stroke-line-swatch {
     &::before {
       display: none;
@@ -6097,11 +6576,26 @@ $panel-bg: #fff;
       background-color: #fafafa;
     }
   }
+}
+
+.arrow-shape-picker {
   .arrow-shape-solid {
     background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 16'><path d='M2 8H11' fill='none' stroke='%23333' stroke-width='2.4' stroke-linecap='round'/><path d='M10.2 4.15C10.2 3.57 10.85 3.23 11.33 3.55L15.32 6.22C16.5 7.01 16.5 8.99 15.32 9.78L11.33 12.45C10.85 12.77 10.2 12.43 10.2 11.85V4.15Z' fill='%23333'/></svg>");
   }
   .arrow-shape-hollow {
     background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 16'><path d='M2 8H11' fill='none' stroke='%23333' stroke-width='2.4' stroke-linecap='round'/><path d='M10.4 4.5L13.9 8L10.4 11.5' fill='none' stroke='%23333' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  }
+}
+
+.fill-style-picker {
+  .fill-style-solid {
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 16'><rect x='3' y='3' width='12' height='10' rx='2' fill='%23333'/></svg>");
+  }
+  .fill-style-radial {
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 16'><defs><radialGradient id='g' cx='50%25' cy='50%25' r='65%25'><stop offset='0%25' stop-color='%23333'/><stop offset='100%25' stop-color='%23d8d8d8'/></radialGradient></defs><rect x='3' y='3' width='12' height='10' rx='2' fill='url(%23g)' stroke='%23333' stroke-width='0.6'/></svg>");
+  }
+  .fill-style-linear {
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 16'><defs><linearGradient id='g' x1='0%25' y1='50%25' x2='100%25' y2='50%25'><stop offset='0%25' stop-color='%23333'/><stop offset='100%25' stop-color='%23d8d8d8'/></linearGradient></defs><rect x='3' y='3' width='12' height='10' rx='2' fill='url(%23g)' stroke='%23333' stroke-width='0.6'/></svg>");
   }
 }
 
@@ -6217,6 +6711,11 @@ $panel-bg: #fff;
 :deep(.zt-popover__panel:has(.align-popover-grid) .zt-popover__body--card) {
   padding: 8px;
 }
+.gradient-stop-list {
+  display: flex;
+  flex-direction: column;
+}
+
 .prop-group {
   display: flex;
   align-items: center;
@@ -6256,10 +6755,12 @@ $panel-bg: #fff;
     text-align: right;
   }
   &.rotation-row,
-  &.opacity-row {
+  &.opacity-row,
+  &.gradient-radius-row {
     label {
       width: 52px;
       min-width: 52px;
+      white-space: nowrap;
     }
   }
   &.style-toggle-row,
@@ -6267,6 +6768,12 @@ $panel-bg: #fff;
     display: grid;
     grid-template-columns: 48px 1fr;
     column-gap: 8px;
+  }
+  &.gradient-stop-row {
+    display: grid;
+    grid-template-columns: 20px auto minmax(0, 1fr) auto auto;
+    column-gap: 6px;
+    align-items: center;
   }
   &.bezier-group-row {
     display: grid;
@@ -6280,6 +6787,30 @@ $panel-bg: #fff;
     :deep(.zt-switch) {
       justify-self: end;
     }
+  }
+}
+
+.gradient-stop-actions {
+  padding: 4px 8px 8px;
+}
+
+.gradient-stop-add-btn {
+  width: 100%;
+}
+
+.gradient-stop-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #888;
+  cursor: grab;
+  &:active {
+    cursor: grabbing;
   }
 }
 

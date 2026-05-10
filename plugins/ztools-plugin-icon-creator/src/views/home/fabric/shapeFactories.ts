@@ -1,7 +1,7 @@
 import { Circle, FabricObject } from 'fabric'
 import type { ShapeLibraryItem } from '../editorCatalog'
 import { createDefaultArrowHead, createEditablePathObject, getHollowShaftArrowLineWidth, pathEditableModel, polygonEditablePath, rebuildEditablePathObject, type ArrowRenderMode, type EditablePathSegment, type EditablePoint } from '../geometry/editablePath'
-import { applyDefaultEndpointSnapMargin, applyDefaultKaleidoscopeMetadata, type AnyFabricObject } from './objectMetadata'
+import { applyDefaultEndpointSnapMargin, applyDefaultFillGradientMetadata, applyDefaultKaleidoscopeMetadata, type AnyFabricObject, DEFAULT_FILL_MODE } from './objectMetadata'
 
 type PointLike = { x: number; y: number }
 
@@ -27,9 +27,11 @@ function withDefaultStyles<T extends FabricObject>(obj: T, item: ShapeLibraryIte
     name: item.label
   })
   target.lastFill = DEFAULT_LAST_FILL
+  target.fillMode = DEFAULT_FILL_MODE
   target.lastStrokeDashArray = getDefaultStrokeDashArray(DEFAULT_STROKE_WIDTH)
   target.shapeId = item.id
   target.booleanEligible = true
+  applyDefaultFillGradientMetadata(obj)
   applyDefaultKaleidoscopeMetadata(obj)
   applyDefaultEndpointSnapMargin(obj)
   obj.setCoords()

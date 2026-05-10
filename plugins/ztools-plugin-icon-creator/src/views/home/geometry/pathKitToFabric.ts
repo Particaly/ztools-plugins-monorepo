@@ -10,7 +10,7 @@ import {
   type EditablePathObject
 } from './editablePath'
 import type { PathKitBounds, PathKitPath } from './pathkit'
-import { applyDefaultKaleidoscopeMetadata, type AnyFabricObject } from '../fabric/objectMetadata'
+import { applyDefaultFillGradientMetadata, applyDefaultKaleidoscopeMetadata, createGradientFromMetadata, type AnyFabricObject } from '../fabric/objectMetadata'
 
 export type PathKitToFabricOptions = {
   name?: string
@@ -196,10 +196,21 @@ export function pathKitToFabricPath(path: PathKitPath, options: PathKitToFabricO
     custom.lastStroke = options.style.lastStroke
     custom.lastStrokeWidth = options.style.lastStrokeWidth
     custom.lastStrokeDashArray = options.style.lastStrokeDashArray ? [...options.style.lastStrokeDashArray] : undefined
+    custom.fillMode = options.style.fillMode ?? 'solid'
+    custom.fillGradientType = options.style.fillGradientType
+    custom.fillGradientStops = options.style.fillGradientStops ? options.style.fillGradientStops.map((stop) => ({ ...stop })) : undefined
+    custom.fillGradientAngle = options.style.fillGradientAngle
+    custom.fillGradientCenterX = options.style.fillGradientCenterX
+    custom.fillGradientCenterY = options.style.fillGradientCenterY
+    custom.fillGradientRadius = options.style.fillGradientRadius
     custom.shapeId = options.preview ? 'boolean-preview' : (options.shapeId || 'boolean-result')
     custom.booleanEligible = !options.preview
     custom.booleanPreview = !!options.preview
     custom.excludeFromExport = !!options.preview
+    applyDefaultFillGradientMetadata(result)
+    if (custom.fillMode === 'gradient') {
+      result.set('fill', createGradientFromMetadata(result))
+    }
     applyDefaultKaleidoscopeMetadata(result)
     result.setCoords()
     return result
