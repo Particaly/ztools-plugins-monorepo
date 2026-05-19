@@ -142,8 +142,20 @@
                   <div class="prop-group transform-row">
                     <label>位置</label>
                     <span class="size-lock-spacer"></span>
-                    <ZInput size="small" type="text" :model-value="Math.round(objProps.left)" @change="setObjProp('left', uiNum($event))" />
-                    <ZInput size="small" type="text" :model-value="Math.round(objProps.top)" @change="setObjProp('top', uiNum($event))" />
+                    <ZInput
+                      size="small"
+                      type="text"
+                      :model-value="objProps.leftInput"
+                      @update:model-value="objProps.leftInput = String($event)"
+                      @change="setObjPropFromInput('left', $event)"
+                    />
+                    <ZInput
+                      size="small"
+                      type="text"
+                      :model-value="objProps.topInput"
+                      @update:model-value="objProps.topInput = String($event)"
+                      @change="setObjPropFromInput('top', $event)"
+                    />
                   </div>
                   <div class="prop-group transform-row">
                     <label>尺寸</label>
@@ -154,8 +166,20 @@
                       :title="sizeRatioLocked ? '解锁宽高比例' : '锁定宽高比例'"
                       @click="toggleSizeRatioLock"
                     />
-                    <ZInput size="small" type="text" :model-value="Math.round(objProps.width)" @change="setObjSize('width', uiNum($event))" />
-                    <ZInput size="small" type="text" :model-value="Math.round(objProps.height)" @change="setObjSize('height', uiNum($event))" />
+                    <ZInput
+                      size="small"
+                      type="text"
+                      :model-value="objProps.widthInput"
+                      @update:model-value="objProps.widthInput = String($event)"
+                      @change="setObjSizeFromInput('width', $event)"
+                    />
+                    <ZInput
+                      size="small"
+                      type="text"
+                      :model-value="objProps.heightInput"
+                      @update:model-value="objProps.heightInput = String($event)"
+                      @change="setObjSizeFromInput('height', $event)"
+                    />
                   </div>
                   <div class="prop-group rotation-row">
                     <label>旋转</label>
@@ -998,6 +1022,8 @@ let booleanPreviewToken = 0
 
 const objProps = reactive({
   left: 0, top: 0, width: 0, height: 0,
+  leftInput: '0', topInput: '0',
+  widthInput: '0', heightInput: '0',
   scaleX: 1, scaleY: 1, angle: 0,
   fill: '#000000', fillEnabled: true, fillMode: 'solid' as FillModeOption, fillGradientType: DEFAULT_FILL_GRADIENT_TYPE as FillGradientType, fillGradientAngle: DEFAULT_FILL_GRADIENT_ANGLE, fillGradientAngleInput: String(DEFAULT_FILL_GRADIENT_ANGLE), fillGradientStops: decorateGradientStops(cloneFillGradientStops(undefined)), fillGradientCenterX: 0.5, fillGradientCenterY: 0.5, fillGradientRadius: DEFAULT_FILL_GRADIENT_RADIUS,
   stroke: '#000000', strokeEnabled: true, strokeWidth: 0, strokeWidthInput: '0', strokeLineType: 'solid' as StrokeLineType, strokeDashLength: 6, strokeDashGap: 4, strokeDashLengthInput: '6', strokeDashGapInput: '4', opacity: 1,
@@ -2475,6 +2501,20 @@ function commitNumericInput(
   const parsed = Number(normalized)
   const next = normalized === '' || !Number.isFinite(parsed) ? fallback : parsed
   reflect(String(next))
+  apply(next)
+}
+
+// 仅接受正数输入，适用于宽高等不能为 0 或负数的字段
+function commitPositiveNumericInput(
+  value: string | number,
+  fallback: number,
+  apply: (next: number) => void,
+  reflect: (next: string) => void
+) {
+  const normalized = normalizeInputValue(value)
+  const parsed = Number(normalized)
+  const next = normalized === '' || !Number.isFinite(parsed) || parsed <= 0 ? fallback : parsed
+  reflect(formatNumericInputValue(next))
   apply(next)
 }
 function evNum(e: Event): number {
@@ -4259,8 +4299,12 @@ function syncObjProps() {
   applyDefaultKaleidoscopeMetadata(obj)
   objProps.left = obj.left ?? 0
   objProps.top = obj.top ?? 0
+  objProps.leftInput = formatNumericInputValue(objProps.left)
+  objProps.topInput = formatNumericInputValue(objProps.top)
   objProps.width = obj.getScaledWidth()
   objProps.height = obj.getScaledHeight()
+  objProps.widthInput = formatNumericInputValue(objProps.width)
+  objProps.heightInput = formatNumericInputValue(objProps.height)
   objProps.scaleX = obj.scaleX ?? 1
   objProps.scaleY = obj.scaleY ?? 1
   objProps.angle = obj.angle ?? 0
@@ -4426,6 +4470,19 @@ function setObjProp(prop: string, value: any) {
   syncObjProps()
 }
 
+// 将对象位置输入提交为数值，非法输入回退到当前坐标
+function setObjPropFromInput(prop: 'left' | 'top', value: string | number) {
+  const fallback = prop === 'left' ? objProps.left : objProps.top
+  commitNumericInput(
+    value,
+    fallback,
+    (next) => { setObjProp(prop, next) },
+    (next) => {
+      if (prop === 'left') objProps.leftInput = formatNumericInputValue(Number(next))
+      else objProps.topInput = formatNumericInputValue(Number(next))
+    }
+  )
+}
 
 function setEndpointSnapMargin(value: number) {
   const obj = activeObject.value
@@ -5065,6 +5122,20 @@ function setObjSize(dim: 'width' | 'height', value: number) {
   refreshLayers()
   snapshot()
   syncObjProps()
+}
+
+// 将对象尺寸输入提交为正数，非法输入回退到当前显示尺寸
+function setObjSizeFromInput(dim: 'width' | 'height', value: string | number) {
+  const fallback = dim === 'width' ? objProps.width : objProps.height
+  commitPositiveNumericInput(
+    value,
+    fallback,
+    (next) => { setObjSize(dim, next) },
+    (next) => {
+      if (dim === 'width') objProps.widthInput = next
+      else objProps.heightInput = next
+    }
+  )
 }
 
 // ── 对齐到画布 ──
