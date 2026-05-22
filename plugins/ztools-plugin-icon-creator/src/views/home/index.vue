@@ -107,6 +107,7 @@
           :scroll-el="canvasAreaRef"
           :wrapper-el="canvasWrapperRef"
           :zoom="zoom"
+          :coordinate-hint-active="rulerCoordinateHintActive"
         />
       </div>
 
@@ -718,21 +719,43 @@
           <ZInput class="layer-search" size="small" type="text" placeholder="搜索" v-model="layerSearch" />
         </div>
         <div v-if="filteredLayers.length" class="layer-list">
-          <div
-            v-for="item in filteredLayers" :key="item.id"
-            class="layer-item"
-            :class="{ active: isLayerActive(item.obj) }"
-            @click="selectLayer(item.obj, $event)"
+          <VueDraggable
+            v-model="layerDragItems"
+            class="layer-draggable-list"
+            item-key="id"
+            handle=".layer-drag-handle"
+            :disabled="isLayerDragDisabled"
+            @start="isLayerDragging = true"
+            @end="reorderLayers"
           >
-            <span class="layer-name">{{ item.name }}</span>
-            <button class="layer-icon-btn" @click.stop="toggleVisible(item.obj)">
-              <Icon :icon="item.obj.visible !== false ? 'mdi:eye-outline' : 'mdi:eye-off-outline'" />
-            </button>
-            <button class="layer-icon-btn" @click.stop="toggleLock(item.obj)">
-              <Icon :icon="item.obj.lockMovementX ? 'mdi:lock' : 'mdi:lock-open-variant'" />
-            </button>
-            <button class="layer-icon-btn danger" @click.stop="removeObject(item.obj)"><Icon icon="mdi:close" /></button>
-          </div>
+            <div
+              v-for="item in layerDragItems" :key="item.id"
+              class="layer-item"
+              :class="{ active: isLayerActive(item.obj), 'is-drag-disabled': isLayerDragDisabled }"
+              @mousedown="handleLayerMouseDown(item.obj, $event)"
+              @contextmenu.prevent.stop="openLayerContextMenu(item.obj, $event)"
+            >
+              <button class="layer-drag-handle" type="button" title="拖动排序" :disabled="isLayerDragDisabled">
+                <Icon icon="mdi:drag-vertical" />
+              </button>
+              <span class="layer-name">{{ item.name }}</span>
+              <button class="layer-icon-btn" @click.stop="toggleVisible(item.obj)">
+                <Icon :icon="item.obj.visible !== false ? 'mdi:eye-outline' : 'mdi:eye-off-outline'" />
+              </button>
+              <button class="layer-icon-btn" @click.stop="toggleLock(item.obj)">
+                <Icon :icon="item.obj.lockMovementX ? 'mdi:lock' : 'mdi:lock-open-variant'" />
+              </button>
+              <button class="layer-icon-btn danger" @click.stop="removeObject(item.obj)"><Icon icon="mdi:close" /></button>
+            </div>
+          </VueDraggable>
+          <ZContextMenu
+            :show="layerContextMenu.show"
+            :x="layerContextMenu.x"
+            :y="layerContextMenu.y"
+            :menu-items="layerContextMenuItems"
+            @update:show="layerContextMenu.show = $event"
+            @select="handleLayerContextMenuSelect"
+          />
         </div>
         <div v-else class="layer-empty">
           {{ layerSearch.trim() ? '未找到匹配的图层' : '当前没有图层' }}
@@ -804,7 +827,37 @@
       </div>
     </ZDrawer>
 
-    <!-- 隐藏的文件输入 -->
+        <ZModal
+          :show="layerRenameDialog.show"
+          preset="dialog"
+          :show-mask="true"
+          :mask-closable="true"
+          :close-on-esc="true"
+          :auto-focus="true"
+          @update:show="handleLayerRenameDialogShowChange"
+        >
+          <div class="layer-rename-dialog">
+            <div class="layer-rename-header">
+              <div class="layer-rename-title">重命名图层</div>
+            </div>
+            <div class="layer-rename-content">
+              <ZInput
+                size="small"
+                type="text"
+                :model-value="layerRenameDialog.value"
+                placeholder="请输入图层名称"
+                @update:model-value="layerRenameDialog.value = String($event)"
+                @keydown.enter="confirmLayerRename"
+              />
+            </div>
+            <div class="layer-rename-actions">
+              <ZButton size="small" @click="handleLayerRenameDialogShowChange(false)">取消</ZButton>
+              <ZButton size="small" type="primary" @click="confirmLayerRename">确定</ZButton>
+            </div>
+          </div>
+        </ZModal>
+
+        <!-- 隐藏的文件输入 -->
     <input ref="imgInputRef" type="file" accept="image/*" style="display:none" @change="onImageFileChosen" />
   </div>
 </template>
@@ -812,7 +865,7 @@
 <script setup lang="ts">
 import { ref, shallowRef, triggerRef, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { VueDraggable } from 'vue-draggable-plus'
-import { ZInput, ZSelect, ZColorPicker, ZSwitch, ZSlider, ZPopover, ZButton, ZTabs, ZTabPane, ZHotkeyInput, ZDrawer, useZtoolsTheme } from 'ztools-ui'
+import { ZInput, ZSelect, ZColorPicker, ZSwitch, ZSlider, ZPopover, ZButton, ZTabs, ZTabPane, ZHotkeyInput, ZDrawer, ZContextMenu, ZModal, useZtoolsTheme } from 'ztools-ui'
 import { Icon } from '@iconify/vue'
 import { Canvas, Control, FabricObject, Gradient, Textbox, Group, ActiveSelection, FabricImage, Path, Point, util } from 'fabric'
 import { AligningGuidelines } from '../../fabric-aligning-guidelines'
@@ -967,6 +1020,42 @@ type EditableSegmentRefWithTarget = EditableSegmentRef & {
   target: EditablePathObject
 }
 
+type LayerContextMenuAction =
+  | 'rename'
+  | 'show'
+  | 'hide'
+  | 'lock'
+  | 'unlock'
+  | 'delete'
+  | 'detach-source'
+  | 'select-source'
+  | 'move-up'
+  | 'move-top'
+  | 'move-down'
+  | 'move-bottom'
+  | 'duplicate'
+  | 'group'
+  | 'ungroup'
+
+type LayerItem = {
+  id: string
+  canvasIndex: number
+  name: string
+  obj: FabricObject
+}
+
+type LayerContextMenuState = {
+  show: boolean
+  x: number
+  y: number
+}
+
+type LayerRenameDialogState = {
+  show: boolean
+  value: string
+  target: FabricObject | null
+}
+
 const KALEIDOSCOPE_CENTER_CONTROL_KEY = 'kaleidoscopeCenter'
 const RADIAL_GRADIENT_CENTER_CONTROL_KEY = 'radialGradientCenter'
 const DIRECT_EDIT_SHAPE_IDS = new Set(['base-line', 'base-arrow-right', 'base-solid-shaft-arrow', 'base-double-solid-shaft-arrow'])
@@ -998,6 +1087,9 @@ const shortcutPlatform = getEditorPlatform()
 const shortcutBindings = reactive<Record<ShortcutActionId, string[]>>(createDefaultShortcutBindings(shortcutPlatform))
 const spacePanReady = ref(false)
 const isSpacePanning = ref(false)
+const rulerModifierKeys = reactive({ shift: false, ctrl: false, alt: false, meta: false })
+const rulerModifierActive = computed(() => rulerModifierKeys.shift || rulerModifierKeys.ctrl || rulerModifierKeys.alt || rulerModifierKeys.meta)
+const rulerCoordinateHintActive = computed(() => showRuler.value && (rulerModifierActive.value || spacePanReady.value || isSpacePanning.value))
 const activeObject = shallowRef<FabricObject | null>(null)
 const canvasWidth = ref(512)
 const canvasHeight = ref(512)
@@ -1209,6 +1301,19 @@ function withSnapshotSuppressed<T>(callback: () => T) {
 // 图层搜索
 const layerSearch = ref('')
 const layerVersion = ref(0)
+const layerSelectionAnchorId = ref('')
+const layerDragItems = shallowRef<LayerItem[]>([])
+const isLayerDragging = ref(false)
+const layerContextMenu = reactive<LayerContextMenuState>({
+  show: false,
+  x: 0,
+  y: 0
+})
+const layerRenameDialog = reactive<LayerRenameDialogState>({
+  show: false,
+  value: '',
+  target: null
+})
 function refreshLayers() {
   layerVersion.value += 1
 }
@@ -2336,22 +2441,10 @@ function triggerKaleidoscopeVisibilitySync(obj: FabricObject | null | undefined)
   fabricCanvas?.requestRenderAll()
 }
 
-function resolveKaleidoscopeSelectionTarget(obj: FabricObject | null) {
-  if (!(obj instanceof ActiveSelection)) return obj
-  const objects = obj.getObjects()
-  return objects.find((item) => isKaleidoscopeInstance(item))
-    ?? objects.find((item) => isKaleidoscopeSource(item))
-    ?? obj
-}
-
+// 保留 Fabric 的原始选择结果，不再把万花筒实例压回单选，方便图层里对多个实例做批量脱离。
 function applyKaleidoscopeSelectionConstraints(obj: FabricObject | null, event?: Event | MouseEvent) {
   if (!fabricCanvas || !obj) return obj
-  const resolved = resolveKaleidoscopeSelectionTarget(obj)
-  if (resolved !== obj) {
-    fabricCanvas.setActiveObject(resolved, event as any)
-    fabricCanvas.requestRenderAll()
-  }
-  return resolved
+  return obj
 }
 
 function assignShortcutBindings(next: Record<ShortcutActionId, string[]>) {
@@ -2597,12 +2690,78 @@ const hasKaleidoscopeSelection = computed(() => selectedObjects.value.some((obj)
 
 const canGroup = computed(() => {
   const obj = activeObject.value
-  return !hasKaleidoscopeSelection.value && obj instanceof ActiveSelection && (obj as ActiveSelection).size() > 1
+  return obj instanceof ActiveSelection && (obj as ActiveSelection).size() > 1
 })
 
 const canUngroup = computed(() => {
   const obj = activeObject.value
-  return !hasKaleidoscopeSelection.value && obj instanceof Group && !(obj instanceof ActiveSelection)
+  return obj instanceof Group && !(obj instanceof ActiveSelection)
+})
+
+const isLayerDragDisabled = computed(() => !!layerSearch.value.trim())
+
+const layerContextMenuTargets = computed(() => {
+  const objects = selectedObjects.value.filter((obj) => !isBooleanPreviewObject(obj))
+  if (objects.length) return objects
+  const active = activeObject.value
+  return active && !isBooleanPreviewObject(active) ? [active] : []
+})
+
+const singleLayerContextTarget = computed(() => (
+  layerContextMenuTargets.value.length === 1 ? layerContextMenuTargets.value[0] : null
+))
+
+const layerContextMenuSourceTarget = computed(() => {
+  const target = singleLayerContextTarget.value
+  return target && isKaleidoscopeInstance(target)
+    ? findKaleidoscopeSourceById(getKaleidoscopeInstanceSourceId(target))
+    : null
+})
+
+const canLayerContextGroup = computed(() => canGroup.value)
+const canLayerContextUngroup = computed(() => canUngroup.value)
+const canLayerContextDetach = computed(() => layerContextMenuTargets.value.some((obj) => isKaleidoscopeInstance(obj)))
+const canLayerContextSelectSource = computed(() => !!layerContextMenuSourceTarget.value)
+const canLayerContextMove = computed(() => {
+  const target = singleLayerContextTarget.value
+  return !!target && !isLayerKaleidoscopeLocked(target)
+})
+
+const layerContextMenuItems = computed(() => {
+  const targets = layerContextMenuTargets.value
+  if (!targets.length) return []
+  if (targets.length === 1) {
+    const target = targets[0]
+    const visible = target.visible !== false
+    const locked = !!target.lockMovementX
+    return [
+      { key: 'rename', label: '重命名' },
+      { key: visible ? 'hide' : 'show', label: visible ? '隐藏' : '显示' },
+      { key: locked ? 'unlock' : 'lock', label: locked ? '解锁' : '锁定' },
+      { type: 'separator' as const },
+      { key: 'delete', label: '删除', danger: true },
+      { key: 'detach-source', label: '脱离源对象', disabled: !isKaleidoscopeInstance(target) },
+      { key: 'select-source', label: '选中源对象', disabled: !canLayerContextSelectSource.value },
+      { type: 'separator' as const },
+      { key: 'move-up', label: '上移一层', disabled: !canLayerContextMove.value || target === filteredLayers.value[0]?.obj },
+      { key: 'move-top', label: '上移到最顶层', disabled: !canLayerContextMove.value || target === filteredLayers.value[0]?.obj },
+      { key: 'move-down', label: '下移一层', disabled: !canLayerContextMove.value || target === filteredLayers.value[filteredLayers.value.length - 1]?.obj },
+      { key: 'move-bottom', label: '下移到最底层', disabled: !canLayerContextMove.value || target === filteredLayers.value[filteredLayers.value.length - 1]?.obj },
+      { type: 'separator' as const },
+      { key: 'duplicate', label: '复制图层' }
+    ]
+  }
+  return [
+    { key: 'group', label: '成组', disabled: !canLayerContextGroup.value },
+    { key: 'ungroup', label: '解组', disabled: !canLayerContextUngroup.value },
+    { key: 'duplicate', label: '复制' },
+    { key: 'delete', label: '删除', danger: true },
+    { type: 'separator' as const },
+    { key: 'hide', label: '隐藏', disabled: !targets.some((obj) => obj.visible !== false) },
+    { key: 'lock', label: '锁定', disabled: !targets.some((obj) => !obj.lockMovementX) },
+    { key: 'unlock', label: '解锁', disabled: !targets.some((obj) => !!obj.lockMovementX) },
+    { key: 'detach-source', label: '脱离源对象', disabled: !canLayerContextDetach.value }
+  ]
 })
 
 const canBoolean = computed(() => {
@@ -3255,14 +3414,7 @@ function selectKaleidoscopeSourceFromInstance() {
 function detachKaleidoscopeInstance() {
   const instance = activeKaleidoscopeInstance.value
   if (!instance || !fabricCanvas) return
-  clearKaleidoscopeMetadata(instance)
-  setKaleidoscopeInstanceManagedState(instance, false)
-  instance.setCoords()
-  fabricCanvas.requestRenderAll()
-  refreshLayers()
-  refreshActiveObject()
-  snapshot()
-  syncObjProps()
+  detachLayerSources([instance])
 }
 function getLocalPointFromCanvas(obj: EditablePathObject, x: number, y: number) {
   return new Point(x, y)
@@ -3934,7 +4086,6 @@ async function showBooleanPreview(operation: BooleanOperation, subtractDirection
   }
 }
 
-interface LayerItem { id: number; name: string; obj: FabricObject }
 const filteredLayers = computed(() => {
   void layerVersion.value
   if (!fabricCanvas) return []
@@ -3944,9 +4095,14 @@ const filteredLayers = computed(() => {
   for (let i = objects.length - 1; i >= 0; i--) {
     const obj = objects[i]
     if (isBooleanPreviewObject(obj)) continue
-    const name = (obj as any).name || obj.type || '对象'
-    if (!q || name.toLowerCase().includes(q)) {
-      items.push({ id: i, name, obj })
+    const name = (obj as AnyFabricObject).name || obj.type || '对象'
+    if (!q || String(name).toLowerCase().includes(q)) {
+      items.push({
+        id: ensureEditorObjectId(obj),
+        canvasIndex: i,
+        name: String(name),
+        obj
+      })
     }
   }
   return items
@@ -4048,6 +4204,231 @@ function getSelectedPointRadiusState(obj: EditablePathObject) {
   return { hasSelection: true, mixed, value }
 }
 
+function syncLayerDragItems() {
+  if (isLayerDragging.value) return
+  layerDragItems.value = filteredLayers.value.map((item) => ({ ...item }))
+}
+
+watch(filteredLayers, () => {
+  syncLayerDragItems()
+}, { immediate: true })
+
+function ensureShapeSelectionForLayerActions() {
+  if (selectionMode.value !== 'shape') {
+    setSelectionMode('shape')
+  }
+}
+
+function getLayerRangeObjects(target: FabricObject) {
+  const anchorId = layerSelectionAnchorId.value
+  const items = filteredLayers.value
+  const targetIndex = items.findIndex((item) => item.obj === target)
+  const anchorIndex = items.findIndex((item) => item.id === anchorId)
+  if (targetIndex < 0 || anchorIndex < 0) return [target]
+  const [start, end] = anchorIndex <= targetIndex ? [anchorIndex, targetIndex] : [targetIndex, anchorIndex]
+  return items.slice(start, end + 1).map((item) => item.obj)
+}
+
+function setLayerSelectionAnchor(obj: FabricObject) {
+  layerSelectionAnchorId.value = ensureEditorObjectId(obj)
+}
+
+function getCurrentLayerContextTargets() {
+  return layerContextMenuTargets.value
+}
+
+function closeLayerContextMenu() {
+  layerContextMenu.show = false
+}
+
+function setObjectsVisible(objects: FabricObject[], visible: boolean) {
+  if (!fabricCanvas) return
+  withSnapshotSuppressed(() => {
+    objects.forEach((obj) => {
+      obj.visible = visible
+      triggerKaleidoscopeVisibilitySync(obj)
+    })
+  })
+  fabricCanvas.requestRenderAll()
+  refreshActiveObject()
+  snapshot()
+}
+
+function setObjectsLocked(objects: FabricObject[], locked: boolean) {
+  if (!fabricCanvas) return
+  withSnapshotSuppressed(() => {
+    objects.forEach((obj) => {
+      obj.set({
+        lockMovementX: locked,
+        lockMovementY: locked,
+        lockScalingX: locked,
+        lockScalingY: locked,
+        lockRotation: locked,
+        hasControls: !locked,
+        selectable: true
+      })
+    })
+  })
+  fabricCanvas.requestRenderAll()
+  refreshActiveObject()
+  snapshot()
+}
+
+// 通过页面内输入确认框重命名图层，避免浏览器原生 prompt 打断编辑流程。
+function openLayerRenameDialog(obj: FabricObject) {
+  layerRenameDialog.target = obj
+  layerRenameDialog.value = String((obj as AnyFabricObject).name || obj.type || '对象')
+  layerRenameDialog.show = true
+}
+
+// 关闭重命名弹窗时同步清空临时输入与目标对象，避免旧状态污染下一次重命名。
+function handleLayerRenameDialogShowChange(show: boolean) {
+  layerRenameDialog.show = show
+  if (show) return
+  layerRenameDialog.value = ''
+  layerRenameDialog.target = null
+}
+
+// 提交图层重命名，只在有目标对象且名称有效时落盘并生成一次快照。
+function confirmLayerRename() {
+  const obj = layerRenameDialog.target
+  if (!obj) {
+    handleLayerRenameDialogShowChange(false)
+    return
+  }
+  const currentName = String((obj as AnyFabricObject).name || obj.type || '对象')
+  const trimmed = layerRenameDialog.value.trim()
+  if (!trimmed || trimmed === currentName) {
+    handleLayerRenameDialogShowChange(false)
+    return
+  }
+  ;(obj as AnyFabricObject).name = trimmed
+  refreshLayers()
+  refreshActiveObject()
+  snapshot()
+  handleLayerRenameDialogShowChange(false)
+}
+
+function selectLayerSourceObject(obj: FabricObject) {
+  const source = isKaleidoscopeInstance(obj)
+    ? findKaleidoscopeSourceById(getKaleidoscopeInstanceSourceId(obj))
+    : null
+  if (!source) return
+  ensureShapeSelectionForLayerActions()
+  applyActiveObjectsSelection([source])
+  setLayerSelectionAnchor(source)
+}
+
+function detachLayerSources(objects: FabricObject[]) {
+  const targets = objects.filter((obj) => isKaleidoscopeInstance(obj))
+  if (!targets.length || !fabricCanvas) return
+  withSnapshotSuppressed(() => {
+    targets.forEach((instance) => {
+      clearKaleidoscopeMetadata(instance)
+      setKaleidoscopeInstanceManagedState(instance, false)
+      instance.setCoords()
+    })
+  })
+  fabricCanvas.requestRenderAll()
+  refreshLayers()
+  refreshActiveObject()
+  snapshot()
+  syncObjProps()
+}
+
+function moveObjectsToLayerOrder(items: LayerItem[]) {
+  if (!fabricCanvas) return
+  const reversed = [...items].reverse()
+  reversed.forEach((item, index) => {
+    fabricCanvas!.moveObjectTo(item.obj as AnyFabricObject, index)
+  })
+}
+
+function reorderLayers() {
+  isLayerDragging.value = false
+  if (!fabricCanvas) return
+  if (isLayerDragDisabled.value) {
+    syncLayerDragItems()
+    return
+  }
+  clearBooleanPreview()
+  withSnapshotSuppressed(() => {
+    moveObjectsToLayerOrder(layerDragItems.value)
+  })
+  fabricCanvas.requestRenderAll()
+  refreshLayers()
+  snapshot()
+}
+
+function openLayerContextMenu(obj: FabricObject, event: MouseEvent) {
+  ensureShapeSelectionForLayerActions()
+  const activeObjects = fabricCanvas?.getActiveObjects() ?? []
+  if (!activeObjects.includes(obj)) {
+    applyActiveObjectsSelection([obj], event)
+    setLayerSelectionAnchor(obj)
+  }
+  layerContextMenu.x = event.clientX
+  layerContextMenu.y = event.clientY
+  layerContextMenu.show = true
+}
+
+function handleLayerContextMenuSelect(key: string) {
+  const action = key as LayerContextMenuAction
+  const targets = getCurrentLayerContextTargets()
+  const single = singleLayerContextTarget.value
+  closeLayerContextMenu()
+  if (!targets.length) return
+  switch (action) {
+    case 'rename':
+      if (single) openLayerRenameDialog(single)
+      return
+    case 'show':
+      setObjectsVisible(targets, true)
+      return
+    case 'hide':
+      setObjectsVisible(targets, false)
+      return
+    case 'lock':
+      setObjectsLocked(targets, true)
+      return
+    case 'unlock':
+      setObjectsLocked(targets, false)
+      return
+    case 'delete':
+      deleteObjects(targets)
+      return
+    case 'detach-source':
+      detachLayerSources(targets)
+      return
+    case 'select-source':
+      if (single) selectLayerSourceObject(single)
+      return
+    case 'move-up':
+      layerUp()
+      return
+    case 'move-top':
+      layerTop()
+      return
+    case 'move-down':
+      layerDown()
+      return
+    case 'move-bottom':
+      layerBottom()
+      return
+    case 'duplicate':
+      void duplicateSelection()
+      return
+    case 'group':
+      groupObjects()
+      return
+    case 'ungroup':
+      ungroupObject()
+      return
+  }
+}
+
+
+// 保留多对象选择结果，让图层面板可以批量选中万花筒实例后执行脱离、隐藏、锁定等操作。
 function applyActiveObjectsSelection(objects: FabricObject[], event?: MouseEvent) {
   if (!fabricCanvas) return
   const uniqueObjects = Array.from(new Set(objects))
@@ -4055,16 +4436,6 @@ function applyActiveObjectsSelection(objects: FabricObject[], event?: MouseEvent
   if (!uniqueObjects.length) {
     fabricCanvas.discardActiveObject(event)
     syncActiveObject(null)
-    fabricCanvas.requestRenderAll()
-    return
-  }
-
-  if (uniqueObjects.some((obj) => isKaleidoscopeObject(obj))) {
-    const preferred = uniqueObjects.find((obj) => isKaleidoscopeInstance(obj))
-      ?? uniqueObjects.find((obj) => isKaleidoscopeSource(obj))
-      ?? uniqueObjects[0]
-    fabricCanvas.setActiveObject(preferred, event)
-    syncActiveObject(fabricCanvas.getActiveObject() ?? preferred)
     fabricCanvas.requestRenderAll()
     return
   }
@@ -5604,24 +5975,43 @@ function isLayerActive(obj: FabricObject) {
   return fabricCanvas?.getActiveObjects().includes(obj) ?? false
 }
 
+function handleLayerMouseDown(obj: FabricObject, event: MouseEvent) {
+  if (event.button !== 0) return
+  selectLayer(obj, event)
+}
+
 function isLayerKaleidoscopeLocked(obj: FabricObject) {
   return isKaleidoscopeInstance(obj)
 }
 
-function selectLayer(obj: FabricObject, event?: MouseEvent) {
-  if (!fabricCanvas || selectionMode.value !== 'shape') return
+function selectLayer(obj: FabricObject, event?: MouseEvent | PointerEvent) {
+  if (!fabricCanvas) return
+  ensureShapeSelectionForLayerActions()
   clearPointEditing()
-  if (!isMultiSelectModifierPressed(event)) {
-    fabricCanvas.setActiveObject(obj, event)
-    syncActiveObject(fabricCanvas.getActiveObject() ?? obj)
-    fabricCanvas.requestRenderAll()
+  const selected = fabricCanvas.getActiveObjects()
+  const hasCtrlLike = !!event && !!(event.ctrlKey || event.metaKey)
+  const hasShift = !!event?.shiftKey
+  if (hasShift) {
+    const rangeObjects = getLayerRangeObjects(obj)
+    const nextSelection = hasCtrlLike
+      ? [...selected, ...rangeObjects]
+      : rangeObjects
+    applyActiveObjectsSelection(nextSelection, event as MouseEvent | undefined)
+    setLayerSelectionAnchor(obj)
     return
   }
-  const selectedObjects = fabricCanvas.getActiveObjects()
-  const nextSelection = selectedObjects.includes(obj)
-    ? selectedObjects.filter((item) => item !== obj)
-    : [...selectedObjects, obj]
-  applyActiveObjectsSelection(nextSelection, event)
+  if (hasCtrlLike) {
+    const nextSelection = selected.includes(obj)
+      ? selected.filter((item) => item !== obj)
+      : [...selected, obj]
+    applyActiveObjectsSelection(nextSelection, event as MouseEvent | undefined)
+    setLayerSelectionAnchor(obj)
+    return
+  }
+  fabricCanvas.setActiveObject(obj, event as MouseEvent | undefined)
+  syncActiveObject(fabricCanvas.getActiveObject() ?? obj)
+  fabricCanvas.requestRenderAll()
+  setLayerSelectionAnchor(obj)
 }
 
 function layerUp() {
@@ -5785,6 +6175,10 @@ function handleKeydown(e: KeyboardEvent) {
     e.preventDefault()
     return
   }
+  if (e.key === 'Shift') rulerModifierKeys.shift = true
+  if (e.key === 'Control') rulerModifierKeys.ctrl = true
+  if (e.key === 'Alt') rulerModifierKeys.alt = true
+  if (e.key === 'Meta') rulerModifierKeys.meta = true
   const action = getShortcutActionByEvent(e)
   if (action) {
     e.preventDefault()
@@ -5802,9 +6196,17 @@ function handleKeydown(e: KeyboardEvent) {
 
 function handleKeyup(e: KeyboardEvent) {
   if (e.key === ' ') endSpacePan()
+  if (e.key === 'Shift') rulerModifierKeys.shift = false
+  if (e.key === 'Control') rulerModifierKeys.ctrl = false
+  if (e.key === 'Alt') rulerModifierKeys.alt = false
+  if (e.key === 'Meta') rulerModifierKeys.meta = false
 }
 
 function handleWindowBlur() {
+  rulerModifierKeys.shift = false
+  rulerModifierKeys.ctrl = false
+  rulerModifierKeys.alt = false
+  rulerModifierKeys.meta = false
   endSpacePan()
 }
 
@@ -6451,7 +6853,10 @@ $panel-bg: #fff;
 }
 :deep(.side-tabs-tab) {
   flex: 1 1 0;
+  display: flex;
+  align-items: center;
   justify-content: center;
+  min-height: 40px;
   text-align: center;
 }
 .left-tabs {
@@ -6942,6 +7347,11 @@ $panel-bg: #fff;
   display: flex;
   flex-direction: column;
 }
+.layer-draggable-list {
+  display: flex;
+  flex-direction: column;
+  user-select: none;
+}
 .layer-empty {
   padding: 10px 8px 12px;
   font-size: 12px;
@@ -6953,15 +7363,70 @@ $panel-bg: #fff;
   gap: 4px;
   padding: 4px 8px;
   cursor: pointer;
+  user-select: none;
   &.active { background: #d0e0ff; }
   &:hover { background: #e8e8e8; }
+  &.is-drag-disabled .layer-drag-handle {
+    cursor: not-allowed;
+    color: #bbb;
+  }
   .layer-name {
     flex: 1;
     font-size: 12px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    user-select: none;
   }
+}
+.layer-drag-handle {
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: none;
+  color: #888;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  &:disabled {
+    cursor: not-allowed;
+  }
+  &:active:not(:disabled) {
+    cursor: grabbing;
+  }
+}
+.layer-rename-dialog {
+  min-width: 320px;
+  border: 1px solid var(--control-border);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--dialog-bg, #fff);
+}
+.layer-rename-header {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--divider-color, rgba(128, 128, 128, 0.18));
+}
+.layer-rename-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-color, #333);
+  line-height: 1.2;
+}
+.layer-rename-content {
+  padding: 16px;
+}
+.layer-rename-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 14px 16px;
+  border-top: 1px solid var(--divider-color, rgba(128, 128, 128, 0.18));
+}
+:deep(.zt-modal:has(.layer-rename-dialog) .zt-modal__body) {
+  padding: 0;
+  border-radius: 6px;
 }
 .layer-icon-btn {
   width: 22px;

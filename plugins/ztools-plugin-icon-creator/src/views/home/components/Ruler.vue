@@ -3,6 +3,20 @@
     <div class="ruler-corner"></div>
     <canvas class="ruler-h" ref="hCanvasRef"></canvas>
     <canvas class="ruler-v" ref="vCanvasRef"></canvas>
+    <div
+      v-if="horizontalHint.visible"
+      class="ruler-coordinate-hint ruler-coordinate-hint-x"
+      :style="{ left: `${horizontalHint.left}px`, top: `${horizontalHint.top}px` }"
+    >
+      {{ horizontalHint.label }}
+    </div>
+    <div
+      v-if="verticalHint.visible"
+      class="ruler-coordinate-hint ruler-coordinate-hint-y"
+      :style="{ left: `${verticalHint.left}px`, top: `${verticalHint.top}px` }"
+    >
+      {{ verticalHint.label }}
+    </div>
   </div>
 </template>
 
@@ -14,10 +28,20 @@ const props = defineProps<{
   scrollEl: HTMLElement | null
   wrapperEl: HTMLElement | null
   zoom: number
+  coordinateHintActive: boolean
 }>()
+
+type CoordinateHintState = {
+  visible: boolean
+  left: number
+  top: number
+  label: string
+}
 
 const RULER_SIZE = 24
 const TARGET_MAJOR_PX = 80
+const HINT_GAP = 6
+const HINT_HEIGHT = 24
 const STEP_CANDIDATES = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000]
 
 const { isDark, primaryColor, customColor } = useZtoolsTheme()
@@ -46,6 +70,8 @@ function getRulerColors() {
 
 const hCanvasRef = ref<HTMLCanvasElement | null>(null)
 const vCanvasRef = ref<HTMLCanvasElement | null>(null)
+const horizontalHint = ref<CoordinateHintState>(createCoordinateHintState())
+const verticalHint = ref<CoordinateHintState>(createCoordinateHintState())
 
 let lastClientX = -1
 let lastClientY = -1
@@ -53,7 +79,27 @@ let cursorActive = false
 let resizeObserver: ResizeObserver | null = null
 let rafId: number | null = null
 let attachedScrollEl: HTMLElement | null = null
-let attachedWrapperEl: HTMLElement | null = null
+
+// 创建坐标提示的初始结构，便于在多次重绘之间复用同一套状态字段。
+function createCoordinateHintState(): CoordinateHintState {
+  return {
+    visible: false,
+    left: 0,
+    top: 0,
+    label: ''
+  }
+}
+
+// 将提示限制在标尺覆盖层内，避免靠边时直接溢出到外侧。
+function clamp(value: number, min: number, max: number) {
+  if (max < min) return min
+  return Math.min(Math.max(value, min), max)
+}
+
+// 通过坐标文本长度估算提示宽度，避免为了定位再额外测量 DOM。
+function estimateCoordinateHintWidth(label: string) {
+  return Math.max(54, Math.round(label.length * 7.5 + 16))
+}
 
 function pickStep(zoom: number) {
   for (const c of STEP_CANDIDATES) {
@@ -84,12 +130,67 @@ function setupCanvas(canvas: HTMLCanvasElement, w: number, h: number) {
   return ctx
 }
 
+// 在键盘释放、鼠标离开或尺寸不可用时同步隐藏顶部与左侧的坐标提示。
+function hideCoordinateHints() {
+  horizontalHint.value.visible = false
+  verticalHint.value.visible = false
+}
+
+// 使用与标尺指针相同的换算结果更新 X/Y 提示，保证滚动和缩放后仍然贴合当前刻度。
+function updateCoordinateHints(
+  totalW: number,
+  totalH: number,
+  rulerW: number,
+  rulerH: number,
+  originHX: number,
+  originVY: number,
+  zoom: number,
+  cursorX: number,
+  cursorY: number
+) {
+  hideCoordinateHints()
+  if (!props.coordinateHintActive) return
+  if (cursorX === -1 || cursorY === -1) return
+
+  const cursorScreenX = originHX + cursorX * zoom
+  if (cursorScreenX >= 0 && cursorScreenX <= rulerW) {
+    const label = `X: ${Math.round(cursorX)}`
+    const width = estimateCoordinateHintWidth(label)
+    horizontalHint.value.label = label
+    horizontalHint.value.left = clamp(
+      RULER_SIZE + cursorScreenX - width / 2,
+      RULER_SIZE + 4,
+      totalW - width - 4
+    )
+    horizontalHint.value.top = clamp(RULER_SIZE + HINT_GAP, RULER_SIZE + 4, totalH - HINT_HEIGHT - 4)
+    horizontalHint.value.visible = true
+  }
+
+  const cursorScreenY = originVY + cursorY * zoom
+  if (cursorScreenY >= 0 && cursorScreenY <= rulerH) {
+    const label = `Y: ${Math.round(cursorY)}`
+    const width = estimateCoordinateHintWidth(label)
+    verticalHint.value.label = label
+    verticalHint.value.left = clamp(RULER_SIZE + HINT_GAP, RULER_SIZE + 4, totalW - width - 4)
+    verticalHint.value.top = clamp(
+      RULER_SIZE + cursorScreenY - HINT_HEIGHT / 2,
+      RULER_SIZE + 4,
+      totalH - HINT_HEIGHT - 4
+    )
+    verticalHint.value.visible = true
+  }
+}
+
+// 根据当前滚动、缩放与鼠标位置重绘标尺，并同步更新坐标提示。
 function draw() {
   const scroll = props.scrollEl
   const wrapper = props.wrapperEl
   const hCanvas = hCanvasRef.value
   const vCanvas = vCanvasRef.value
-  if (!scroll || !wrapper || !hCanvas || !vCanvas) return
+  if (!scroll || !wrapper || !hCanvas || !vCanvas) {
+    hideCoordinateHints()
+    return
+  }
 
   const scrollRect = scroll.getBoundingClientRect()
   const wrapperRect = wrapper.getBoundingClientRect()
@@ -98,7 +199,10 @@ function draw() {
   const totalH = scrollRect.height
   const rulerW = totalW - RULER_SIZE
   const rulerH = totalH - RULER_SIZE
-  if (rulerW <= 0 || rulerH <= 0) return
+  if (rulerW <= 0 || rulerH <= 0) {
+    hideCoordinateHints()
+    return
+  }
 
   // canvas-px 0 in coords local to each ruler canvas (which itself starts at RULER_SIZE on its axis)
   const originHX = wrapperRect.left - scrollRect.left - RULER_SIZE
@@ -121,6 +225,8 @@ function draw() {
 
   const ctxV = setupCanvas(vCanvas, RULER_SIZE, rulerH)
   drawVRuler(ctxV, rulerH, originVY, z, step, minorStep, cursorY)
+
+  updateCoordinateHints(totalW, totalH, rulerW, rulerH, originHX, originVY, z, cursorX, cursorY)
 }
 
 function drawHRuler(
@@ -247,6 +353,7 @@ function drawVRuler(
   }
 }
 
+// 记录最近一次鼠标位置，让标尺指针和坐标提示都能按当前视口实时刷新。
 function onMouseMove(e: MouseEvent) {
   lastClientX = e.clientX
   lastClientY = e.clientY
@@ -254,11 +361,13 @@ function onMouseMove(e: MouseEvent) {
   scheduleDraw()
 }
 
+// 鼠标离开画布滚动区后立即清空指针显示，避免坐标提示停留在旧位置。
 function onMouseLeave() {
   cursorActive = false
   scheduleDraw()
 }
 
+// 绑定当前滚动容器的事件与尺寸观察，保证标尺和坐标提示都能跟随滚动区变化刷新。
 function attach() {
   detach()
   const scroll = props.scrollEl
@@ -268,7 +377,6 @@ function attach() {
   scroll.addEventListener('mousemove', onMouseMove)
   scroll.addEventListener('mouseleave', onMouseLeave)
   attachedScrollEl = scroll
-  attachedWrapperEl = wrapper
   resizeObserver = new ResizeObserver(scheduleDraw)
   resizeObserver.observe(scroll)
   if (wrapper) resizeObserver.observe(wrapper)
@@ -276,6 +384,7 @@ function attach() {
   scheduleDraw()
 }
 
+// 释放旧滚动容器上的监听与动画帧，避免组件重挂后继续操作失效节点。
 function detach() {
   if (attachedScrollEl) {
     attachedScrollEl.removeEventListener('scroll', scheduleDraw)
@@ -283,7 +392,6 @@ function detach() {
     attachedScrollEl.removeEventListener('mouseleave', onMouseLeave)
     attachedScrollEl = null
   }
-  attachedWrapperEl = null
   resizeObserver?.disconnect()
   resizeObserver = null
   window.removeEventListener('resize', scheduleDraw)
@@ -291,6 +399,7 @@ function detach() {
     cancelAnimationFrame(rafId)
     rafId = null
   }
+  hideCoordinateHints()
 }
 
 watch(
@@ -302,7 +411,7 @@ watch(
   { immediate: true, flush: 'post' }
 )
 
-watch(() => [props.zoom, isDark.value, primaryColor.value, customColor.value], scheduleDraw)
+watch(() => [props.zoom, props.coordinateHintActive, isDark.value, primaryColor.value, customColor.value], scheduleDraw)
 
 onBeforeUnmount(detach)
 </script>
@@ -340,5 +449,27 @@ onBeforeUnmount(detach)
   bottom: 0;
   width: 24px;
   display: block;
+}
+.ruler-coordinate-hint {
+  position: absolute;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid var(--primary-color, #0284c7);
+  background: var(--dialog-bg, rgba(255, 255, 255, 0.96));
+  color: var(--text-color, #111827);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12);
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.ruler-coordinate-hint-x {
+  transform-origin: top center;
+}
+.ruler-coordinate-hint-y {
+  transform-origin: center left;
 }
 </style>
