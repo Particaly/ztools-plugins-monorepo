@@ -18,8 +18,7 @@
         <ZButton size="small" class="top-bar-btn" @click="importSVG" title="导入 SVG">导入 SVG</ZButton>
         <ZButton size="small" class="top-bar-btn" @click="openPasteSVGDialog" title="粘贴 SVG 或 Path">粘贴 SVG</ZButton>
         <ZButton size="small" class="top-bar-btn" @click="importImage" title="导入图片">导入图片</ZButton>
-        <ZButton size="small" class="top-bar-btn" @click="exportSVG" title="导出 SVG">导出 SVG</ZButton>
-        <ZButton size="small" class="top-bar-btn" @click="exportPNG" title="导出 PNG">导出 PNG</ZButton>
+        <ZButton size="small" class="top-bar-btn" @click="openExportDialog" title="导出面板">导出</ZButton>
         <span class="tb-sep"></span>
         <ZButton size="small" class="top-bar-btn" :disabled="!canUndo" @click="undo" title="撤销">撤销</ZButton>
         <ZButton size="small" class="top-bar-btn" :disabled="!canRedo" @click="redo" title="重做">重做</ZButton>
@@ -866,6 +865,80 @@
       </div>
     </ZModal>
 
+    <ZModal
+      :show="exportDialog.show"
+      preset="dialog"
+      :show-mask="true"
+      :mask-closable="true"
+      :close-on-esc="true"
+      :auto-focus="true"
+      @update:show="handleExportDialogShowChange"
+    >
+      <div class="export-dialog">
+        <div class="export-dialog-header">
+          <div class="export-dialog-title">导出图标</div>
+          <div class="export-dialog-desc">选择导出格式、PNG 尺寸、透明背景和文件名前缀。</div>
+        </div>
+        <div class="export-dialog-content">
+          <div class="export-section">
+            <div class="export-section-title">格式</div>
+            <label class="export-check-option">
+              <input type="checkbox" :checked="exportDialog.svgEnabled" @change="setExportFormatEnabled('svg', evChecked($event))" />
+              <span>SVG</span>
+            </label>
+            <label class="export-check-option">
+              <input type="checkbox" :checked="exportDialog.pngEnabled" @change="setExportFormatEnabled('png', evChecked($event))" />
+              <span>PNG</span>
+            </label>
+          </div>
+          <div v-if="exportDialog.pngEnabled" class="export-section">
+            <div class="export-section-title">PNG 尺寸</div>
+            <div class="export-size-grid">
+              <button
+                v-for="size in EXPORT_PNG_SIZE_OPTIONS"
+                :key="size"
+                type="button"
+                class="export-size-btn"
+                :class="{ active: isExportPngSizeSelected(size) }"
+                @click="toggleExportPngSize(size)"
+              >{{ size }}</button>
+            </div>
+            <div class="export-custom-size-row">
+              <label>自定义</label>
+              <ZInput
+                size="small"
+                type="text"
+                :model-value="exportDialog.customSizeInput"
+                placeholder="例如 1024"
+                @update:model-value="exportDialog.customSizeInput = String($event)"
+              />
+            </div>
+            <label class="export-check-option export-transparent-option">
+              <input type="checkbox" :checked="exportDialog.transparentBg" @change="exportDialog.transparentBg = evChecked($event)" />
+              <span>PNG 使用透明背景</span>
+            </label>
+          </div>
+          <div class="export-section">
+            <div class="export-section-title">文件名</div>
+            <ZInput
+              size="small"
+              type="text"
+              :model-value="exportDialog.filePrefix"
+              placeholder="文件名前缀"
+              @update:model-value="exportDialog.filePrefix = String($event)"
+            />
+          </div>
+          <pre v-if="exportDialog.status" class="export-status">{{ exportDialog.status }}</pre>
+        </div>
+        <div class="export-dialog-actions">
+          <ZButton size="small" :disabled="exportDialog.loading" @click="handleExportDialogShowChange(false)">关闭</ZButton>
+          <ZButton size="small" type="primary" :disabled="exportDialog.loading || !exportDialogCanExport" @click="runExportDialogExport">
+            {{ exportDialog.loading ? '导出中...' : '导出' }}
+          </ZButton>
+        </div>
+      </div>
+    </ZModal>
+
         <ZModal
           :show="layerRenameDialog.show"
           preset="dialog"
@@ -1141,6 +1214,19 @@ type PasteSVGDialogState = {
   loading: boolean
 }
 
+type ExportFormat = 'svg' | 'png'
+type ExportDialogState = {
+  show: boolean
+  svgEnabled: boolean
+  pngEnabled: boolean
+  pngSizes: number[]
+  customSizeInput: string
+  transparentBg: boolean
+  filePrefix: string
+  status: string
+  loading: boolean
+}
+
 const KALEIDOSCOPE_CENTER_CONTROL_KEY = 'kaleidoscopeCenter'
 const RADIAL_GRADIENT_CENTER_CONTROL_KEY = 'radialGradientCenter'
 const DIRECT_EDIT_SHAPE_IDS = new Set(['base-line', 'base-arrow-right', 'base-solid-shaft-arrow', 'base-double-solid-shaft-arrow'])
@@ -1150,6 +1236,7 @@ const PROJECT_SCHEMA_VERSION = 1
 const PROJECT_FILE_EXTENSION = 'iconcreator.json'
 const DRAFT_STORAGE_KEY = 'icon-creator:auto-save-draft:v1'
 const DRAFT_SAVE_DELAY = 800
+const EXPORT_PNG_SIZE_OPTIONS = [16, 24, 32, 48, 64, 128, 256, 512]
 let editorObjectIdSeed = 0
 
 // ── refs ──
@@ -1412,6 +1499,17 @@ const pasteSVGDialog = reactive<PasteSVGDialogState>({
   show: false,
   value: '',
   error: '',
+  loading: false
+})
+const exportDialog = reactive<ExportDialogState>({
+  show: false,
+  svgEnabled: true,
+  pngEnabled: true,
+  pngSizes: [64, 128, 256],
+  customSizeInput: '',
+  transparentBg: false,
+  filePrefix: 'icon',
+  status: '',
   loading: false
 })
 function refreshLayers() {
@@ -6359,26 +6457,141 @@ function saveProject() {
   }
 }
 
-function exportSVG() {
-  if (!fabricCanvas) return
-  clearBooleanPreview()
-  const svg = fabricCanvas.toSVG()
-  window.services?.writeSvgFile?.(svg)
+// 规范导出文件名前缀，避免空值或非法文件名字符影响下载目录写入。
+function getExportFilePrefix() {
+  const normalized = exportDialog.filePrefix.trim().replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
+  return normalized || 'icon'
 }
 
-function exportPNG() {
-  if (!fabricCanvas) return
+// 将用户输入的 PNG 尺寸约束到可导出的安全整数范围，非法值返回 null 供上层忽略。
+function normalizeExportPngSize(value: unknown) {
+  const parsed = Math.round(Number(value))
+  if (!Number.isFinite(parsed) || parsed <= 0) return null
+  return Math.min(4096, Math.max(1, parsed))
+}
+
+// 合并预设尺寸和自定义尺寸，去重后升序输出，作为批量 PNG 导出的最终尺寸列表。
+function getExportPngSizes() {
+  const sizes = new Set<number>()
+  exportDialog.pngSizes.forEach((size) => {
+    const normalized = normalizeExportPngSize(size)
+    if (normalized) sizes.add(normalized)
+  })
+  const customSize = normalizeExportPngSize(exportDialog.customSizeInput.trim())
+  if (customSize) sizes.add(customSize)
+  return Array.from(sizes).sort((a, b) => a - b)
+}
+
+const exportDialogCanExport = computed(() => (
+  exportDialog.svgEnabled || (exportDialog.pngEnabled && getExportPngSizes().length > 0)
+))
+
+// 打开导出面板并清空上一次状态，保留用户上次选择的格式、尺寸和文件名前缀。
+function openExportDialog() {
+  exportDialog.show = true
+  exportDialog.status = ''
+}
+
+// 关闭导出面板时结束加载状态；导出结果文本会在下一次打开时重置。
+function handleExportDialogShowChange(show: boolean) {
+  exportDialog.show = show
+  if (!show) exportDialog.loading = false
+}
+
+// 控制导出格式开关，允许临时全部取消，此时导出按钮会被禁用。
+function setExportFormatEnabled(format: ExportFormat, enabled: boolean) {
+  if (format === 'svg') exportDialog.svgEnabled = enabled
+  else exportDialog.pngEnabled = enabled
+  exportDialog.status = ''
+}
+
+function isExportPngSizeSelected(size: number) {
+  return exportDialog.pngSizes.includes(size)
+}
+
+// 切换预设 PNG 尺寸并保持尺寸列表升序，便于导出状态和文件名稳定可读。
+function toggleExportPngSize(size: number) {
+  const normalized = normalizeExportPngSize(size)
+  if (!normalized) return
+  if (exportDialog.pngSizes.includes(normalized)) {
+    exportDialog.pngSizes = exportDialog.pngSizes.filter((item) => item !== normalized)
+  } else {
+    exportDialog.pngSizes = [...exportDialog.pngSizes, normalized].sort((a, b) => a - b)
+  }
+  exportDialog.status = ''
+}
+
+// 导出 SVG 到下载目录，支持导出面板传入自定义文件名。
+function exportSVG(fileName?: string) {
+  if (!fabricCanvas) return ''
   clearBooleanPreview()
+  const svg = fabricCanvas.toSVG()
+  return window.services?.writeSvgFile?.(svg, fileName) || ''
+}
+
+// 在不改变当前编辑视图的前提下渲染指定宽度的 PNG，并可临时移除背景色实现透明导出。
+function renderPNGDataUrl(size: number, transparentBackground: boolean) {
+  if (!fabricCanvas) return ''
   const currentZoom = fabricCanvas.getZoom()
-  fabricCanvas.setZoom(1)
-  fabricCanvas.setDimensions({ width: canvasWidth.value, height: canvasHeight.value })
-  const dataUrl = fabricCanvas.toDataURL({ format: 'png', multiplier: 2 })
-  fabricCanvas.setZoom(currentZoom)
-  fabricCanvas.setDimensions(
-    { width: canvasWidth.value * currentZoom, height: canvasHeight.value * currentZoom },
-    { cssOnly: true }
-  )
-  window.services?.writeImageFile?.(dataUrl)
+  const currentBg = fabricCanvas.backgroundColor
+  const multiplier = size / canvasWidth.value
+  try {
+    fabricCanvas.setZoom(1)
+    fabricCanvas.setDimensions({ width: canvasWidth.value, height: canvasHeight.value })
+    if (transparentBackground) fabricCanvas.backgroundColor = ''
+    fabricCanvas.requestRenderAll()
+    return fabricCanvas.toDataURL({ format: 'png', multiplier })
+  } finally {
+    fabricCanvas.backgroundColor = currentBg
+    fabricCanvas.setZoom(currentZoom)
+    fabricCanvas.setDimensions(
+      { width: canvasWidth.value * currentZoom, height: canvasHeight.value * currentZoom },
+      { cssOnly: true }
+    )
+    fabricCanvas.requestRenderAll()
+  }
+}
+
+// 导出单个 PNG 到下载目录，size 表示输出宽度，文件名由导出面板生成。
+function exportPNG(size = canvasWidth.value, fileName?: string, transparentBackground = false) {
+  if (!fabricCanvas) return ''
+  clearBooleanPreview()
+  const normalizedSize = normalizeExportPngSize(size) ?? canvasWidth.value
+  const dataUrl = renderPNGDataUrl(normalizedSize, transparentBackground)
+  return dataUrl ? window.services?.writeImageFile?.(dataUrl, fileName) || '' : ''
+}
+
+// 按导出面板配置批量输出 SVG 和多尺寸 PNG，并在面板内展示保存路径或错误信息。
+async function runExportDialogExport() {
+  if (!fabricCanvas || exportDialog.loading) return
+  const pngSizes = getExportPngSizes()
+  if (!exportDialog.svgEnabled && (!exportDialog.pngEnabled || !pngSizes.length)) {
+    exportDialog.status = '请至少选择一种导出格式或一个 PNG 尺寸。'
+    return
+  }
+  exportDialog.loading = true
+  exportDialog.status = ''
+  try {
+    const prefix = getExportFilePrefix()
+    const paths: string[] = []
+    if (exportDialog.svgEnabled) {
+      const path = exportSVG(`${prefix}.svg`)
+      if (path) paths.push(path)
+    }
+    if (exportDialog.pngEnabled) {
+      pngSizes.forEach((size) => {
+        const path = exportPNG(size, `${prefix}-${size}.png`, exportDialog.transparentBg)
+        if (path) paths.push(path)
+      })
+    }
+    exportDialog.status = paths.length
+      ? `导出成功：\n${paths.join('\n')}`
+      : '导出失败：未生成任何文件。'
+  } catch (error) {
+    exportDialog.status = error instanceof Error ? error.message : '导出失败'
+  } finally {
+    exportDialog.loading = false
+  }
 }
 
 // 新建空白文档时清理当前选择、历史记录和旧草稿，避免上一份作品继续触发恢复提示。
@@ -6633,7 +6846,7 @@ function isFabricTextboxEditing() {
 }
 
 function shouldIgnoreEditorShortcut(event: KeyboardEvent) {
-  if (pasteSVGDialog.show) return true
+  if (pasteSVGDialog.show || exportDialog.show) return true
   if (event.isComposing) return true
   if (isEditableTarget(event.target)) return true
   const target = event.target
@@ -7947,6 +8160,7 @@ $panel-bg: #fff;
     cursor: grabbing;
   }
 }
+.export-dialog,
 .paste-svg-dialog,
 .layer-rename-dialog {
   min-width: 320px;
@@ -7955,11 +8169,16 @@ $panel-bg: #fff;
   overflow: hidden;
   background: var(--dialog-bg, #fff);
 }
+.export-dialog {
+  width: min(520px, 92vw);
+}
+.export-dialog-header,
 .paste-svg-header,
 .layer-rename-header {
   padding: 14px 16px;
   border-bottom: 1px solid var(--divider-color, rgba(128, 128, 128, 0.18));
 }
+.export-dialog-title,
 .paste-svg-title,
 .layer-rename-title {
   font-size: 15px;
@@ -7967,15 +8186,80 @@ $panel-bg: #fff;
   color: var(--text-color, #333);
   line-height: 1.2;
 }
+.export-dialog-content,
 .paste-svg-content,
 .layer-rename-content {
   padding: 16px;
 }
+.export-dialog-desc,
 .paste-svg-desc {
   margin-top: 6px;
   font-size: 12px;
   line-height: 1.5;
   color: #777;
+}
+.export-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  &:not(:last-child) {
+    margin-bottom: 16px;
+  }
+}
+.export-section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-color, #333);
+}
+.export-check-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-color, #333);
+}
+.export-size-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+.export-size-btn {
+  border: 1px solid var(--control-border);
+  border-radius: 4px;
+  padding: 6px 4px;
+  background: var(--control-bg);
+  color: var(--text-color);
+  cursor: pointer;
+  &.active {
+    color: var(--primary-color);
+    border-color: var(--primary-color);
+    background: rgba(0, 128, 255, 0.08);
+  }
+}
+.export-custom-size-row {
+  display: grid;
+  grid-template-columns: 52px 1fr;
+  align-items: center;
+  gap: 8px;
+  label {
+    font-size: 12px;
+    color: #777;
+  }
+}
+.export-transparent-option {
+  margin-top: 2px;
+}
+.export-status {
+  margin: 8px 0 0;
+  max-height: 160px;
+  overflow: auto;
+  padding: 8px;
+  border-radius: 4px;
+  background: var(--control-bg);
+  color: var(--text-color);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
 }
 .paste-svg-textarea {
   width: 100%;
@@ -8001,6 +8285,7 @@ $panel-bg: #fff;
   font-size: 12px;
   line-height: 1.4;
 }
+.export-dialog-actions,
 .paste-svg-actions,
 .layer-rename-actions {
   display: flex;
@@ -8013,6 +8298,7 @@ $panel-bg: #fff;
 .paste-svg-action-spacer {
   flex: 1;
 }
+:deep(.zt-modal:has(.export-dialog) .zt-modal__body),
 :deep(.zt-modal:has(.paste-svg-dialog) .zt-modal__body),
 :deep(.zt-modal:has(.layer-rename-dialog) .zt-modal__body) {
   padding: 0;

@@ -11,8 +11,8 @@ declare module '*.vue' {
 interface Services {
   readFile: (file: string) => string
   writeTextFile: (text: string, ext?: string) => string
-  writeSvgFile: (svgText: string) => string
-  writeImageFile: (base64Url: string) => string | undefined
+  writeSvgFile: (svgText: string, fileName?: string) => string
+  writeImageFile: (base64Url: string, fileName?: string) => string | undefined
 }
 
 declare global {

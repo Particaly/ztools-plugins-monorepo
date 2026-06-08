@@ -1,6 +1,25 @@
 const fs = require('node:fs')
 const path = require('node:path')
 
+// 生成安全的下载目录文件名，避免渲染进程传入路径片段或非法字符。
+function sanitizeDownloadFileName(fileName, fallback) {
+  const raw = typeof fileName === 'string' && fileName.trim() ? fileName.trim() : fallback
+  return path.basename(raw).replace(/[<>:"/\\|?*\x00-\x1f]/g, '_') || fallback
+}
+
+// 在下载目录中生成不覆盖既有文件的路径；同名文件已存在时自动追加序号。
+function createUniqueDownloadPath(fileName) {
+  const downloads = window.ztools.getPath('downloads')
+  const parsed = path.parse(fileName)
+  let index = 0
+  let candidate = path.join(downloads, fileName)
+  while (fs.existsSync(candidate)) {
+    index += 1
+    candidate = path.join(downloads, `${parsed.name}-${index}${parsed.ext}`)
+  }
+  return candidate
+}
+
 // 通过 window 对象向渲染进程注入 nodejs 能力
 window.services = {
   // 读文件
@@ -13,20 +32,22 @@ window.services = {
     fs.writeFileSync(filePath, text, { encoding: 'utf-8' })
     return filePath
   },
-  // SVG 写入到下载目录
-  writeSvgFile(svgText) {
-    const filePath = path.join(window.ztools.getPath('downloads'), Date.now().toString() + '.svg')
+  // SVG 写入到下载目录，可传入文件名用于导出面板自定义前缀。
+  writeSvgFile(svgText, fileName) {
+    const safeFileName = sanitizeDownloadFileName(fileName, Date.now().toString() + '.svg')
+    const targetName = safeFileName.endsWith('.svg') ? safeFileName : safeFileName + '.svg'
+    const filePath = createUniqueDownloadPath(targetName)
     fs.writeFileSync(filePath, svgText, { encoding: 'utf-8' })
     return filePath
   },
-  // 图片写入到下载目录
-  writeImageFile(base64Url) {
+  // 图片写入到下载目录，可传入文件名用于导出面板输出多尺寸 PNG。
+  writeImageFile(base64Url, fileName) {
     const matchs = /^data:image\/([a-z]{1,20});base64,/i.exec(base64Url)
     if (!matchs) return
-    const filePath = path.join(
-      window.ztools.getPath('downloads'),
-      Date.now().toString() + '.' + matchs[1]
-    )
+    const ext = matchs[1]
+    const safeFileName = sanitizeDownloadFileName(fileName, Date.now().toString() + '.' + ext)
+    const targetName = safeFileName.endsWith('.' + ext) ? safeFileName : safeFileName + '.' + ext
+    const filePath = createUniqueDownloadPath(targetName)
     fs.writeFileSync(filePath, base64Url.substring(matchs[0].length), { encoding: 'base64' })
     return filePath
   }
