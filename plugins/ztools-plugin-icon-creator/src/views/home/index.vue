@@ -13,6 +13,8 @@
       </div>
       <div class="top-bar-center">
         <ZButton size="small" class="top-bar-btn" @click="newDoc" title="新建">新建</ZButton>
+        <ZButton size="small" class="top-bar-btn" @click="openProject" title="打开工程">打开工程</ZButton>
+        <ZButton size="small" class="top-bar-btn" @click="saveProject" title="保存工程">保存工程</ZButton>
         <ZButton size="small" class="top-bar-btn" @click="importImage" title="导入图片">导入图片</ZButton>
         <ZButton size="small" class="top-bar-btn" @click="exportSVG" title="导出 SVG">导出 SVG</ZButton>
         <ZButton size="small" class="top-bar-btn" @click="exportPNG" title="导出 PNG">导出 PNG</ZButton>
@@ -858,6 +860,7 @@
         </ZModal>
 
         <!-- 隐藏的文件输入 -->
+    <input ref="projectInputRef" type="file" accept=".iconcreator.json,application/json" style="display:none" @change="onProjectFileChosen" />
     <input ref="imgInputRef" type="file" accept="image/*" style="display:none" @change="onImageFileChosen" />
   </div>
 </template>
@@ -978,6 +981,43 @@ type InternalClipboard = {
   pasteCount: number
 }
 
+type IconCreatorProjectCanvas = {
+  width: number
+  height: number
+  background: string
+}
+
+type IconCreatorProjectFile = {
+  app: 'icon-creator'
+  schemaVersion: number
+  createdAt: string
+  updatedAt: string
+  canvas: IconCreatorProjectCanvas
+  fabric: Record<string, unknown>
+  layerOrder: string[]
+}
+
+type IconCreatorDraftFile = {
+  app: 'icon-creator'
+  schemaVersion: number
+  updatedAt: string
+  project: IconCreatorProjectFile
+}
+
+type ParsedProjectFileResult = {
+  project: IconCreatorProjectFile
+  source: 'project' | 'draft'
+}
+
+type ProjectLoadOptions = {
+  keepDraft?: boolean
+  resetHistory?: boolean
+}
+
+type SnapshotOptions = {
+  autoSave?: boolean
+}
+
 type SpacePanStart = {
   pointerId: number
   x: number
@@ -1061,6 +1101,10 @@ const RADIAL_GRADIENT_CENTER_CONTROL_KEY = 'radialGradientCenter'
 const DIRECT_EDIT_SHAPE_IDS = new Set(['base-line', 'base-arrow-right', 'base-solid-shaft-arrow', 'base-double-solid-shaft-arrow'])
 const FABRIC_TRANSFORM_CONTROL_KEYS = ['tl', 'tr', 'br', 'bl', 'ml', 'mt', 'mr', 'mb', 'mtr']
 const ENDPOINT_SNAP_MARGIN = 4
+const PROJECT_SCHEMA_VERSION = 1
+const PROJECT_FILE_EXTENSION = 'iconcreator.json'
+const DRAFT_STORAGE_KEY = 'icon-creator:auto-save-draft:v1'
+const DRAFT_SAVE_DELAY = 800
 let editorObjectIdSeed = 0
 
 // ── refs ──
@@ -1068,6 +1112,7 @@ const canvasElRef = ref<HTMLCanvasElement | null>(null)
 const canvasAreaRef = ref<HTMLElement | null>(null)
 const canvasWrapperRef = ref<HTMLElement | null>(null)
 const imgInputRef = ref<HTMLInputElement | null>(null)
+const projectInputRef = ref<HTMLInputElement | null>(null)
 
 // ── 状态 ──
 let fabricCanvas: Canvas | null = null
@@ -1076,6 +1121,9 @@ let restoreActiveObjectAfterSelectionClear = false
 let pointModeSwitchPending = false
 let internalClipboard: InternalClipboard | null = null
 let spacePanStart: SpacePanStart | null = null
+let draftSaveTimer: ReturnType<typeof window.setTimeout> | null = null
+let draftDirty = false
+let restoringDraftPromptShown = false
 
 const leftTab = ref<'shape' | 'text'>('shape')
 const activeRightTab = ref<'properties' | 'layers'>('properties')
@@ -4109,13 +4157,21 @@ const filteredLayers = computed(() => {
 })
 
 // ── 快照（撤销重做） ──
-function snapshot() {
+// 序列化当前 Fabric 画布，统一保留项目需要的自定义对象元数据。
+function serializeFabricCanvas() {
+  ensureCanvasObjectMetadata()
+  return (fabricCanvas as any).toObject(SERIALIZED_OBJECT_PROPS as unknown as string[]) as Record<string, unknown>
+}
+
+// 记录一次可撤销快照，并在真实编辑后触发草稿自动保存。
+function snapshot(options: SnapshotOptions = {}) {
   if (skipSnapshot || !fabricCanvas) return
-  undoStack.push(JSON.stringify((fabricCanvas as any).toObject(SERIALIZED_OBJECT_PROPS as unknown as string[])))
+  undoStack.push(JSON.stringify(serializeFabricCanvas()))
   if (undoStack.length > 60) undoStack.shift()
   redoStack.length = 0
   canUndo.value = undoStack.length > 1
   canRedo.value = false
+  if (options.autoSave !== false) scheduleDraftSave()
 }
 
 function isTransparentCanvasBg(value: unknown) {
@@ -4144,6 +4200,216 @@ function syncCanvasBgFromFabric() {
   const next = String(bg)
   canvasBg.value = next
   lastOpaqueCanvasBg.value = next
+}
+
+// 读取工程画布尺寸，过滤无效值，避免损坏文件把画布恢复成不可见尺寸。
+function normalizeProjectCanvasSettings(value: unknown): IconCreatorProjectCanvas {
+  const source = value && typeof value === 'object' ? value as Partial<IconCreatorProjectCanvas> : {}
+  const width = Number(source.width)
+  const height = Number(source.height)
+  return {
+    width: Number.isFinite(width) && width > 0 ? width : 512,
+    height: Number.isFinite(height) && height > 0 ? height : 512,
+    background: normalizeCanvasBg(source.background ?? '#ffffff')
+  }
+}
+
+// 基于当前编辑器状态生成工程文件数据，供手动保存与自动草稿复用同一份 schema。
+function createProjectFile(): IconCreatorProjectFile {
+  if (!fabricCanvas) throw new Error('画布尚未初始化')
+  const now = new Date().toISOString()
+  const layerOrder = fabricCanvas.getObjects()
+    .filter((obj) => !isBooleanPreviewObject(obj))
+    .map((obj) => ensureEditorObjectId(obj))
+  return {
+    app: 'icon-creator',
+    schemaVersion: PROJECT_SCHEMA_VERSION,
+    createdAt: now,
+    updatedAt: now,
+    canvas: {
+      width: canvasWidth.value,
+      height: canvasHeight.value,
+      background: canvasBg.value
+    },
+    fabric: serializeFabricCanvas(),
+    layerOrder
+  }
+}
+
+// 将工程数据包装成稳定的 JSON 文本，方便后续保存、比对和草稿落盘。
+function stringifyProjectFile(project: IconCreatorProjectFile) {
+  return JSON.stringify({
+    ...project,
+    updatedAt: new Date().toISOString()
+  }, null, 2)
+}
+
+// 解析手动工程文件或自动草稿，校验应用标识与 schema 版本后再允许恢复。
+function parseProjectFileText(text: string): ParsedProjectFileResult {
+  const parsed = JSON.parse(text) as Partial<IconCreatorProjectFile | IconCreatorDraftFile>
+  const maybeDraft = parsed as Partial<IconCreatorDraftFile>
+  const project = maybeDraft.app === 'icon-creator' && maybeDraft.project
+    ? maybeDraft.project
+    : parsed as Partial<IconCreatorProjectFile>
+  if (project.app !== 'icon-creator') throw new Error('不是 Icon Creator 工程文件')
+  if (typeof project.schemaVersion !== 'number' || project.schemaVersion > PROJECT_SCHEMA_VERSION) {
+    throw new Error('工程文件版本不兼容')
+  }
+  if (!project.fabric || typeof project.fabric !== 'object') throw new Error('工程文件缺少画布对象数据')
+  return {
+    project: {
+      app: 'icon-creator',
+      schemaVersion: project.schemaVersion || PROJECT_SCHEMA_VERSION,
+      createdAt: typeof project.createdAt === 'string' ? project.createdAt : new Date().toISOString(),
+      updatedAt: typeof project.updatedAt === 'string' ? project.updatedAt : new Date().toISOString(),
+      canvas: normalizeProjectCanvasSettings(project.canvas),
+      fabric: project.fabric as Record<string, unknown>,
+      layerOrder: Array.isArray(project.layerOrder) ? project.layerOrder.filter((id): id is string => typeof id === 'string') : []
+    },
+    source: maybeDraft.project ? 'draft' : 'project'
+  }
+}
+
+// 重置撤销重做栈，并把当前画布状态作为打开工程后的初始快照。
+function resetHistoryToCurrentCanvas() {
+  undoStack.length = 0
+  redoStack.length = 0
+  canUndo.value = false
+  canRedo.value = false
+  snapshot({ autoSave: false })
+}
+
+// 根据工程中记录的 editorObjectId 顺序恢复图层，缺失或新增对象保留当前相对顺序追加。
+function applyProjectLayerOrder(layerOrder: string[]) {
+  if (!fabricCanvas || !layerOrder.length) return
+  const orderMap = new Map(layerOrder.map((id, index) => [id, index]))
+  const objects = fabricCanvas.getObjects().filter((obj) => !isBooleanPreviewObject(obj))
+  const fallbackIndexMap = new Map(objects.map((obj, index) => [obj, index]))
+  const sorted = [...objects].sort((a, b) => {
+    const aId = String((a as AnyFabricObject).editorObjectId || '')
+    const bId = String((b as AnyFabricObject).editorObjectId || '')
+    const aOrder = orderMap.get(aId) ?? Number.MAX_SAFE_INTEGER
+    const bOrder = orderMap.get(bId) ?? Number.MAX_SAFE_INTEGER
+    if (aOrder !== bOrder) return aOrder - bOrder
+    return (fallbackIndexMap.get(a) ?? 0) - (fallbackIndexMap.get(b) ?? 0)
+  })
+  sorted.forEach((obj, index) => fabricCanvas!.moveObjectTo(obj as AnyFabricObject, index))
+}
+
+// 将工程数据恢复到 Fabric 画布，并同步尺寸、背景、图层和自定义元数据。
+async function loadProjectFile(project: IconCreatorProjectFile, options: ProjectLoadOptions = {}) {
+  if (!fabricCanvas) return
+  clearBooleanPreview()
+  clearPointEditing()
+  const settings = normalizeProjectCanvasSettings(project.canvas)
+  canvasWidth.value = settings.width
+  canvasHeight.value = settings.height
+  canvasBg.value = settings.background
+  if (!isTransparentCanvasBg(settings.background)) lastOpaqueCanvasBg.value = settings.background
+  syncCanvasSizeInputs()
+  skipSnapshot = true
+  try {
+    fabricCanvas.clear()
+    fabricCanvas.setDimensions({ width: canvasWidth.value, height: canvasHeight.value })
+    await fabricCanvas.loadFromJSON(project.fabric)
+    applyCanvasBgToFabric(canvasBg.value)
+    await syncAllKaleidoscopes()
+    ensureCanvasObjectMetadata()
+    applyProjectLayerOrder(project.layerOrder)
+    rehydrateCanvasGradientFills()
+    syncAllEndpointAttachments()
+    applyCanvasTheme()
+    syncCanvasInteractionMode()
+    fabricCanvas.discardActiveObject()
+    syncActiveObject(null)
+    fabricCanvas.requestRenderAll()
+    refreshLayers()
+    fitCanvasInView()
+  } finally {
+    skipSnapshot = false
+  }
+  if (options.resetHistory !== false) resetHistoryToCurrentCanvas()
+  if (!options.keepDraft) clearStoredDraft()
+}
+
+// 延迟写入自动草稿，避免拖拽或连续属性调整时频繁访问 localStorage。
+function scheduleDraftSave() {
+  if (!fabricCanvas || typeof window === 'undefined') return
+  draftDirty = true
+  if (draftSaveTimer != null) window.clearTimeout(draftSaveTimer)
+  draftSaveTimer = window.setTimeout(() => {
+    draftSaveTimer = null
+    saveDraftNow()
+  }, DRAFT_SAVE_DELAY)
+}
+
+// 立即把当前工程状态写入本地草稿；失败时静默保留编辑流程不中断。
+function saveDraftNow() {
+  if (!fabricCanvas || typeof window === 'undefined') return
+  try {
+    const project = createProjectFile()
+    const draft: IconCreatorDraftFile = {
+      app: 'icon-creator',
+      schemaVersion: PROJECT_SCHEMA_VERSION,
+      updatedAt: new Date().toISOString(),
+      project
+    }
+    window.localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft))
+    draftDirty = false
+  } catch (error) {
+    console.warn('保存自动草稿失败', error)
+  }
+}
+
+// 清理本地草稿和等待中的写入计时器，用于新建、打开、显式保存后的草稿状态重置。
+function clearStoredDraft() {
+  if (draftSaveTimer != null) {
+    window.clearTimeout(draftSaveTimer)
+    draftSaveTimer = null
+  }
+  draftDirty = false
+  try {
+    window.localStorage.removeItem(DRAFT_STORAGE_KEY)
+  } catch (error) {
+    console.warn('清理自动草稿失败', error)
+  }
+}
+
+// 组件卸载前只取消计时器；若有未落盘编辑，先同步保存最后一版草稿。
+function flushDraftBeforeDispose() {
+  if (draftSaveTimer != null) {
+    window.clearTimeout(draftSaveTimer)
+    draftSaveTimer = null
+  }
+  if (draftDirty) saveDraftNow()
+}
+
+// 启动时读取本地草稿，解析失败会丢弃，避免坏数据反复打断初始化。
+function readStoredDraft() {
+  try {
+    const raw = window.localStorage.getItem(DRAFT_STORAGE_KEY)
+    if (!raw) return null
+    return parseProjectFileText(raw).project
+  } catch (error) {
+    console.warn('读取自动草稿失败', error)
+    clearStoredDraft()
+    return null
+  }
+}
+
+// 首次进入编辑器时询问是否恢复草稿；拒绝恢复则清理旧草稿，形成明确的新建策略。
+async function promptRestoreDraft() {
+  if (restoringDraftPromptShown) return
+  restoringDraftPromptShown = true
+  const draft = readStoredDraft()
+  if (!draft) return
+  const shouldRestore = window.confirm('检测到上次未保存的自动草稿，是否恢复？')
+  if (shouldRestore) {
+    await loadProjectFile(draft, { keepDraft: true })
+    saveDraftNow()
+  } else {
+    clearStoredDraft()
+  }
 }
 
 function undo() {
@@ -5789,6 +6055,26 @@ function importImage() {
   imgInputRef.value?.click()
 }
 
+// 打开隐藏的工程文件选择器，读取逻辑交给 onProjectFileChosen 统一处理。
+function openProject() {
+  projectInputRef.value?.click()
+}
+
+// 从文件输入读取工程 JSON，恢复失败时保留当前画布并给出错误提示。
+async function onProjectFileChosen(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  try {
+    const { project } = parseProjectFileText(await file.text())
+    await loadProjectFile(project)
+  } catch (error) {
+    window.alert(error instanceof Error ? error.message : '打开工程失败')
+  } finally {
+    input.value = ''
+  }
+}
+
 async function onImageFileChosen(e: Event) {
   const file = (e.target as HTMLInputElement).files?.[0]
   if (!file || !fabricCanvas) return
@@ -5813,6 +6099,19 @@ async function onImageFileChosen(e: Event) {
 }
 
 // ── 导出 ──
+// 手动保存当前工程文件，成功后清理自动草稿，表示当前编辑状态已有明确落盘版本。
+function saveProject() {
+  if (!fabricCanvas) return
+  clearBooleanPreview()
+  try {
+    const filePath = window.services?.writeTextFile?.(stringifyProjectFile(createProjectFile()), PROJECT_FILE_EXTENSION)
+    clearStoredDraft()
+    if (filePath) window.alert(`工程已保存：${filePath}`)
+  } catch (error) {
+    window.alert(error instanceof Error ? error.message : '保存工程失败')
+  }
+}
+
 function exportSVG() {
   if (!fabricCanvas) return
   clearBooleanPreview()
@@ -5835,11 +6134,12 @@ function exportPNG() {
   window.services?.writeImageFile?.(dataUrl)
 }
 
-// ── 新建 ──
+// 新建空白文档时清理当前选择、历史记录和旧草稿，避免上一份作品继续触发恢复提示。
 function newDoc() {
   if (!fabricCanvas) return
   clearBooleanPreview()
   clearPointEditing()
+  clearStoredDraft()
   skipSnapshot = true
   fabricCanvas.clear()
   skipSnapshot = false
@@ -5847,7 +6147,7 @@ function newDoc() {
   fabricCanvas.requestRenderAll()
   syncActiveObject(null)
   refreshLayers()
-  snapshot()
+  resetHistoryToCurrentCanvas()
 }
 
 // ── 对象操作 ──
@@ -6496,7 +6796,8 @@ onMounted(() => {
   // 延迟 fit，确保 DOM 已完成布局
   nextTick(() => {
     fitCanvasInView()
-    snapshot()
+    snapshot({ autoSave: false })
+    void promptRestoreDraft()
   })
 
   // 窗口缩放自适应
@@ -6522,6 +6823,7 @@ onBeforeUnmount(() => {
   endSpacePan()
   clearBooleanPreview()
   clearPointEditing()
+  flushDraftBeforeDispose()
   aligningGuidelines?.dispose()
   aligningGuidelines = null
   fabricCanvas?.dispose()
