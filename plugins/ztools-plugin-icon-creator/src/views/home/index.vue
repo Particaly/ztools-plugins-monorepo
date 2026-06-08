@@ -16,6 +16,7 @@
         <ZButton size="small" class="top-bar-btn" @click="openProject" title="打开工程">打开工程</ZButton>
         <ZButton size="small" class="top-bar-btn" @click="saveProject" title="保存工程">保存工程</ZButton>
         <ZButton size="small" class="top-bar-btn" @click="importSVG" title="导入 SVG">导入 SVG</ZButton>
+        <ZButton size="small" class="top-bar-btn" @click="openPasteSVGDialog" title="粘贴 SVG 或 Path">粘贴 SVG</ZButton>
         <ZButton size="small" class="top-bar-btn" @click="importImage" title="导入图片">导入图片</ZButton>
         <ZButton size="small" class="top-bar-btn" @click="exportSVG" title="导出 SVG">导出 SVG</ZButton>
         <ZButton size="small" class="top-bar-btn" @click="exportPNG" title="导出 PNG">导出 PNG</ZButton>
@@ -830,6 +831,41 @@
       </div>
     </ZDrawer>
 
+    <ZModal
+      :show="pasteSVGDialog.show"
+      preset="dialog"
+      :show-mask="true"
+      :mask-closable="true"
+      :close-on-esc="true"
+      :auto-focus="true"
+      @update:show="handlePasteSVGDialogShowChange"
+    >
+      <div class="paste-svg-dialog">
+        <div class="paste-svg-header">
+          <div class="paste-svg-title">粘贴 SVG / Path</div>
+          <div class="paste-svg-desc">支持完整 SVG、单独 &lt;path d=&quot;...&quot;&gt; 或 path d 数据。</div>
+        </div>
+        <div class="paste-svg-content">
+          <textarea
+            v-model="pasteSVGDialog.value"
+            class="paste-svg-textarea"
+            placeholder="在这里粘贴 SVG 代码或 path d 数据，例如 M12 2L2 22h20z"
+            @keydown.ctrl.enter.prevent="confirmPasteSVGImport"
+            @keydown.meta.enter.prevent="confirmPasteSVGImport"
+          ></textarea>
+          <div v-if="pasteSVGDialog.error" class="paste-svg-error">{{ pasteSVGDialog.error }}</div>
+        </div>
+        <div class="paste-svg-actions">
+          <button class="tb-btn" type="button" :disabled="pasteSVGDialog.loading" @click="readClipboardIntoPasteSVGDialog">读取剪贴板</button>
+          <span class="paste-svg-action-spacer"></span>
+          <ZButton size="small" :disabled="pasteSVGDialog.loading" @click="handlePasteSVGDialogShowChange(false)">取消</ZButton>
+          <ZButton size="small" type="primary" :disabled="pasteSVGDialog.loading || !pasteSVGDialog.value.trim()" @click="confirmPasteSVGImport">
+            {{ pasteSVGDialog.loading ? '导入中...' : '导入' }}
+          </ZButton>
+        </div>
+      </div>
+    </ZModal>
+
         <ZModal
           :show="layerRenameDialog.show"
           preset="dialog"
@@ -1098,6 +1134,13 @@ type LayerRenameDialogState = {
   target: FabricObject | null
 }
 
+type PasteSVGDialogState = {
+  show: boolean
+  value: string
+  error: string
+  loading: boolean
+}
+
 const KALEIDOSCOPE_CENTER_CONTROL_KEY = 'kaleidoscopeCenter'
 const RADIAL_GRADIENT_CENTER_CONTROL_KEY = 'radialGradientCenter'
 const DIRECT_EDIT_SHAPE_IDS = new Set(['base-line', 'base-arrow-right', 'base-solid-shaft-arrow', 'base-double-solid-shaft-arrow'])
@@ -1364,6 +1407,12 @@ const layerRenameDialog = reactive<LayerRenameDialogState>({
   show: false,
   value: '',
   target: null
+})
+const pasteSVGDialog = reactive<PasteSVGDialogState>({
+  show: false,
+  value: '',
+  error: '',
+  loading: false
 })
 function refreshLayers() {
   layerVersion.value += 1
@@ -6059,6 +6108,12 @@ function importSVG() {
   svgInputRef.value?.click()
 }
 
+// 打开粘贴导入弹窗，用户可输入完整 SVG、path 标签或 path d 数据后复用同一套导入流程。
+function openPasteSVGDialog() {
+  pasteSVGDialog.show = true
+  pasteSVGDialog.error = ''
+}
+
 function importImage() {
   imgInputRef.value?.click()
 }
@@ -6106,6 +6161,45 @@ function isSVGFile(file: File) {
 function getImportSVGDisplayName(fileName: string) {
   const baseName = fileName.replace(/\.svg$/i, '').trim()
   return baseName || 'SVG'
+}
+
+// 借助浏览器实体解析能力解码 path 标签里的 d 属性，避免 &quot; 等实体进入 Fabric 解析。
+function decodeSVGAttribute(value: string) {
+  const textarea = document.createElement('textarea')
+  textarea.innerHTML = value
+  return textarea.value
+}
+
+// 转义裸 path 数据后再包裹到 SVG 属性中，避免引号或尖括号破坏临时 SVG 结构。
+function escapeSVGAttribute(value: string) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+}
+
+// 从单个 path 标签中提取 d 属性，支持单双引号并忽略其他属性。
+function extractPathDataFromPathElement(input: string) {
+  const match = input.match(/<path\b[^>]*\sd\s*=\s*(["'])([\s\S]*?)\1[^>]*>/i)
+  return match ? decodeSVGAttribute(match[2]).trim() : ''
+}
+
+// 粗略判断一段纯文本是否像 SVG path d 数据，防止普通文本被错误包裹成 SVG。
+function looksLikeSVGPathData(input: string) {
+  if (!input || /<[^>]+>/.test(input)) return false
+  if (!/[a-zA-Z]/.test(input) || !/[\d.]/.test(input)) return false
+  return /^[\sMmZzLlHhVvCcSsQqTtAa\d.,+\-eE]+$/.test(input)
+}
+
+// 将粘贴内容归一为完整 SVG 文本，允许用户直接粘贴完整 SVG、path 标签或裸 path d 数据。
+function normalizePastedSVGText(input: string) {
+  const text = input.trim()
+  if (!text) throw new Error('请输入 SVG 代码或 path 数据')
+  if (/<svg[\s>]/i.test(text)) return text
+  const pathData = extractPathDataFromPathElement(text) || (looksLikeSVGPathData(text) ? text : '')
+  if (!pathData) throw new Error('未识别到有效的 SVG 或 path d 数据')
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path d="${escapeSVGAttribute(pathData)}" fill="#000000" /></svg>`
 }
 
 // 为导入对象补齐编辑器自定义元数据和可读图层名，确保后续图层、草稿和属性面板都能识别。
@@ -6164,26 +6258,68 @@ function placeImportedSVGObject(obj: FabricObject) {
   obj.setCoords()
 }
 
-// 使用 Fabric 的 SVG 解析能力把本地 SVG 文本转换成一个可编辑对象，并加入当前画布。
-async function importSVGFile(file: File) {
+// 使用 Fabric 的 SVG 解析能力把完整 SVG 文本转换成一个可编辑对象，并加入当前画布。
+async function importSVGText(svgText: string, displayName: string) {
   if (!fabricCanvas) return
-  if (!isSVGFile(file)) throw new Error('请选择 .svg 文件')
   clearBooleanPreview()
   clearPointEditing()
-  const svgText = (await file.text()).trim()
-  if (!svgText) throw new Error('SVG 文件为空')
-  if (!/<svg[\s>]/i.test(svgText)) throw new Error('未找到有效的 <svg> 内容')
-  const { objects, options } = await loadSVGFromString(svgText)
+  const normalizedText = svgText.trim()
+  if (!normalizedText) throw new Error('SVG 内容为空')
+  if (!/<svg[\s>]/i.test(normalizedText)) throw new Error('未找到有效的 <svg> 内容')
+  const { objects, options } = await loadSVGFromString(normalizedText)
   const svgObjects = objects.filter((obj): obj is FabricObject => !!obj)
   if (!svgObjects.length) throw new Error('SVG 中没有可导入的图形')
   const imported = util.groupSVGElements(svgObjects, options) as FabricObject
-  prepareImportedSVGObjectMetadata(imported, getImportSVGDisplayName(file.name))
+  prepareImportedSVGObjectMetadata(imported, displayName)
   placeImportedSVGObject(imported)
   fabricCanvas.add(imported as AnyFabricObject)
   refreshLayers()
   fabricCanvas.setActiveObject(imported)
   syncActiveObjectPreservingPointMode(imported)
   fabricCanvas.requestRenderAll()
+}
+
+// 使用 Fabric 的 SVG 解析能力把本地 SVG 文本转换成一个可编辑对象，并加入当前画布。
+async function importSVGFile(file: File) {
+  if (!fabricCanvas) return
+  if (!isSVGFile(file)) throw new Error('请选择 .svg 文件')
+  await importSVGText(await file.text(), getImportSVGDisplayName(file.name))
+}
+
+// 关闭粘贴弹窗时清理临时输入和错误状态，避免下一次打开沿用旧数据。
+function handlePasteSVGDialogShowChange(show: boolean) {
+  pasteSVGDialog.show = show
+  if (show) return
+  pasteSVGDialog.value = ''
+  pasteSVGDialog.error = ''
+  pasteSVGDialog.loading = false
+}
+
+// 主动读取系统剪贴板文本填入弹窗；浏览器权限或空内容异常会展示在弹窗内。
+async function readClipboardIntoPasteSVGDialog() {
+  pasteSVGDialog.error = ''
+  try {
+    const text = await navigator.clipboard?.readText?.()
+    if (!text || !text.trim()) throw new Error('剪贴板中没有可读取的文本')
+    pasteSVGDialog.value = text
+  } catch (error) {
+    pasteSVGDialog.error = error instanceof Error ? error.message : '读取剪贴板失败'
+  }
+}
+
+// 校验并导入弹窗内的 SVG / path 文本，失败时保留输入以便用户继续修改。
+async function confirmPasteSVGImport() {
+  if (pasteSVGDialog.loading) return
+  pasteSVGDialog.error = ''
+  pasteSVGDialog.loading = true
+  try {
+    await importSVGText(normalizePastedSVGText(pasteSVGDialog.value), '粘贴 SVG')
+    handlePasteSVGDialogShowChange(false)
+  } catch (error) {
+    pasteSVGDialog.error = error instanceof Error ? error.message : '导入 SVG 失败'
+  } finally {
+    pasteSVGDialog.loading = false
+  }
 }
 
 async function onImageFileChosen(e: Event) {
@@ -6497,6 +6633,7 @@ function isFabricTextboxEditing() {
 }
 
 function shouldIgnoreEditorShortcut(event: KeyboardEvent) {
+  if (pasteSVGDialog.show) return true
   if (event.isComposing) return true
   if (isEditableTarget(event.target)) return true
   const target = event.target
@@ -7810,6 +7947,7 @@ $panel-bg: #fff;
     cursor: grabbing;
   }
 }
+.paste-svg-dialog,
 .layer-rename-dialog {
   min-width: 320px;
   border: 1px solid var(--control-border);
@@ -7817,26 +7955,65 @@ $panel-bg: #fff;
   overflow: hidden;
   background: var(--dialog-bg, #fff);
 }
+.paste-svg-header,
 .layer-rename-header {
   padding: 14px 16px;
   border-bottom: 1px solid var(--divider-color, rgba(128, 128, 128, 0.18));
 }
+.paste-svg-title,
 .layer-rename-title {
   font-size: 15px;
   font-weight: 600;
   color: var(--text-color, #333);
   line-height: 1.2;
 }
+.paste-svg-content,
 .layer-rename-content {
   padding: 16px;
 }
+.paste-svg-desc {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #777;
+}
+.paste-svg-textarea {
+  width: 100%;
+  min-height: 180px;
+  resize: vertical;
+  border: 1px solid var(--control-border);
+  border-radius: 4px;
+  padding: 8px;
+  background: var(--control-bg);
+  color: var(--text-color);
+  font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  outline: none;
+  box-sizing: border-box;
+  &:focus {
+    border-color: var(--primary-color);
+  }
+}
+.paste-svg-error {
+  margin-top: 8px;
+  color: #c00;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.paste-svg-actions,
 .layer-rename-actions {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
   gap: 8px;
   padding: 14px 16px;
   border-top: 1px solid var(--divider-color, rgba(128, 128, 128, 0.18));
 }
+.paste-svg-action-spacer {
+  flex: 1;
+}
+:deep(.zt-modal:has(.paste-svg-dialog) .zt-modal__body),
 :deep(.zt-modal:has(.layer-rename-dialog) .zt-modal__body) {
   padding: 0;
   border-radius: 6px;
