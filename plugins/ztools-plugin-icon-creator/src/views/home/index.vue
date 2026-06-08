@@ -15,6 +15,7 @@
         <ZButton size="small" class="top-bar-btn" @click="newDoc" title="新建">新建</ZButton>
         <ZButton size="small" class="top-bar-btn" @click="openProject" title="打开工程">打开工程</ZButton>
         <ZButton size="small" class="top-bar-btn" @click="saveProject" title="保存工程">保存工程</ZButton>
+        <ZButton size="small" class="top-bar-btn" @click="importSVG" title="导入 SVG">导入 SVG</ZButton>
         <ZButton size="small" class="top-bar-btn" @click="importImage" title="导入图片">导入图片</ZButton>
         <ZButton size="small" class="top-bar-btn" @click="exportSVG" title="导出 SVG">导出 SVG</ZButton>
         <ZButton size="small" class="top-bar-btn" @click="exportPNG" title="导出 PNG">导出 PNG</ZButton>
@@ -861,6 +862,7 @@
 
         <!-- 隐藏的文件输入 -->
     <input ref="projectInputRef" type="file" accept=".iconcreator.json,application/json" style="display:none" @change="onProjectFileChosen" />
+    <input ref="svgInputRef" type="file" accept=".svg,image/svg+xml" style="display:none" @change="onSVGFileChosen" />
     <input ref="imgInputRef" type="file" accept="image/*" style="display:none" @change="onImageFileChosen" />
   </div>
 </template>
@@ -870,7 +872,7 @@ import { ref, shallowRef, triggerRef, reactive, computed, onMounted, onBeforeUnm
 import { VueDraggable } from 'vue-draggable-plus'
 import { ZInput, ZSelect, ZColorPicker, ZSwitch, ZSlider, ZPopover, ZButton, ZTabs, ZTabPane, ZHotkeyInput, ZDrawer, ZContextMenu, ZModal, useZtoolsTheme } from 'ztools-ui'
 import { Icon } from '@iconify/vue'
-import { Canvas, Control, FabricObject, Gradient, Textbox, Group, ActiveSelection, FabricImage, Path, Point, util } from 'fabric'
+import { Canvas, Control, FabricObject, Gradient, Textbox, Group, ActiveSelection, FabricImage, Path, Point, util, loadSVGFromString } from 'fabric'
 import { AligningGuidelines } from '../../fabric-aligning-guidelines'
 import { basicShapes, textPresets, canvasPresets, shapePreviewPaths } from './editorCatalog'
 import type { ShapeLibraryItem, TextLibraryItem } from './editorCatalog'
@@ -1111,6 +1113,7 @@ let editorObjectIdSeed = 0
 const canvasElRef = ref<HTMLCanvasElement | null>(null)
 const canvasAreaRef = ref<HTMLElement | null>(null)
 const canvasWrapperRef = ref<HTMLElement | null>(null)
+const svgInputRef = ref<HTMLInputElement | null>(null)
 const imgInputRef = ref<HTMLInputElement | null>(null)
 const projectInputRef = ref<HTMLInputElement | null>(null)
 
@@ -6051,6 +6054,11 @@ function addText(preset: TextLibraryItem) {
 }
 
 // ── 导入 ──
+// 打开隐藏的 SVG 文件选择器，保持顶栏导入入口和文件读取逻辑解耦。
+function importSVG() {
+  svgInputRef.value?.click()
+}
+
 function importImage() {
   imgInputRef.value?.click()
 }
@@ -6073,6 +6081,109 @@ async function onProjectFileChosen(e: Event) {
   } finally {
     input.value = ''
   }
+}
+
+// 从文件输入读取本地 SVG，导入失败时只重置输入框并保留当前画布内容。
+async function onSVGFileChosen(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  try {
+    await importSVGFile(file)
+  } catch (error) {
+    window.alert(error instanceof Error ? error.message : '导入 SVG 失败')
+  } finally {
+    input.value = ''
+  }
+}
+
+// 判断用户选择的文件是否可以按 SVG 文本解析，兼容系统 MIME 为空时的扩展名识别。
+function isSVGFile(file: File) {
+  return file.type === 'image/svg+xml' || /\.svg$/i.test(file.name)
+}
+
+// 从文件名提取导入对象的基础图层名，避免把扩展名展示到图层面板里。
+function getImportSVGDisplayName(fileName: string) {
+  const baseName = fileName.replace(/\.svg$/i, '').trim()
+  return baseName || 'SVG'
+}
+
+// 为导入对象补齐编辑器自定义元数据和可读图层名，确保后续图层、草稿和属性面板都能识别。
+function prepareImportedSVGObjectMetadata(obj: FabricObject, displayName: string, isRoot = true) {
+  const target = obj as AnyFabricObject
+  applyDefaultFillGradientMetadata(obj)
+  applyDefaultKaleidoscopeMetadata(obj)
+  applyDefaultEndpointSnapMargin(obj)
+  normalizeEndpointAttachments(obj)
+  ensureEditorObjectId(obj)
+  if (isRoot) {
+    target.name = nextName(displayName)
+  } else if (!String(target.name || '').trim()) {
+    target.name = nextName('SVG 元素')
+  }
+  if (isFillEnabled(obj.fill) && typeof obj.fill === 'string') {
+    target.lastFill = obj.fill
+  }
+  if (isStrokeEnabled(obj.stroke, obj.strokeWidth)) {
+    if (typeof obj.stroke === 'string') target.lastStroke = obj.stroke
+    target.lastStrokeWidth = obj.strokeWidth || target.lastStrokeWidth || 1
+    target.lastStrokeDashArray = normalizeStrokeDashArray(obj.strokeDashArray)
+      ?? getDefaultStrokeDashArray(target.lastStrokeWidth)
+  }
+  if (obj instanceof Group) {
+    obj.getObjects().forEach((child) => prepareImportedSVGObjectMetadata(child, displayName, false))
+  }
+  obj.setCoords()
+}
+
+// 将导入 SVG 放到画布中心，超出画布时按比例缩小以便用户导入后能立即看到和操作。
+function placeImportedSVGObject(obj: FabricObject) {
+  obj.setCoords()
+  let bounds = obj.getBoundingRect()
+  const maxWidth = canvasWidth.value * 0.82
+  const maxHeight = canvasHeight.value * 0.82
+  const scaleRatio = Math.min(
+    1,
+    bounds.width > 0 ? maxWidth / bounds.width : 1,
+    bounds.height > 0 ? maxHeight / bounds.height : 1
+  )
+  if (Number.isFinite(scaleRatio) && scaleRatio > 0 && scaleRatio < 1) {
+    obj.set({
+      scaleX: (obj.scaleX || 1) * scaleRatio,
+      scaleY: (obj.scaleY || 1) * scaleRatio
+    })
+    obj.setCoords()
+    bounds = obj.getBoundingRect()
+  }
+  const dx = canvasWidth.value / 2 - (bounds.left + bounds.width / 2)
+  const dy = canvasHeight.value / 2 - (bounds.top + bounds.height / 2)
+  obj.set({
+    left: (obj.left || 0) + dx,
+    top: (obj.top || 0) + dy
+  })
+  obj.setCoords()
+}
+
+// 使用 Fabric 的 SVG 解析能力把本地 SVG 文本转换成一个可编辑对象，并加入当前画布。
+async function importSVGFile(file: File) {
+  if (!fabricCanvas) return
+  if (!isSVGFile(file)) throw new Error('请选择 .svg 文件')
+  clearBooleanPreview()
+  clearPointEditing()
+  const svgText = (await file.text()).trim()
+  if (!svgText) throw new Error('SVG 文件为空')
+  if (!/<svg[\s>]/i.test(svgText)) throw new Error('未找到有效的 <svg> 内容')
+  const { objects, options } = await loadSVGFromString(svgText)
+  const svgObjects = objects.filter((obj): obj is FabricObject => !!obj)
+  if (!svgObjects.length) throw new Error('SVG 中没有可导入的图形')
+  const imported = util.groupSVGElements(svgObjects, options) as FabricObject
+  prepareImportedSVGObjectMetadata(imported, getImportSVGDisplayName(file.name))
+  placeImportedSVGObject(imported)
+  fabricCanvas.add(imported as AnyFabricObject)
+  refreshLayers()
+  fabricCanvas.setActiveObject(imported)
+  syncActiveObjectPreservingPointMode(imported)
+  fabricCanvas.requestRenderAll()
 }
 
 async function onImageFileChosen(e: Event) {
