@@ -91,6 +91,53 @@
               </div>
             </div>
           </ZTabPane>
+          <ZTabPane name="iconify" tab="图标库" display-directive="show">
+            <div class="left-content">
+              <div class="section-title">Iconify 图标搜索</div>
+              <div class="iconify-search-row">
+                <ZInput
+                  v-model="iconifySearch.query"
+                  size="small"
+                  type="text"
+                  placeholder="搜索 home、user、arrow"
+                  @keydown.enter="searchIconifyIcons"
+                />
+                <ZButton size="small" :disabled="iconifySearch.loading || !iconifySearch.query.trim()" @click="searchIconifyIcons">
+                  {{ iconifySearch.loading ? '搜索中' : '搜索' }}
+                </ZButton>
+              </div>
+              <div v-if="iconifySearch.error" class="iconify-error">{{ iconifySearch.error }}</div>
+              <template v-else-if="iconifySearch.lastQuery && !iconifySearch.loading">
+                <div class="iconify-summary">
+                  找到 {{ iconifySearch.total }} 个结果，显示 {{ filteredIconifyResults.length }} 个
+                </div>
+                <ZSelect
+                  v-if="iconifyCollectionOptions.length > 1"
+                  size="small"
+                  class="iconify-collection-filter"
+                  :model-value="iconifySearch.collectionFilter"
+                  :options="iconifyCollectionOptions"
+                  @change="iconifySearch.collectionFilter = String($event)"
+                />
+              </template>
+              <div v-if="filteredIconifyResults.length" class="iconify-grid">
+                <button
+                  v-for="name in filteredIconifyResults"
+                  :key="name"
+                  type="button"
+                  class="iconify-item"
+                  :title="`插入 ${name}`"
+                  :disabled="iconifySearch.inserting === name"
+                  @click="insertIconifyIcon(name)"
+                >
+                  <Icon class="iconify-preview-icon" :icon="name" />
+                  <span class="iconify-name">{{ name }}</span>
+                </button>
+              </div>
+              <div v-else-if="iconifySearch.lastQuery && !iconifySearch.loading && !iconifySearch.error" class="iconify-empty">未找到匹配图标</div>
+              <div v-else class="iconify-hint">输入关键词后从 Iconify 在线图标库搜索，点击结果即可插入为可编辑 SVG。</div>
+            </div>
+          </ZTabPane>
         </ZTabs>
       </aside>
 
@@ -1259,6 +1306,22 @@ type PasteSVGDialogState = {
   loading: boolean
 }
 
+type IconifySearchState = {
+  query: string
+  lastQuery: string
+  loading: boolean
+  error: string
+  results: string[]
+  total: number
+  inserting: string
+  collectionFilter: string
+}
+
+type IconifySearchResponse = {
+  icons?: unknown
+  total?: unknown
+}
+
 type ExportFormat = 'svg' | 'png'
 type PreviewBackgroundMode = 'transparent' | 'light' | 'dark'
 type PreviewItem = {
@@ -1291,6 +1354,7 @@ const DRAFT_STORAGE_KEY = 'icon-creator:auto-save-draft:v1'
 const DRAFT_SAVE_DELAY = 800
 const EXPORT_PNG_SIZE_OPTIONS = [16, 24, 32, 48, 64, 128, 256, 512]
 const SMALL_PREVIEW_SIZE_OPTIONS = [16, 24, 32, 48]
+const ICONIFY_SEARCH_LIMIT = 48
 let editorObjectIdSeed = 0
 
 // ── refs ──
@@ -1312,7 +1376,7 @@ let draftSaveTimer: ReturnType<typeof window.setTimeout> | null = null
 let draftDirty = false
 let restoringDraftPromptShown = false
 
-const leftTab = ref<'shape' | 'text'>('shape')
+const leftTab = ref<'shape' | 'text' | 'iconify'>('shape')
 const activeRightTab = ref<'properties' | 'preview' | 'layers'>('properties')
 const showRuler = ref(true)
 const zoom = ref(1)
@@ -1554,6 +1618,16 @@ const pasteSVGDialog = reactive<PasteSVGDialogState>({
   value: '',
   error: '',
   loading: false
+})
+const iconifySearch = reactive<IconifySearchState>({
+  query: '',
+  lastQuery: '',
+  loading: false,
+  error: '',
+  results: [],
+  total: 0,
+  inserting: '',
+  collectionFilter: ''
 })
 const exportDialog = reactive<ExportDialogState>({
   show: false,
@@ -6336,6 +6410,12 @@ function getImportSVGDisplayName(fileName: string) {
   return baseName || 'SVG'
 }
 
+// 根据 Iconify 图标名生成简短图层名；保留集合前缀方便区分不同来源的同名图标。
+function getIconifyDisplayName(iconName: string) {
+  const normalized = iconName.trim()
+  return normalized ? `Iconify ${normalized}` : 'Iconify 图标'
+}
+
 // 借助浏览器实体解析能力解码 path 标签里的 d 属性，避免 &quot; 等实体进入 Fabric 解析。
 function decodeSVGAttribute(value: string) {
   const textarea = document.createElement('textarea')
@@ -6459,6 +6539,56 @@ async function importSVGFile(file: File) {
   await importSVGText(await file.text(), getImportSVGDisplayName(file.name))
 }
 
+// 调用 Iconify 在线搜索接口并展示前若干个图标名；失败时保留上一次输入，方便用户换关键词重试。
+async function searchIconifyIcons() {
+  const query = iconifySearch.query.trim()
+  if (!query || iconifySearch.loading) return
+  iconifySearch.loading = true
+  iconifySearch.error = ''
+  iconifySearch.lastQuery = query
+  try {
+    const response = await fetch(`https://api.iconify.design/search?query=${encodeURIComponent(query)}&limit=${ICONIFY_SEARCH_LIMIT}`)
+    if (!response.ok) throw new Error(`Iconify 搜索失败：${response.status}`)
+    const data = await response.json() as IconifySearchResponse
+    const icons = Array.isArray(data.icons) ? data.icons.filter((item): item is string => typeof item === 'string') : []
+    iconifySearch.results = icons
+    iconifySearch.collectionFilter = ''
+    iconifySearch.total = Number.isFinite(Number(data.total)) ? Number(data.total) : icons.length
+  } catch (error) {
+    iconifySearch.results = []
+    iconifySearch.collectionFilter = ''
+    iconifySearch.total = 0
+    iconifySearch.error = error instanceof Error ? error.message : 'Iconify 搜索失败'
+  } finally {
+    iconifySearch.loading = false
+  }
+}
+
+// 将 Iconify 的 `collection:name` 图标名转换成 SVG API 地址，并指定黑色填充便于 Fabric 正确解析为可编辑颜色。
+function buildIconifySVGUrl(iconName: string) {
+  const [prefix, ...nameParts] = iconName.split(':')
+  const name = nameParts.join(':')
+  if (!prefix || !name) throw new Error('Iconify 图标名格式无效')
+  const path = `${encodeURIComponent(prefix)}/${encodeURIComponent(name)}.svg`
+  return `https://api.iconify.design/${path}?width=64&height=64&color=%23000000`
+}
+
+// 获取指定 Iconify 图标的 SVG 并复用 SVG 导入流程，使插入结果保持可改色、缩放和导出。
+async function insertIconifyIcon(iconName: string) {
+  if (!fabricCanvas || iconifySearch.inserting) return
+  iconifySearch.inserting = iconName
+  iconifySearch.error = ''
+  try {
+    const response = await fetch(buildIconifySVGUrl(iconName))
+    if (!response.ok) throw new Error(`Iconify 图标获取失败：${response.status}`)
+    await importSVGText(await response.text(), getIconifyDisplayName(iconName))
+  } catch (error) {
+    iconifySearch.error = error instanceof Error ? error.message : 'Iconify 图标插入失败'
+  } finally {
+    iconifySearch.inserting = ''
+  }
+}
+
 // 关闭粘贴弹窗时清理临时输入和错误状态，避免下一次打开沿用旧数据。
 function handlePasteSVGDialogShowChange(show: boolean) {
   pasteSVGDialog.show = show
@@ -6562,6 +6692,18 @@ const exportDialogCanExport = computed(() => (
   exportDialog.svgEnabled || (exportDialog.pngEnabled && getExportPngSizes().length > 0)
 ))
 const previewStageClass = computed(() => `preview-bg-${previewBackgroundMode.value}`)
+const iconifyCollectionOptions = computed(() => {
+  const collections = Array.from(new Set(iconifySearch.results.map((name) => name.split(':')[0]).filter(Boolean))).sort()
+  return [
+    { label: '全部图标集', value: '' },
+    ...collections.map((collection) => ({ label: collection, value: collection }))
+  ]
+})
+const filteredIconifyResults = computed(() => {
+  const collection = iconifySearch.collectionFilter
+  if (!collection) return iconifySearch.results
+  return iconifySearch.results.filter((name) => name.startsWith(`${collection}:`))
+})
 
 // 控制小尺寸预览背景，不影响真实画布背景，仅用于透明、浅色和深色环境下检查可读性。
 function setPreviewBackgroundMode(mode: PreviewBackgroundMode) {
@@ -7853,6 +7995,69 @@ $panel-bg: #fff;
   cursor: pointer;
   text-align: left;
   &:hover { border-color: #1e6fff; }
+}
+.iconify-search-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.iconify-summary,
+.iconify-hint,
+.iconify-empty,
+.iconify-error {
+  padding: 4px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #666;
+}
+.iconify-error {
+  color: #c00;
+}
+.iconify-collection-filter {
+  width: 100%;
+  margin: 4px 0 8px;
+}
+.iconify-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+.iconify-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 72px;
+  padding: 7px 5px;
+  border: 1px solid rgba(128, 128, 128, 0.15);
+  border-radius: 6px;
+  background: #fafafa;
+  color: #333;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
+  &:hover:not(:disabled) {
+    border-color: #1e6fff;
+    color: #1e6fff;
+  }
+  &:disabled {
+    cursor: wait;
+    opacity: 0.55;
+  }
+}
+.iconify-preview-icon {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+}
+.iconify-name {
+  width: 100%;
+  overflow: hidden;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
 }
 
 /* ── 画布区 ── */
