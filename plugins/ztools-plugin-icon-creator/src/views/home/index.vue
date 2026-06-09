@@ -877,7 +877,7 @@
       <div class="export-dialog">
         <div class="export-dialog-header">
           <div class="export-dialog-title">导出图标</div>
-          <div class="export-dialog-desc">选择导出格式、PNG 尺寸、透明背景和文件名前缀。</div>
+          <div class="export-dialog-desc">选择导出格式、SVG 背景、PNG 尺寸、透明背景和文件名前缀。</div>
         </div>
         <div class="export-dialog-content">
           <div class="export-section">
@@ -885,6 +885,10 @@
             <label class="export-check-option">
               <input type="checkbox" :checked="exportDialog.svgEnabled" @change="setExportFormatEnabled('svg', evChecked($event))" />
               <span>SVG</span>
+            </label>
+            <label v-if="exportDialog.svgEnabled" class="export-check-option export-bg-option">
+              <input type="checkbox" :checked="exportDialog.svgIncludeBg" @change="exportDialog.svgIncludeBg = evChecked($event)" />
+              <span>SVG 保留画布背景</span>
             </label>
             <label class="export-check-option">
               <input type="checkbox" :checked="exportDialog.pngEnabled" @change="setExportFormatEnabled('png', evChecked($event))" />
@@ -1218,6 +1222,7 @@ type ExportFormat = 'svg' | 'png'
 type ExportDialogState = {
   show: boolean
   svgEnabled: boolean
+  svgIncludeBg: boolean
   pngEnabled: boolean
   pngSizes: number[]
   customSizeInput: string
@@ -1504,6 +1509,7 @@ const pasteSVGDialog = reactive<PasteSVGDialogState>({
 const exportDialog = reactive<ExportDialogState>({
   show: false,
   svgEnabled: true,
+  svgIncludeBg: false,
   pngEnabled: true,
   pngSizes: [64, 128, 256],
   customSizeInput: '',
@@ -6509,6 +6515,68 @@ function isExportPngSizeSelected(size: number) {
   return exportDialog.pngSizes.includes(size)
 }
 
+// 转义 SVG 属性值中的特殊字符，供手工插入背景 rect 时保持 XML 合法。
+function svgEscapeText(value: string) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+}
+
+// 根据导出选项生成画布背景矩形；透明背景或未勾选保留背景时不输出额外节点。
+function getOptimizedSVGBackgroundMarkup(includeBackground: boolean) {
+  if (!includeBackground || isTransparentCanvasBg(canvasBg.value)) return ''
+  return `<rect width="100%" height="100%" fill="${svgEscapeText(canvasBg.value)}"/>`
+}
+
+// 清理 Fabric 原始 SVG 中对最终图标交付没有帮助的注释、空属性和内部标识。
+function stripFabricSVGNoise(svg: string) {
+  return svg
+    .replace(/<\?xml[\s\S]*?\?>\s*/i, '')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/\s*(?:data-fabric|data-original|vector-effect)="[^"]*"/gi, '')
+    .replace(/\s*(?:id|name)="(?:Layer|图层|对象|SVG 元素|editor-object)[^"]*"/gi, '')
+    .replace(/\s+style="\s*"/gi, '')
+    .replace(/\s+stroke-dasharray="(?:none|null|undefined|)"/gi, '')
+    .replace(/\s+font-family="Times New Roman"/gi, '')
+}
+
+// 压缩标签间空白和重复空格，降低 SVG 体积但不改写路径或颜色数据。
+function trimSVGWhitespace(svg: string) {
+  return svg
+    .replace(/>\s+</g, '><')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/\s+>/g, '>')
+    .trim()
+}
+
+// 重建标准 SVG 根节点，确保导出资源始终带有规范 viewBox、宽高和可选背景层。
+function ensureOptimizedSVGRoot(svg: string, includeBackground: boolean) {
+  const bodyMatch = svg.match(/<svg\b([^>]*)>([\s\S]*?)<\/svg>/i)
+  const body = bodyMatch ? bodyMatch[2] : svg
+  const background = getOptimizedSVGBackgroundMarkup(includeBackground)
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${canvasWidth.value} ${canvasHeight.value}" width="${canvasWidth.value}" height="${canvasHeight.value}">${background}${body}</svg>`
+}
+
+// 将 Fabric 原始 SVG 输出压缩为更适合交付的图标资源：规范根节点、viewBox、可选背景并移除冗余元数据。
+function createOptimizedSVG(includeBackground = false) {
+  if (!fabricCanvas) return ''
+  const currentBg = fabricCanvas.backgroundColor
+  try {
+    fabricCanvas.backgroundColor = ''
+    const rawSvg = fabricCanvas.toSVG({
+      suppressPreamble: true,
+      viewBox: { x: 0, y: 0, width: canvasWidth.value, height: canvasHeight.value },
+      width: String(canvasWidth.value),
+      height: String(canvasHeight.value)
+    })
+    return trimSVGWhitespace(ensureOptimizedSVGRoot(stripFabricSVGNoise(rawSvg), includeBackground))
+  } finally {
+    fabricCanvas.backgroundColor = currentBg
+  }
+}
+
 // 切换预设 PNG 尺寸并保持尺寸列表升序，便于导出状态和文件名稳定可读。
 function toggleExportPngSize(size: number) {
   const normalized = normalizeExportPngSize(size)
@@ -6521,12 +6589,11 @@ function toggleExportPngSize(size: number) {
   exportDialog.status = ''
 }
 
-// 导出 SVG 到下载目录，支持导出面板传入自定义文件名。
-function exportSVG(fileName?: string) {
+// 导出优化后的 SVG 到下载目录，支持导出面板传入自定义文件名和是否保留画布背景。
+function exportSVG(fileName?: string, includeBackground = false) {
   if (!fabricCanvas) return ''
   clearBooleanPreview()
-  const svg = fabricCanvas.toSVG()
-  return window.services?.writeSvgFile?.(svg, fileName) || ''
+  return window.services?.writeSvgFile?.(createOptimizedSVG(includeBackground), fileName) || ''
 }
 
 // 在不改变当前编辑视图的前提下渲染指定宽度的 PNG，并可临时移除背景色实现透明导出。
@@ -6575,7 +6642,7 @@ async function runExportDialogExport() {
     const prefix = getExportFilePrefix()
     const paths: string[] = []
     if (exportDialog.svgEnabled) {
-      const path = exportSVG(`${prefix}.svg`)
+      const path = exportSVG(`${prefix}.svg`, exportDialog.svgIncludeBg)
       if (path) paths.push(path)
     }
     if (exportDialog.pngEnabled) {
@@ -8246,7 +8313,8 @@ $panel-bg: #fff;
     color: #777;
   }
 }
-.export-transparent-option {
+.export-transparent-option,
+.export-bg-option {
   margin-top: 2px;
 }
 .export-status {
