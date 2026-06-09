@@ -120,6 +120,39 @@
               </div>
             </div>
           </ZTabPane>
+          <ZTabPane name="assets" tab="素材" display-directive="show">
+            <div class="left-content">
+              <div class="section-title-row asset-title-row">
+                <div class="section-title">我的素材</div>
+                <ZButton size="small" class="user-asset-save-btn" :disabled="!canSaveUserAsset" @click="openCreateUserAssetDialog">保存选中</ZButton>
+              </div>
+              <div v-if="userAssets.length" class="user-asset-list">
+                <article
+                  v-for="asset in userAssets"
+                  :key="asset.id"
+                  class="user-asset-card"
+                  :title="asset.name"
+                >
+                  <button type="button" class="user-asset-preview" @click="insertUserAsset(asset)">
+                    <img v-if="asset.thumbnail" :src="asset.thumbnail" :alt="`${asset.name} 预览`" />
+                    <span v-else class="user-asset-preview-placeholder">素材</span>
+                  </button>
+                  <div class="user-asset-info">
+                    <div class="user-asset-name">{{ asset.name }}</div>
+                    <div class="user-asset-meta">{{ getUserAssetObjectCountLabel(asset) }} · {{ formatUserAssetDate(asset.updatedAt) }}</div>
+                    <div class="user-asset-actions">
+                      <ZButton size="small" @click="insertUserAsset(asset)">插入</ZButton>
+                      <ZButton size="small" @click="openRenameUserAssetDialog(asset)">重命名</ZButton>
+                      <ZButton size="small" @click="deleteUserAsset(asset)">删除</ZButton>
+                    </div>
+                  </div>
+                </article>
+              </div>
+              <div v-if="!userAssets.length" class="user-asset-empty">
+                选中画布对象后点击“保存选中”，即可把常用对象或组合保存到本地素材库。
+              </div>
+            </div>
+          </ZTabPane>
           <ZTabPane name="iconify" tab="图标库" display-directive="show">
             <div class="left-content">
               <div class="section-title">Iconify 图标搜索</div>
@@ -1183,6 +1216,38 @@
           </div>
         </ZModal>
 
+    <ZModal
+      :show="userAssetDialog.show"
+      preset="dialog"
+      :show-mask="true"
+      :mask-closable="true"
+      :close-on-esc="true"
+      :auto-focus="true"
+      @update:show="handleUserAssetDialogShowChange"
+    >
+      <div class="user-asset-dialog">
+        <div class="user-asset-dialog-header">
+          <div class="user-asset-dialog-title">{{ userAssetDialog.mode === 'create' ? '保存素材' : '重命名素材' }}</div>
+          <div class="user-asset-dialog-desc">{{ userAssetDialog.mode === 'create' ? '将当前选中对象保存到本地素材库，重启后仍可继续插入编辑。' : '更新素材名称，不影响已插入画布的对象。' }}</div>
+        </div>
+        <div class="user-asset-dialog-content">
+          <ZInput
+            size="small"
+            type="text"
+            :model-value="userAssetDialog.name"
+            placeholder="请输入素材名称"
+            @update:model-value="userAssetDialog.name = String($event)"
+            @keydown.enter="confirmUserAssetDialog"
+          />
+          <div v-if="userAssetDialog.error" class="user-asset-dialog-error">{{ userAssetDialog.error }}</div>
+        </div>
+        <div class="user-asset-dialog-actions">
+          <ZButton size="small" @click="handleUserAssetDialogShowChange(false)">取消</ZButton>
+          <ZButton size="small" type="primary" @click="confirmUserAssetDialog">确定</ZButton>
+        </div>
+      </div>
+    </ZModal>
+
         <!-- 隐藏的文件输入 -->
     <input ref="projectInputRef" type="file" accept=".iconcreator.json,application/json" style="display:none" @change="onProjectFileChosen" />
     <input ref="svgInputRef" type="file" accept=".svg,image/svg+xml" style="display:none" @change="onSVGFileChosen" />
@@ -1195,7 +1260,7 @@ import { ref, shallowRef, triggerRef, reactive, computed, onMounted, onBeforeUnm
 import { VueDraggable } from 'vue-draggable-plus'
 import { ZInput, ZSelect, ZColorPicker, ZSwitch, ZSlider, ZPopover, ZButton, ZTabs, ZTabPane, ZHotkeyInput, ZDrawer, ZContextMenu, ZModal, useZtoolsTheme } from 'ztools-ui'
 import { Icon } from '@iconify/vue'
-import { Canvas, Control, FabricObject, Gradient, Textbox, Group, ActiveSelection, FabricImage, Path, Point, Rect, Circle, Triangle, Polygon, Line, util, loadSVGFromString } from 'fabric'
+import { Canvas, Control, FabricObject, Gradient, Textbox, Group, ActiveSelection, FabricImage, Path, Point, Rect, Circle, Triangle, Polygon, Line, StaticCanvas, util, loadSVGFromString } from 'fabric'
 import { AligningGuidelines } from '../../fabric-aligning-guidelines'
 import { basicShapes, textPresets, canvasPresets, shapePreviewPaths, iconTemplates } from './editorCatalog'
 import type { ShapeLibraryItem, TextLibraryItem, IconTemplateItem } from './editorCatalog'
@@ -1299,6 +1364,24 @@ type ClipboardEntry = {
   sourceName: string
   kaleidoscopeEnabled: boolean
   sourceMissing: boolean
+}
+
+type UserAssetItem = {
+  id: string
+  name: string
+  createdAt: string
+  updatedAt: string
+  objects: Record<string, unknown>[]
+  layerOrder: string[]
+  thumbnail: string
+}
+
+type UserAssetDialogState = {
+  show: boolean
+  mode: 'create' | 'rename'
+  name: string
+  error: string
+  targetId: string
 }
 
 type InternalClipboard = {
@@ -1520,6 +1603,9 @@ const ENDPOINT_SNAP_MARGIN = 4
 const PROJECT_SCHEMA_VERSION = 1
 const PROJECT_FILE_EXTENSION = 'iconcreator.json'
 const DRAFT_STORAGE_KEY = 'icon-creator:auto-save-draft:v1'
+const USER_ASSET_STORAGE_KEY = 'icon-creator:user-assets:v1'
+const USER_ASSET_THUMBNAIL_SIZE = 96
+const USER_ASSET_MAX_THUMBNAIL_SOURCE_SIZE = 1600
 const DRAFT_SAVE_DELAY = 800
 const EXPORT_PNG_SIZE_OPTIONS = [16, 24, 32, 48, 64, 128, 256, 512]
 const SMALL_PREVIEW_SIZE_OPTIONS = [16, 24, 32, 48]
@@ -1556,7 +1642,7 @@ let draftDirty = false
 let restoringDraftPromptShown = false
 let artboardIdSeed = 0
 
-const leftTab = ref<'shape' | 'text' | 'templates' | 'iconify'>('shape')
+const leftTab = ref<'shape' | 'text' | 'templates' | 'assets' | 'iconify'>('shape')
 const activeRightTab = ref<'properties' | 'preview' | 'checks' | 'artboards' | 'layers'>('properties')
 const showRuler = ref(true)
 const showPixelGrid = ref(false)
@@ -1845,6 +1931,14 @@ const pasteSVGDialog = reactive<PasteSVGDialogState>({
   value: '',
   error: '',
   loading: false
+})
+const userAssets = ref<UserAssetItem[]>([])
+const userAssetDialog = reactive<UserAssetDialogState>({
+  show: false,
+  mode: 'create',
+  name: '',
+  error: '',
+  targetId: ''
 })
 const iconifySearch = reactive<IconifySearchState>({
   query: '',
@@ -3429,6 +3523,11 @@ const canConvertTextSelection = computed(() => {
     && selectedObjects.value.length > 0
     && selectedObjects.value.every((obj) => obj instanceof Textbox)
 })
+const canSaveUserAsset = computed(() => {
+  void activeObject.value
+  void layerVersion.value
+  return getCurrentCopyTargets().length > 0
+})
 
 const canDirectionalSubtract = computed(() => {
   return canBoolean.value && selectedObjects.value.length === 2
@@ -3667,6 +3766,350 @@ async function duplicateSelection() {
     pasteCount: 0
   }
   return pasteInternalClipboard(tempClipboard)
+}
+
+// 生成个人素材唯一标识，避免重启后素材重命名或重新排序影响插入与编辑操作。
+function createUserAssetId() {
+  return `asset-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+// 规范用户输入的素材名；空名称会回退到可读默认名，避免素材库出现不可点击的空标题。
+function normalizeUserAssetName(value: string, fallback = '素材') {
+  const trimmed = value.trim()
+  return trimmed || fallback
+}
+
+// 根据当前选区生成新素材的默认名称，多对象选区使用统一名称，单对象选区沿用图层显示名。
+function getDefaultUserAssetName() {
+  const targets = getCurrentCopyTargets()
+  if (targets.length === 1) return getObjectDisplayName(targets[0])
+  return `素材 ${userAssets.value.length + 1}`
+}
+
+// 深拷贝 Fabric 序列化结果，确保写入 localStorage 的素材不再引用当前画布对象状态。
+function cloneSerializedObjectData(value: Record<string, unknown>) {
+  return JSON.parse(JSON.stringify(value)) as Record<string, unknown>
+}
+
+// 把当前选区序列化为素材对象列表，保留渐变、可编辑路径等自定义元数据并记录原始图层顺序。
+function serializeCurrentSelectionForUserAsset() {
+  const targets = getCurrentCopyTargets()
+  const objects = targets.map((obj) => cloneSerializedObjectData((obj as AnyFabricObject).toObject(SERIALIZED_OBJECT_PROPS as unknown as string[]) as Record<string, unknown>))
+  const layerOrder = targets.map((obj) => ensureEditorObjectId(obj))
+  return { objects, layerOrder }
+}
+
+// 计算一组对象的联合包围盒，供素材缩略图生成和插入居中复用；无有效尺寸时返回 null。
+function getObjectsCombinedBounds(objects: FabricObject[]) {
+  if (!objects.length) return null
+  let left = Number.POSITIVE_INFINITY
+  let top = Number.POSITIVE_INFINITY
+  let right = Number.NEGATIVE_INFINITY
+  let bottom = Number.NEGATIVE_INFINITY
+  objects.forEach((obj) => {
+    obj.setCoords()
+    const bounds = obj.getBoundingRect()
+    if (![bounds.left, bounds.top, bounds.width, bounds.height].every(Number.isFinite)) return
+    left = Math.min(left, bounds.left)
+    top = Math.min(top, bounds.top)
+    right = Math.max(right, bounds.left + bounds.width)
+    bottom = Math.max(bottom, bounds.top + bounds.height)
+  })
+  if (![left, top, right, bottom].every(Number.isFinite) || right <= left || bottom <= top) return null
+  return { left, top, width: right - left, height: bottom - top }
+}
+
+// 为素材列表生成透明 PNG 缩略图；通过临时 StaticCanvas 渲染克隆对象，不污染当前编辑画布。
+async function createUserAssetThumbnail(serializedObjects: Record<string, unknown>[]) {
+  const objects = await util.enlivenObjects(serializedObjects.map(cloneSerializedObjectData)) as FabricObject[]
+  const bounds = getObjectsCombinedBounds(objects)
+  if (!bounds) return ''
+  const sourceMaxSize = Math.max(bounds.width, bounds.height)
+  const sourceScale = sourceMaxSize > USER_ASSET_MAX_THUMBNAIL_SOURCE_SIZE
+    ? USER_ASSET_MAX_THUMBNAIL_SOURCE_SIZE / sourceMaxSize
+    : 1
+  const renderWidth = Math.max(1, Math.ceil(bounds.width * sourceScale))
+  const renderHeight = Math.max(1, Math.ceil(bounds.height * sourceScale))
+  const sourceCanvasEl = document.createElement('canvas')
+  const sourceCanvas = new StaticCanvas(sourceCanvasEl, {
+    width: renderWidth,
+    height: renderHeight,
+    backgroundColor: ''
+  })
+  sourceCanvas.viewportTransform = [sourceScale, 0, 0, sourceScale, -bounds.left * sourceScale, -bounds.top * sourceScale]
+  objects.forEach((obj) => sourceCanvas.add(obj as AnyFabricObject))
+  sourceCanvas.renderAll()
+
+  const thumbCanvas = document.createElement('canvas')
+  thumbCanvas.width = USER_ASSET_THUMBNAIL_SIZE
+  thumbCanvas.height = USER_ASSET_THUMBNAIL_SIZE
+  const ctx = thumbCanvas.getContext('2d')
+  if (!ctx) {
+    sourceCanvas.dispose()
+    return ''
+  }
+  const padding = 8
+  const drawScale = Math.min(
+    (USER_ASSET_THUMBNAIL_SIZE - padding * 2) / Math.max(1, renderWidth),
+    (USER_ASSET_THUMBNAIL_SIZE - padding * 2) / Math.max(1, renderHeight)
+  )
+  const drawWidth = Math.max(1, renderWidth * drawScale)
+  const drawHeight = Math.max(1, renderHeight * drawScale)
+  ctx.clearRect(0, 0, USER_ASSET_THUMBNAIL_SIZE, USER_ASSET_THUMBNAIL_SIZE)
+  ctx.drawImage(
+    sourceCanvas.getElement(),
+    (USER_ASSET_THUMBNAIL_SIZE - drawWidth) / 2,
+    (USER_ASSET_THUMBNAIL_SIZE - drawHeight) / 2,
+    drawWidth,
+    drawHeight
+  )
+  const dataUrl = thumbCanvas.toDataURL('image/png')
+  sourceCanvas.dispose()
+  return dataUrl
+}
+
+// 读取 localStorage 中的素材条目并做最小校验，坏数据会被忽略以免阻塞编辑器启动。
+function normalizeStoredUserAsset(value: unknown): UserAssetItem | null {
+  const source = value && typeof value === 'object' ? value as Partial<UserAssetItem> : null
+  if (!source || typeof source.id !== 'string' || typeof source.name !== 'string') return null
+  if (!Array.isArray(source.objects) || !source.objects.length) return null
+  const objects = source.objects.filter((item): item is Record<string, unknown> => !!item && typeof item === 'object')
+  if (!objects.length) return null
+  const now = new Date().toISOString()
+  return {
+    id: source.id,
+    name: normalizeUserAssetName(source.name),
+    createdAt: typeof source.createdAt === 'string' ? source.createdAt : now,
+    updatedAt: typeof source.updatedAt === 'string' ? source.updatedAt : now,
+    objects,
+    layerOrder: Array.isArray(source.layerOrder) ? source.layerOrder.filter((id): id is string => typeof id === 'string') : [],
+    thumbnail: typeof source.thumbnail === 'string' ? source.thumbnail : ''
+  }
+}
+
+// 启动时加载本地个人素材；解析失败时只清空内存列表，不删除原始存储，方便后续排查。
+function loadUserAssets() {
+  try {
+    const raw = window.localStorage.getItem(USER_ASSET_STORAGE_KEY)
+    if (!raw) return
+    const parsed = JSON.parse(raw) as { assets?: unknown } | unknown[]
+    const rawAssets = Array.isArray(parsed) ? parsed : Array.isArray(parsed.assets) ? parsed.assets : []
+    userAssets.value = rawAssets
+      .map(normalizeStoredUserAsset)
+      .filter((asset): asset is UserAssetItem => !!asset)
+  } catch (error) {
+    console.warn('读取个人素材失败', error)
+    userAssets.value = []
+  }
+}
+
+// 将当前素材列表持久化到 localStorage，使用户重启插件后仍能继续插入常用素材。
+function saveUserAssets() {
+  try {
+    window.localStorage.setItem(USER_ASSET_STORAGE_KEY, JSON.stringify({
+      schemaVersion: 1,
+      assets: userAssets.value
+    }))
+  } catch (error) {
+    console.warn('保存个人素材失败', error)
+    throw new Error('保存个人素材失败，请检查浏览器本地存储空间')
+  }
+}
+
+// 打开保存素材弹窗，并使用当前选区名称作为默认值以减少重复输入。
+function openCreateUserAssetDialog() {
+  if (!canSaveUserAsset.value) return
+  userAssetDialog.mode = 'create'
+  userAssetDialog.name = getDefaultUserAssetName()
+  userAssetDialog.targetId = ''
+  userAssetDialog.error = ''
+  userAssetDialog.show = true
+}
+
+// 打开素材重命名弹窗，保留目标 id，确认时只修改素材库数据而不影响画布上已插入对象。
+function openRenameUserAssetDialog(asset: UserAssetItem) {
+  userAssetDialog.mode = 'rename'
+  userAssetDialog.name = asset.name
+  userAssetDialog.targetId = asset.id
+  userAssetDialog.error = ''
+  userAssetDialog.show = true
+}
+
+// 关闭素材弹窗时清空临时状态，避免下一次保存或重命名沿用旧错误信息。
+function handleUserAssetDialogShowChange(show: boolean) {
+  userAssetDialog.show = show
+  if (show) return
+  userAssetDialog.name = ''
+  userAssetDialog.error = ''
+  userAssetDialog.targetId = ''
+}
+
+// 基于当前选区创建一条个人素材，包含可编辑对象 JSON、图层顺序和列表缩略图。
+async function createUserAssetFromSelection(name: string) {
+  const { objects, layerOrder } = serializeCurrentSelectionForUserAsset()
+  if (!objects.length) throw new Error('请先选中要保存的对象')
+  const now = new Date().toISOString()
+  const asset: UserAssetItem = {
+    id: createUserAssetId(),
+    name: normalizeUserAssetName(name, getDefaultUserAssetName()),
+    createdAt: now,
+    updatedAt: now,
+    objects,
+    layerOrder,
+    thumbnail: await createUserAssetThumbnail(objects)
+  }
+  userAssets.value = [asset, ...userAssets.value]
+  saveUserAssets()
+}
+
+// 确认保存或重命名素材；失败时把错误留在弹窗内，便于用户改名或释放存储空间后重试。
+async function confirmUserAssetDialog() {
+  const name = normalizeUserAssetName(userAssetDialog.name)
+  try {
+    if (userAssetDialog.mode === 'create') {
+      await createUserAssetFromSelection(name)
+    } else {
+      const asset = userAssets.value.find((item) => item.id === userAssetDialog.targetId)
+      if (!asset) throw new Error('素材不存在')
+      asset.name = name
+      asset.updatedAt = new Date().toISOString()
+      userAssets.value = [...userAssets.value]
+      saveUserAssets()
+    }
+    handleUserAssetDialogShowChange(false)
+  } catch (error) {
+    userAssetDialog.error = error instanceof Error ? error.message : '保存素材失败'
+  }
+}
+
+// 删除素材前进行二次确认，防止误删本地收藏；删除后立即写回 localStorage。
+function deleteUserAsset(asset: UserAssetItem) {
+  const confirmed = window.confirm(`确定删除素材“${asset.name}”吗？`)
+  if (!confirmed) return
+  userAssets.value = userAssets.value.filter((item) => item.id !== asset.id)
+  saveUserAssets()
+}
+
+// 格式化素材更新时间，列表空间有限时仅展示本地日期，异常日期回退为“未知时间”。
+function formatUserAssetDate(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '未知时间'
+  return date.toLocaleDateString()
+}
+
+// 展示素材包含的对象数量，帮助用户区分单个图形、组合和多对象素材。
+function getUserAssetObjectCountLabel(asset: UserAssetItem) {
+  const count = asset.objects.length
+  return count > 1 ? `${count} 个对象` : '1 个对象'
+}
+
+// 插入素材前为克隆对象换新内部 id、清理外部端点引用，并递归处理组内子对象元数据。
+function prepareUserAssetObjectForInsert(obj: FabricObject, assetName: string, index: number, isRoot = true) {
+  prepareClonedObjectMetadata(obj)
+  applyDefaultKaleidoscopeMetadata(obj)
+  applyDefaultEndpointSnapMargin(obj)
+  normalizeEndpointAttachments(obj)
+  applyGradientMetadataToCanvasObject(obj)
+  if (isRoot) {
+    ;(obj as AnyFabricObject).name = nextName(index === 0 ? assetName : `${assetName} 元素`)
+  } else if (!String((obj as AnyFabricObject).name || '').trim()) {
+    ;(obj as AnyFabricObject).name = nextName(`${assetName} 元素`)
+  }
+  if (obj instanceof Group) {
+    obj.getObjects().forEach((child, childIndex) => prepareUserAssetObjectForInsert(child, assetName, childIndex, false))
+  }
+  applyCanvasThemeToObject(obj)
+  obj.setCoords()
+}
+
+// 将素材对象整体移动到当前画布中心，若素材明显大于画布则等比缩小以保证插入后可见。
+function placeUserAssetObjects(objects: FabricObject[]) {
+  const bounds = getObjectsCombinedBounds(objects)
+  if (!bounds) return { dx: 0, dy: 0 }
+  const maxWidth = canvasWidth.value * 0.82
+  const maxHeight = canvasHeight.value * 0.82
+  const scaleRatio = Math.min(
+    1,
+    bounds.width > 0 ? maxWidth / bounds.width : 1,
+    bounds.height > 0 ? maxHeight / bounds.height : 1
+  )
+  if (Number.isFinite(scaleRatio) && scaleRatio > 0 && scaleRatio < 1) {
+    objects.forEach((obj) => {
+      obj.set({
+        left: bounds.left + ((obj.left ?? 0) - bounds.left) * scaleRatio,
+        top: bounds.top + ((obj.top ?? 0) - bounds.top) * scaleRatio,
+        scaleX: (obj.scaleX || 1) * scaleRatio,
+        scaleY: (obj.scaleY || 1) * scaleRatio
+      })
+      obj.setCoords()
+    })
+  }
+  const nextBounds = getObjectsCombinedBounds(objects) ?? bounds
+  const dx = canvasWidth.value / 2 - (nextBounds.left + nextBounds.width / 2)
+  const dy = canvasHeight.value / 2 - (nextBounds.top + nextBounds.height / 2)
+  objects.forEach((obj) => {
+    obj.set({
+      left: (obj.left || 0) + dx,
+      top: (obj.top || 0) + dy
+    })
+    obj.setCoords()
+  })
+  return { dx, dy }
+}
+
+// 素材插入后重置万花筒源 id，并把中心点随对象移动，避免新素材继续引用旧画布中的源对象。
+function resetInsertedAssetKaleidoscopeMetadata(obj: FabricObject, dx: number, dy: number) {
+  if (obj instanceof Group) {
+    obj.getObjects().forEach((child) => resetInsertedAssetKaleidoscopeMetadata(child, dx, dy))
+  }
+  applyDefaultKaleidoscopeMetadata(obj)
+  const metadata = getKaleidoscopeMetadata(obj)
+  if (!metadata) return
+  if (metadata.kaleidoscopeManaged || metadata.kaleidoscopeInstanceOf) {
+    clearKaleidoscopeMetadata(obj)
+    return
+  }
+  if (metadata.kaleidoscopeEnabled && canUseKaleidoscopeAsSource(obj)) {
+    metadata.kaleidoscopeSourceId = createKaleidoscopeSourceId()
+    metadata.kaleidoscopeCenterX = (metadata.kaleidoscopeCenterX || 0) + dx
+    metadata.kaleidoscopeCenterY = (metadata.kaleidoscopeCenterY || 0) + dy
+    metadata.kaleidoscopeCount = normalizeKaleidoscopeCount(metadata.kaleidoscopeCount)
+    metadata.kaleidoscopeManaged = false
+    metadata.kaleidoscopeInstanceOf = ''
+    metadata.kaleidoscopeInstanceIndex = 0
+  }
+}
+
+// 将个人素材重新反序列化为 Fabric 对象插入画布，插入后保持可编辑并生成一次撤销快照。
+async function insertUserAsset(asset: UserAssetItem) {
+  if (!fabricCanvas) return
+  clearBooleanPreview()
+  clearPointEditing()
+  const objects = await util.enlivenObjects(asset.objects.map(cloneSerializedObjectData)) as FabricObject[]
+  if (!objects.length) return
+  const inserted: FabricObject[] = []
+  skipSnapshot = true
+  try {
+    objects.forEach((obj, index) => {
+      prepareUserAssetObjectForInsert(obj, asset.name, index)
+      inserted.push(obj)
+    })
+    const { dx, dy } = placeUserAssetObjects(inserted)
+    inserted.forEach((obj) => resetInsertedAssetKaleidoscopeMetadata(obj, dx, dy))
+    for (const obj of inserted) {
+      fabricCanvas.add(obj as AnyFabricObject)
+      if (isKaleidoscopeSource(obj)) {
+        await rebuildKaleidoscopeInstances(obj)
+      }
+    }
+  } finally {
+    skipSnapshot = false
+  }
+  setSelectionMode('shape')
+  applyActiveObjectsSelection(inserted)
+  refreshLayers()
+  fabricCanvas.requestRenderAll()
+  snapshot()
 }
 
 function selectAllByMode() {
@@ -8570,6 +9013,7 @@ onMounted(() => {
   })
 
   loadShortcutBindings()
+  loadUserAssets()
   ensureCanvasObjectMetadata()
   applyCanvasTheme()
   syncCanvasInteractionMode()
@@ -9069,6 +9513,92 @@ $panel-bg: #fff;
 .template-actions {
   display: flex;
   gap: 6px;
+}
+.asset-title-row {
+  gap: 8px;
+  padding-right: 0;
+  .section-title {
+    flex: 1;
+  }
+}
+.user-asset-save-btn {
+  flex-shrink: 0;
+}
+.user-asset-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.user-asset-card {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid rgba(128, 128, 128, 0.15);
+  border-radius: 8px;
+  background: #fafafa;
+}
+.user-asset-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 76px;
+  height: 76px;
+  border: 1px solid rgba(128, 128, 128, 0.12);
+  border-radius: 7px;
+  background:
+    linear-gradient(45deg, rgba(128, 128, 128, 0.08) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(128, 128, 128, 0.08) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(128, 128, 128, 0.08) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(128, 128, 128, 0.08) 75%);
+  background-color: #fff;
+  background-position: 0 0, 0 6px, 6px -6px, -6px 0;
+  background-size: 12px 12px;
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.15s;
+  &:hover {
+    border-color: #1e6fff;
+    transform: translateY(-1px);
+  }
+  img {
+    display: block;
+    max-width: 62px;
+    max-height: 62px;
+  }
+}
+.user-asset-preview-placeholder {
+  color: #888;
+  font-size: 12px;
+}
+.user-asset-info {
+  min-width: 0;
+}
+.user-asset-name {
+  overflow: hidden;
+  color: #333;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.user-asset-meta {
+  margin-top: 2px;
+  color: #777;
+  font-size: 11px;
+}
+.user-asset-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.user-asset-empty {
+  padding: 24px 8px;
+  color: #777;
+  font-size: 12px;
+  line-height: 1.6;
+  text-align: center;
 }
 .iconify-search-row {
   display: grid;
@@ -9799,6 +10329,7 @@ $panel-bg: #fff;
 }
 .export-dialog,
 .paste-svg-dialog,
+.user-asset-dialog,
 .layer-rename-dialog {
   min-width: 320px;
   border: 1px solid var(--control-border);
@@ -9811,12 +10342,14 @@ $panel-bg: #fff;
 }
 .export-dialog-header,
 .paste-svg-header,
+.user-asset-dialog-header,
 .layer-rename-header {
   padding: 14px 16px;
   border-bottom: 1px solid var(--divider-color, rgba(128, 128, 128, 0.18));
 }
 .export-dialog-title,
 .paste-svg-title,
+.user-asset-dialog-title,
 .layer-rename-title {
   font-size: 15px;
   font-weight: 600;
@@ -9825,11 +10358,13 @@ $panel-bg: #fff;
 }
 .export-dialog-content,
 .paste-svg-content,
+.user-asset-dialog-content,
 .layer-rename-content {
   padding: 16px;
 }
 .export-dialog-desc,
-.paste-svg-desc {
+.paste-svg-desc,
+.user-asset-dialog-desc {
   margin-top: 6px;
   font-size: 12px;
   line-height: 1.5;
@@ -9917,7 +10452,8 @@ $panel-bg: #fff;
     border-color: var(--primary-color);
   }
 }
-.paste-svg-error {
+.paste-svg-error,
+.user-asset-dialog-error {
   margin-top: 8px;
   color: #c00;
   font-size: 12px;
@@ -9925,6 +10461,7 @@ $panel-bg: #fff;
 }
 .export-dialog-actions,
 .paste-svg-actions,
+.user-asset-dialog-actions,
 .layer-rename-actions {
   display: flex;
   align-items: center;
@@ -9938,6 +10475,7 @@ $panel-bg: #fff;
 }
 :deep(.zt-modal:has(.export-dialog) .zt-modal__body),
 :deep(.zt-modal:has(.paste-svg-dialog) .zt-modal__body),
+:deep(.zt-modal:has(.user-asset-dialog) .zt-modal__body),
 :deep(.zt-modal:has(.layer-rename-dialog) .zt-modal__body) {
   padding: 0;
   border-radius: 6px;
