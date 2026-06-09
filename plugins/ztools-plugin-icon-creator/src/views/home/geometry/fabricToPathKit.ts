@@ -353,6 +353,44 @@ export function fabricObjectToPathKitWithApi(pathKit: PathKitApi, obj: FabricObj
   return createObjectPath(pathKit, obj)
 }
 
+// 将对象当前描边转换为 PathKit 填充路径，供“描边转轮廓”在不改变原填充的前提下生成可编辑轮廓。
+export function fabricStrokeToPathKitWithApi(pathKit: PathKitApi, obj: FabricObject): FabricToPathKitResult {
+  if (obj instanceof Textbox || obj instanceof FabricImage || obj instanceof ActiveSelection) {
+    return { error: '文字和图片暂不支持描边转轮廓' }
+  }
+  if (obj instanceof Group) {
+    return { error: '成组对象暂不支持描边转轮廓，请先解组' }
+  }
+  const style = getStyleSnapshot(obj)
+  const hasStroke = isVisiblePaint(obj.stroke) && (obj.strokeWidth || 0) > 0
+  if (!hasStroke) return { error: '对象没有可转换的可见描边' }
+  if (style.strokeDashArray?.length) return { error: '虚线描边暂不支持转轮廓，请先改为实线' }
+
+  const localPath = createLocalPath(pathKit, obj)
+  if (!localPath) return { error: '该对象类型暂不支持描边转轮廓' }
+
+  const created: PathKitPath[] = [localPath]
+  try {
+    const strokeOutline = localPath.copy()
+    created.push(strokeOutline)
+    if (obj.strokeUniform) {
+      transformPath(strokeOutline, obj.calcTransformMatrix())
+      if (!strokePath(pathKit, strokeOutline, obj)) return { error: '描边轮廓转换失败' }
+    } else {
+      if (!strokePath(pathKit, strokeOutline, obj)) return { error: '描边轮廓转换失败' }
+      transformPath(strokeOutline, obj.calcTransformMatrix())
+    }
+    return {
+      path: strokeOutline.copy(),
+      geometrySource: 'stroke-area',
+      fillRule: style.fillRule,
+      style
+    }
+  } finally {
+    created.forEach((path) => path.delete())
+  }
+}
+
 export async function fabricObjectToPathKit(obj: FabricObject): Promise<FabricToPathKitResult> {
   const pathKit = await getPathKit()
   return fabricObjectToPathKitWithApi(pathKit, obj)

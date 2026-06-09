@@ -24,6 +24,9 @@
         <ZButton size="small" class="top-bar-btn" :disabled="!canRedo" @click="redo" title="重做">重做</ZButton>
         <span class="tb-sep"></span>
         <ZButton size="small" class="top-bar-btn" :class="{ 'is-active': showRuler }" @click="toggleRuler" title="标尺">标尺</ZButton>
+        <ZButton size="small" class="top-bar-btn" :class="{ 'is-active': showPixelGrid }" @click="togglePixelGrid" title="像素网格">网格</ZButton>
+        <ZButton size="small" class="top-bar-btn" :class="{ 'is-active': snapToPixelGrid }" @click="toggleSnapToPixelGrid" title="吸附到网格">吸附</ZButton>
+        <ZButton size="small" class="top-bar-btn" :class="{ 'is-active': keylineTemplate !== 'none' }" @click="toggleKeylineOverlay" title="Keyline 与安全区参考线">参考线</ZButton>
         <ZButton size="small" class="top-bar-btn shortcut-topbar-btn" :class="{ 'is-active': shortcutDrawerOpen }" @click="openShortcutDrawer" title="快捷键设置">快捷键</ZButton>
         <span class="tb-sep"></span>
         <ZButton size="small" class="top-bar-icon-btn" :class="{ 'is-active': selectionMode === 'shape' }" title="选择图形" @click="setSelectionMode('shape')">
@@ -149,6 +152,35 @@
           @pointerdown.capture="handleCanvasAreaPointerDown"
         >
           <div class="canvas-wrapper" ref="canvasWrapperRef" :class="{ 'transparent-bg': isCanvasBgTransparent }">
+            <div
+              v-if="showPixelGrid"
+              class="pixel-grid-overlay"
+              :style="pixelGridOverlayStyle"
+              aria-hidden="true"
+            ></div>
+            <svg
+              v-if="keylineTemplate !== 'none'"
+              class="keyline-overlay"
+              :viewBox="`0 0 ${canvasWidth} ${canvasHeight}`"
+              :style="keylineOverlayStyle"
+              aria-hidden="true"
+            >
+              <rect
+                class="keyline-safe-area"
+                :x="keylineSafeArea.x"
+                :y="keylineSafeArea.y"
+                :width="keylineSafeArea.width"
+                :height="keylineSafeArea.height"
+                :rx="keylineSafeArea.radius"
+                :ry="keylineSafeArea.radius"
+              />
+              <template v-if="keylineTemplate === 'material'">
+                <circle class="keyline-shape" :cx="canvasWidth / 2" :cy="canvasHeight / 2" :r="keylineSafeArea.width / 2" />
+                <rect class="keyline-shape" :x="keylineSafeArea.x" :y="keylineSafeArea.y" :width="keylineSafeArea.width" :height="keylineSafeArea.height" />
+                <line class="keyline-axis" :x1="canvasWidth / 2" y1="0" :x2="canvasWidth / 2" :y2="canvasHeight" />
+                <line class="keyline-axis" x1="0" :y1="canvasHeight / 2" :x2="canvasWidth" :y2="canvasHeight / 2" />
+              </template>
+            </svg>
             <canvas ref="canvasElRef"></canvas>
           </div>
         </main>
@@ -700,6 +732,8 @@
                 <div class="prop-actions">
                   <button class="tb-btn" @click="groupObjects" :disabled="!canGroup">成组</button>
                   <button class="tb-btn" @click="ungroupObject" :disabled="!canUngroup">解组</button>
+                  <button class="tb-btn" @click="convertSelectionStrokeToOutline" :disabled="!canConvertStrokeSelection || strokeOutlineBusy">{{ strokeOutlineBusy ? '转换中...' : '描边转轮廓' }}</button>
+                  <button class="tb-btn" @click="convertSelectionTextToOutline" :disabled="!canConvertTextSelection || textOutlineBusy">{{ textOutlineBusy ? '转换中...' : '文字转轮廓' }}</button>
                   <button class="tb-btn" @click="lockObject">{{ activeObject.lockMovementX ? '解锁' : '锁定' }}</button>
                   <button class="tb-btn danger" @click="deleteObject">删除</button>
                 </div>
@@ -752,6 +786,44 @@
                     />
                   </div>
                 </div>
+                <div class="prop-group style-toggle-row">
+                  <label>网格</label>
+                  <ZSwitch size="small" :model-value="showPixelGrid" @change="setPixelGridVisible" />
+                </div>
+                <div class="prop-group style-toggle-row">
+                  <label>吸附</label>
+                  <ZSwitch size="small" :model-value="snapToPixelGrid" @change="setSnapToPixelGrid" />
+                </div>
+                <div class="prop-group style-color-row">
+                  <label>间距</label>
+                  <ZInput
+                    size="small"
+                    type="text"
+                    :model-value="pixelGridSizeInput"
+                    @update:model-value="pixelGridSizeInput = String($event)"
+                    @change="setPixelGridSizeFromInput"
+                  />
+                </div>
+                <div class="prop-group style-color-row">
+                  <label>参考线</label>
+                  <ZSelect
+                    size="small"
+                    class="w-100%"
+                    :model-value="keylineTemplate"
+                    :options="keylineTemplateOptions"
+                    @change="setKeylineTemplate(String($event) as KeylineTemplate)"
+                  />
+                </div>
+                <div v-if="keylineTemplate === 'custom'" class="prop-group style-color-row">
+                  <label>安全区</label>
+                  <ZInput
+                    size="small"
+                    type="text"
+                    :model-value="keylineMarginInput"
+                    @update:model-value="keylineMarginInput = String($event)"
+                    @change="setKeylineMarginFromInput"
+                  />
+                </div>
               </template>
             </div>
           </ZTabPane>
@@ -794,6 +866,30 @@
                 </div>
                 <div class="preview-hint">编辑后自动刷新，透明背景使用棋盘格辅助判断边缘。</div>
               </div>
+            </div>
+          </ZTabPane>
+          <ZTabPane name="checks" tab="检查" display-directive="show">
+            <div class="right-panel-scroll">
+              <div class="section-title-row">
+                <div class="section-title">图标规范检查</div>
+                <span class="icon-check-count">{{ iconCheckIssues.length }}</span>
+              </div>
+              <div v-if="iconCheckIssues.length" class="icon-check-list">
+                <button
+                  v-for="issue in iconCheckIssues"
+                  :key="issue.id"
+                  type="button"
+                  class="icon-check-item"
+                  :class="`severity-${issue.severity}`"
+                  @click="selectIconCheckIssue(issue)"
+                >
+                  <div class="icon-check-item-title">{{ issue.title }}</div>
+                  <div class="icon-check-item-detail">{{ issue.detail }}</div>
+                  <div v-if="issue.targetName" class="icon-check-item-target">{{ issue.targetName }}</div>
+                </button>
+              </div>
+              <div v-else class="icon-check-empty">未发现明显规范问题。</div>
+              <div class="preview-hint">检查会根据当前画布、安全区、颜色和小尺寸比例自动刷新；点击对象问题可定位图层。</div>
             </div>
           </ZTabPane>
           <ZTabPane name="layers" tab="图层" display-directive="show">
@@ -1073,7 +1169,7 @@ import { ref, shallowRef, triggerRef, reactive, computed, onMounted, onBeforeUnm
 import { VueDraggable } from 'vue-draggable-plus'
 import { ZInput, ZSelect, ZColorPicker, ZSwitch, ZSlider, ZPopover, ZButton, ZTabs, ZTabPane, ZHotkeyInput, ZDrawer, ZContextMenu, ZModal, useZtoolsTheme } from 'ztools-ui'
 import { Icon } from '@iconify/vue'
-import { Canvas, Control, FabricObject, Gradient, Textbox, Group, ActiveSelection, FabricImage, Path, Point, util, loadSVGFromString } from 'fabric'
+import { Canvas, Control, FabricObject, Gradient, Textbox, Group, ActiveSelection, FabricImage, Path, Point, Rect, Circle, Triangle, Polygon, Line, util, loadSVGFromString } from 'fabric'
 import { AligningGuidelines } from '../../fabric-aligning-guidelines'
 import { basicShapes, textPresets, canvasPresets, shapePreviewPaths } from './editorCatalog'
 import type { ShapeLibraryItem, TextLibraryItem } from './editorCatalog'
@@ -1117,7 +1213,7 @@ import {
   type ShortcutGroupId
 } from './shortcuts'
 import Ruler from './components/Ruler.vue'
-import { isBooleanCandidate, fabricObjectToPathKitWithApi, type FabricBooleanStyleSnapshot } from './geometry/fabricToPathKit'
+import { isBooleanCandidate, fabricObjectToPathKitWithApi, fabricStrokeToPathKitWithApi, type FabricBooleanStyleSnapshot } from './geometry/fabricToPathKit'
 import { applyBooleanOperation, computeBooleanResult } from './geometry/booleanOps'
 import type { BooleanOperation, SubtractDirection } from './geometry/booleanOps'
 import { pathKitToEditablePathObject, pathKitToFabricPath } from './geometry/pathKitToFabric'
@@ -1188,6 +1284,20 @@ type IconCreatorProjectCanvas = {
   width: number
   height: number
   background: string
+  gridSize?: number
+  showPixelGrid?: boolean
+  snapToPixelGrid?: boolean
+  keylineTemplate?: KeylineTemplate
+  keylineMargin?: number
+}
+
+type IconCreatorProjectArtboard = {
+  id: string
+  name: string
+  canvas: IconCreatorProjectCanvas
+  fabric: Record<string, unknown>
+  layerOrder: string[]
+  thumbnail?: string
 }
 
 type IconCreatorProjectFile = {
@@ -1198,6 +1308,8 @@ type IconCreatorProjectFile = {
   canvas: IconCreatorProjectCanvas
   fabric: Record<string, unknown>
   layerOrder: string[]
+  artboards?: IconCreatorProjectArtboard[]
+  activeArtboardId?: string
 }
 
 type IconCreatorDraftFile = {
@@ -1324,6 +1436,37 @@ type IconifySearchResponse = {
 
 type ExportFormat = 'svg' | 'png'
 type PreviewBackgroundMode = 'transparent' | 'light' | 'dark'
+type KeylineTemplate = 'none' | 'material' | 'ios' | 'favicon' | 'custom'
+type KeylineSafeArea = {
+  x: number
+  y: number
+  width: number
+  height: number
+  radius: number
+}
+type IconCheckSeverity = 'warning' | 'info'
+type IconCheckIssue = {
+  id: string
+  severity: IconCheckSeverity
+  title: string
+  detail: string
+  target?: FabricObject
+  targetName?: string
+}
+type ParsedCanvasColor = {
+  r: number
+  g: number
+  b: number
+  a: number
+}
+
+type StrokeOutlineResult = {
+  source: FabricObject
+  outline: FabricObject
+  sourceIndex: number
+  keepFilledSource: boolean
+  style: FabricBooleanStyleSnapshot
+}
 type PreviewItem = {
   size: number
   width: number
@@ -1354,6 +1497,16 @@ const DRAFT_STORAGE_KEY = 'icon-creator:auto-save-draft:v1'
 const DRAFT_SAVE_DELAY = 800
 const EXPORT_PNG_SIZE_OPTIONS = [16, 24, 32, 48, 64, 128, 256, 512]
 const SMALL_PREVIEW_SIZE_OPTIONS = [16, 24, 32, 48]
+const DEFAULT_PIXEL_GRID_SIZE = 8
+const MIN_PIXEL_GRID_SIZE = 1
+const MAX_PIXEL_GRID_SIZE = 256
+const MIN_PIXEL_GRID_VISIBLE_STEP = 4
+const DEFAULT_KEYLINE_TEMPLATE: KeylineTemplate = 'none'
+const DEFAULT_KEYLINE_MARGIN = 48
+const MIN_KEYLINE_MARGIN = 0
+const MAX_KEYLINE_MARGIN = 512
+const TEXT_OUTLINE_TRACE_MULTIPLIER = 2
+const TEXT_OUTLINE_ALPHA_THRESHOLD = 12
 const ICONIFY_SEARCH_LIMIT = 48
 let editorObjectIdSeed = 0
 
@@ -1375,10 +1528,18 @@ let spacePanStart: SpacePanStart | null = null
 let draftSaveTimer: ReturnType<typeof window.setTimeout> | null = null
 let draftDirty = false
 let restoringDraftPromptShown = false
+let artboardIdSeed = 0
 
 const leftTab = ref<'shape' | 'text' | 'iconify'>('shape')
-const activeRightTab = ref<'properties' | 'preview' | 'layers'>('properties')
+const activeRightTab = ref<'properties' | 'preview' | 'checks' | 'artboards' | 'layers'>('properties')
 const showRuler = ref(true)
+const showPixelGrid = ref(false)
+const snapToPixelGrid = ref(false)
+const pixelGridSize = ref(DEFAULT_PIXEL_GRID_SIZE)
+const pixelGridSizeInput = ref(String(pixelGridSize.value))
+const keylineTemplate = ref<KeylineTemplate>(DEFAULT_KEYLINE_TEMPLATE)
+const keylineMargin = ref(DEFAULT_KEYLINE_MARGIN)
+const keylineMarginInput = ref(String(keylineMargin.value))
 const zoom = ref(1)
 const shortcutDrawerOpen = ref(false)
 const shortcutSearch = ref('')
@@ -1404,7 +1565,47 @@ const currentFillStyleMode = computed<'solid' | FillGradientType>(() => {
   return objProps.fillGradientType === 'radial' ? 'radial' : 'linear'
 })
 const canvasBgPickerValue = computed(() => (isCanvasBgTransparent.value ? lastOpaqueCanvasBg.value : canvasBg.value))
+// 根据当前缩放渲染像素网格叠层；缩小时自动合并多格为一格，避免密集线条糊成色块。
+const pixelGridStepMultiplier = computed(() => {
+  const baseStep = Math.max(0.0001, pixelGridSize.value * zoom.value)
+  return Math.max(1, Math.ceil(MIN_PIXEL_GRID_VISIBLE_STEP / baseStep))
+})
+const effectivePixelGridStep = computed(() => Math.max(0.0001, pixelGridSize.value * zoom.value) * pixelGridStepMultiplier.value)
+const pixelGridOverlayStyle = computed(() => {
+  const step = effectivePixelGridStep.value
+  return {
+    width: `${canvasWidth.value * zoom.value}px`,
+    height: `${canvasHeight.value * zoom.value}px`,
+    backgroundSize: `${step}px ${step}px`,
+    opacity: pixelGridStepMultiplier.value > 1 ? 0.42 : 1
+  }
+})
+const keylineOverlayStyle = computed(() => ({
+  width: `${canvasWidth.value * zoom.value}px`,
+  height: `${canvasHeight.value * zoom.value}px`
+}))
+const keylineSafeArea = computed<KeylineSafeArea>(() => {
+  const width = canvasWidth.value
+  const height = canvasHeight.value
+  if (keylineTemplate.value === 'material') {
+    const margin = Math.min(width, height) * 0.125
+    return { x: margin, y: margin, width: Math.max(0, width - margin * 2), height: Math.max(0, height - margin * 2), radius: 0 }
+  }
+  if (keylineTemplate.value === 'ios') {
+    const margin = Math.min(width, height) * 0.09
+    return { x: margin, y: margin, width: Math.max(0, width - margin * 2), height: Math.max(0, height - margin * 2), radius: Math.min(width, height) * 0.19 }
+  }
+  if (keylineTemplate.value === 'favicon') {
+    const margin = Math.min(width, height) * 0.18
+    return { x: margin, y: margin, width: Math.max(0, width - margin * 2), height: Math.max(0, height - margin * 2), radius: 0 }
+  }
+  const margin = Math.min(keylineMargin.value, width / 2, height / 2)
+  return { x: margin, y: margin, width: Math.max(0, width - margin * 2), height: Math.max(0, height - margin * 2), radius: 0 }
+})
+const iconCheckIssues = computed<IconCheckIssue[]>(() => buildIconCheckIssues())
 const booleanBusy = ref(false)
+const strokeOutlineBusy = ref(false)
+const textOutlineBusy = ref(false)
 const booleanError = ref('')
 const subtractPopoverVisible = ref(false)
 const booleanPreviewObjects = shallowRef<FabricObject[]>([])
@@ -1641,6 +1842,13 @@ const exportDialog = reactive<ExportDialogState>({
   status: '',
   loading: false
 })
+const keylineTemplateOptions: Array<{ value: KeylineTemplate; label: string }> = [
+  { value: 'none', label: '无参考线' },
+  { value: 'material', label: 'Material Keyline' },
+  { value: 'ios', label: 'iOS / macOS 安全区' },
+  { value: 'favicon', label: 'Favicon 安全区' },
+  { value: 'custom', label: '自定义安全区' }
+]
 const previewBackgroundOptions: Array<{ value: PreviewBackgroundMode; label: string }> = [
   { value: 'transparent', label: '透明' },
   { value: 'light', label: '浅色' },
@@ -2140,6 +2348,63 @@ function getEditableLocalPointFromScene(obj: EditablePathObject, point: Point) {
   return point.transform(util.invertTransform(obj.calcOwnMatrix())).add(obj.pathOffset)
 }
 
+// 将场景坐标吸附到当前像素网格；未开启吸附时直接返回原点位，供对象和点位拖拽共用。
+function snapScenePointToPixelGrid(point: Point) {
+  if (!snapToPixelGrid.value) return point
+  const step = normalizePixelGridSize(pixelGridSize.value)
+  return new Point(
+    Math.round(point.x / step) * step,
+    Math.round(point.y / step) * step
+  )
+}
+
+// 根据目标包围盒左上角计算吸附偏移量，避免旋转对象直接改写 left/top 后出现基准点偏差。
+function getObjectPixelGridSnapDelta(obj: FabricObject) {
+  if (!snapToPixelGrid.value) return null
+  const bounds = obj.getBoundingRect()
+  const snapped = snapScenePointToPixelGrid(new Point(bounds.left, bounds.top))
+  const dx = snapped.x - bounds.left
+  const dy = snapped.y - bounds.top
+  if (Math.abs(dx) < 0.0001 && Math.abs(dy) < 0.0001) return null
+  return { dx, dy }
+}
+
+// 把移动中的对象或选区整体对齐到网格左上角，保持对象内部相对位置不变。
+function snapObjectPositionToPixelGrid(obj: FabricObject | null | undefined) {
+  if (!obj) return false
+  const delta = getObjectPixelGridSnapDelta(obj)
+  if (!delta) return false
+  obj.set({
+    left: (obj.left ?? 0) + delta.dx,
+    top: (obj.top ?? 0) + delta.dy
+  })
+  obj.setCoords()
+  return true
+}
+
+// 缩放时把对象当前显示宽高量化到网格，保证缩放后的边界尺寸更容易落在像素整数倍上。
+function snapObjectSizeToPixelGrid(obj: FabricObject | null | undefined) {
+  if (!obj || !snapToPixelGrid.value) return false
+  const currentWidth = obj.getScaledWidth()
+  const currentHeight = obj.getScaledHeight()
+  if (currentWidth <= 0 || currentHeight <= 0) return false
+  const step = normalizePixelGridSize(pixelGridSize.value)
+  const snappedWidth = Math.max(step, Math.round(currentWidth / step) * step)
+  const snappedHeight = Math.max(step, Math.round(currentHeight / step) * step)
+  const nextScaleX = (obj.scaleX ?? 1) * (snappedWidth / currentWidth)
+  const nextScaleY = (obj.scaleY ?? 1) * (snappedHeight / currentHeight)
+  if (!Number.isFinite(nextScaleX) || !Number.isFinite(nextScaleY)) return false
+  if (Math.abs(nextScaleX - (obj.scaleX ?? 1)) < 0.0001 && Math.abs(nextScaleY - (obj.scaleY ?? 1)) < 0.0001) return false
+  obj.set({ scaleX: nextScaleX, scaleY: nextScaleY })
+  obj.setCoords()
+  return true
+}
+
+// 将传入的拖拽场景点按当前吸附设置归一化，供点位、端点和曲线控制柄编辑使用。
+function getPixelGridAdjustedScenePoint(point: Point) {
+  return snapScenePointToPixelGrid(point)
+}
+
 function addEditableSegmentSnapCandidates(target: FabricObject, targetId: string, scenePoint: Point, snapDistance: number, candidates: EndpointSnapCandidate[]) {
   if (!isEditablePathObject(target)) return
   const segments = getEditableSegments(target)
@@ -2292,15 +2557,17 @@ function moveEndpointToScenePoint(obj: EditablePathObject, pointIndex: number, s
   moveEditablePoint(obj, pointIndex, getEditableLocalPointFromScene(obj, scenePoint))
 }
 
+// 端点拖拽时优先处理像素网格吸附；未开启网格吸附时继续保留原有的端点贴附到对象边界 / 线段能力。
 function moveEndpointWithSnap(obj: EditablePathObject, pointIndex: number, scenePoint: Point) {
+  const adjustedScenePoint = getPixelGridAdjustedScenePoint(scenePoint)
   if (!isEditablePointOpenEndpoint(obj, pointIndex)) {
-    moveEndpointToScenePoint(obj, pointIndex, scenePoint)
+    moveEndpointToScenePoint(obj, pointIndex, adjustedScenePoint)
     setEndpointAttachment(obj, pointIndex, null)
     return null
   }
-  const candidate = findEndpointSnapCandidate(obj, scenePoint)
+  const candidate = snapToPixelGrid.value ? null : findEndpointSnapCandidate(obj, adjustedScenePoint)
   if (!candidate) {
-    moveEndpointToScenePoint(obj, pointIndex, scenePoint)
+    moveEndpointToScenePoint(obj, pointIndex, adjustedScenePoint)
     setEndpointAttachment(obj, pointIndex, null)
     return null
   }
@@ -3104,6 +3371,39 @@ const canBoolean = computed(() => {
   return !hasKaleidoscopeSelection.value && !booleanBusy.value && selectedObjects.value.length >= 2 && selectedObjects.value.every(isBooleanCandidate)
 })
 
+// 判断对象是否属于描边转轮廓的可处理类型，供按钮启用和批量转换前置校验共用。
+function isStrokeOutlineSupportedObject(obj: FabricObject) {
+  return obj instanceof Rect
+    || obj instanceof Circle
+    || obj instanceof Triangle
+    || obj instanceof Polygon
+    || obj instanceof Line
+    || obj instanceof Path
+}
+
+// 返回对象无法执行描边转轮廓的具体原因；返回 null 表示可安全进入 PathKit 转换流程。
+function getStrokeOutlineUnsupportedReason(obj: FabricObject): string | null {
+  if (obj instanceof Textbox || obj instanceof FabricImage) return '文字和图片暂不支持描边转轮廓'
+  if (obj instanceof Group || obj instanceof ActiveSelection) return '成组对象暂不支持描边转轮廓，请先解组'
+  if (isKaleidoscopeObject(obj)) return '万花筒对象暂不支持描边转轮廓，请先脱离源对象'
+  if (!isStrokeEnabled(obj.stroke, obj.strokeWidth)) return '对象没有可转换的可见描边'
+  if (normalizeStrokeDashArray(obj.strokeDashArray)?.length) return '虚线描边暂不支持转轮廓，请先改为实线'
+  if (!isStrokeOutlineSupportedObject(obj)) return '该对象类型暂不支持描边转轮廓'
+  return null
+}
+
+const canConvertStrokeSelection = computed(() => {
+  return !strokeOutlineBusy.value
+    && selectedObjects.value.length > 0
+    && selectedObjects.value.every((obj) => getStrokeOutlineUnsupportedReason(obj) == null)
+})
+
+const canConvertTextSelection = computed(() => {
+  return !textOutlineBusy.value
+    && selectedObjects.value.length > 0
+    && selectedObjects.value.every((obj) => obj instanceof Textbox)
+})
+
 const canDirectionalSubtract = computed(() => {
   return canBoolean.value && selectedObjects.value.length === 2
 })
@@ -3360,6 +3660,303 @@ function toggleRuler() {
   showRuler.value = !showRuler.value
 }
 
+// 将用户配置的网格间距限制在可用范围内，避免过小网格导致渲染密集或过大网格失去参考意义。
+function normalizePixelGridSize(value: unknown) {
+  const parsed = Math.round(Number(value))
+  if (!Number.isFinite(parsed)) return DEFAULT_PIXEL_GRID_SIZE
+  return Math.min(MAX_PIXEL_GRID_SIZE, Math.max(MIN_PIXEL_GRID_SIZE, parsed))
+}
+
+// 同步网格间距输入框显示，保证工程恢复、预设切换和非法输入回退后界面数值一致。
+function syncPixelGridSizeInput() {
+  pixelGridSizeInput.value = formatNumericInputValue(pixelGridSize.value)
+}
+
+// 开关像素网格可见性；该状态属于工程辅助设置，会写入草稿和工程文件但不进入撤销栈。
+function setPixelGridVisible(visible: boolean) {
+  showPixelGrid.value = visible
+  scheduleDraftSave()
+}
+
+// 控制移动和点位编辑是否吸附到当前网格；该辅助状态随工程保存，便于恢复编辑环境。
+function setSnapToPixelGrid(enabled: boolean) {
+  snapToPixelGrid.value = enabled
+  syncCanvasInteractionMode()
+  scheduleDraftSave()
+}
+
+// 更新网格间距并同步输入框，后续对象移动和点位拖拽都会使用这个间距进行吸附。
+function setPixelGridSize(value: number) {
+  pixelGridSize.value = normalizePixelGridSize(value)
+  syncPixelGridSizeInput()
+  scheduleDraftSave()
+}
+
+// 提交网格间距输入，非法内容回退到当前间距，避免输入错误时把吸附间距改成不可用值。
+function setPixelGridSizeFromInput(value: string | number) {
+  commitNumericInput(
+    value,
+    pixelGridSize.value,
+    setPixelGridSize,
+    (next) => { pixelGridSizeInput.value = formatNumericInputValue(normalizePixelGridSize(next)) }
+  )
+}
+
+// 顶栏快捷入口用于快速显示或隐藏像素网格，不影响真实画布对象和最终导出内容。
+function togglePixelGrid() {
+  setPixelGridVisible(!showPixelGrid.value)
+}
+
+// 顶栏快捷入口用于快速启停吸附，方便在自由编辑和像素对齐之间切换。
+function toggleSnapToPixelGrid() {
+  setSnapToPixelGrid(!snapToPixelGrid.value)
+}
+
+// 规范参考线模板值，避免旧工程或手写工程文件中的未知值让界面处于不可控状态。
+function normalizeKeylineTemplate(value: unknown): KeylineTemplate {
+  return value === 'material' || value === 'ios' || value === 'favicon' || value === 'custom'
+    ? value
+    : 'none'
+}
+
+// 将自定义安全区边距限制在合理范围内，防止参考线因负值或过大值完全不可见。
+function normalizeKeylineMargin(value: unknown) {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return DEFAULT_KEYLINE_MARGIN
+  return Math.min(MAX_KEYLINE_MARGIN, Math.max(MIN_KEYLINE_MARGIN, parsed))
+}
+
+// 同步安全区输入框显示，保证工程恢复和非法输入回退后仍展示真实生效值。
+function syncKeylineMarginInput() {
+  keylineMarginInput.value = formatNumericInputValue(keylineMargin.value)
+}
+
+// 切换 Keyline / 安全区模板；Material / iOS / Favicon 使用内置规则，自定义模式使用用户边距。
+function setKeylineTemplate(template: KeylineTemplate) {
+  keylineTemplate.value = normalizeKeylineTemplate(template)
+  scheduleDraftSave()
+}
+
+// 更新自定义安全区边距，模板未切到自定义时仍保留该值，便于稍后切回。
+function setKeylineMargin(value: number) {
+  keylineMargin.value = normalizeKeylineMargin(value)
+  syncKeylineMarginInput()
+  scheduleDraftSave()
+}
+
+// 提交安全区边距输入，非法内容回退到当前值，避免参考线被错误参数移出画布。
+function setKeylineMarginFromInput(value: string | number) {
+  commitNumericInput(
+    value,
+    keylineMargin.value,
+    setKeylineMargin,
+    (next) => { keylineMarginInput.value = formatNumericInputValue(normalizeKeylineMargin(next)) }
+  )
+}
+
+// 顶栏参考线按钮在无参考线和 Material Keyline 间快速切换，不参与导出。
+function toggleKeylineOverlay() {
+  setKeylineTemplate(keylineTemplate.value === 'none' ? 'material' : 'none')
+}
+
+// 获取对象在图层面板中的显示名，规范检查定位问题时复用同一套命名策略。
+function getObjectDisplayName(obj: FabricObject) {
+  return String((obj as AnyFabricObject).name || obj.type || '对象')
+}
+
+// 检查对象包围盒是否超出当前安全区，只有启用 Keyline / 安全区模板时才提示。
+function getSafeAreaOverflowIssue(obj: FabricObject, index: number): IconCheckIssue | null {
+  if (keylineTemplate.value === 'none') return null
+  const bounds = obj.getBoundingRect()
+  const safe = keylineSafeArea.value
+  const overflows = bounds.left < safe.x
+    || bounds.top < safe.y
+    || bounds.left + bounds.width > safe.x + safe.width
+    || bounds.top + bounds.height > safe.y + safe.height
+  if (!overflows) return null
+  const targetName = getObjectDisplayName(obj)
+  return {
+    id: `safe-area-${index}`,
+    severity: 'warning',
+    title: '对象超出安全区',
+    detail: '当前对象边界超出参考线安全区，可能在平台图标裁切或小尺寸显示时被截断。',
+    target: obj,
+    targetName
+  }
+}
+
+// 检查细描边在 16px 输出下的近似像素宽度，提前暴露小尺寸图标容易发虚的问题。
+function getThinStrokeIssue(obj: FabricObject, index: number): IconCheckIssue | null {
+  const targets = getStyleTargets(obj)
+  const hasThinStroke = targets.some((target) => {
+    if (!isStrokeEnabled(target.stroke, target.strokeWidth)) return false
+    const scaledStroke = (target.strokeWidth || 0) * Math.max(Math.abs(target.scaleX || 1), Math.abs(target.scaleY || 1))
+    return scaledStroke > 0 && scaledStroke * (16 / canvasWidth.value) < 1
+  })
+  if (!hasThinStroke) return null
+  const targetName = getObjectDisplayName(obj)
+  return {
+    id: `thin-stroke-${index}`,
+    severity: 'warning',
+    title: '小尺寸描边过细',
+    detail: '该对象描边在 16px 预览中可能不足 1 像素，建议加粗或转为填充形状。',
+    target: obj,
+    targetName
+  }
+}
+
+// 检查对象边界是否落在非整数坐标上，辅助发现像素对齐问题。
+function getFractionalBoundsIssue(obj: FabricObject, index: number): IconCheckIssue | null {
+  const bounds = obj.getBoundingRect()
+  const values = [bounds.left, bounds.top, bounds.width, bounds.height]
+  if (values.every((value) => Math.abs(value - Math.round(value)) <= 0.01)) return null
+  const targetName = getObjectDisplayName(obj)
+  return {
+    id: `fractional-bounds-${index}`,
+    severity: 'info',
+    title: '边界存在非整数坐标',
+    detail: '对象位置或尺寸未落在整数像素上，小尺寸导出时可能出现轻微模糊。',
+    target: obj,
+    targetName
+  }
+}
+
+// 解析常见画布背景色格式，供规范检查判断深浅背景风险；无法识别时返回 null 避免误报。
+function parseCanvasColor(value: unknown): ParsedCanvasColor | null {
+  if (typeof value !== 'string') return null
+  const normalized = value.trim().toLowerCase()
+  if (!normalized || normalized === 'none' || normalized === 'transparent') return null
+
+  const hexMatch = normalized.match(/^#([0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i)
+  if (hexMatch) {
+    const raw = hexMatch[1]
+    const expanded = raw.length === 3 || raw.length === 4
+      ? raw.split('').map((char) => char + char).join('')
+      : raw
+    const r = Number.parseInt(expanded.slice(0, 2), 16)
+    const g = Number.parseInt(expanded.slice(2, 4), 16)
+    const b = Number.parseInt(expanded.slice(4, 6), 16)
+    const a = expanded.length === 8 ? Number.parseInt(expanded.slice(6, 8), 16) / 255 : 1
+    return [r, g, b, a].every(Number.isFinite) ? { r, g, b, a } : null
+  }
+
+  const rgbaMatch = normalized.match(/^rgba?\(([^)]+)\)$/)
+  if (!rgbaMatch) return null
+  const parts = rgbaMatch[1].split(',').map((part) => part.trim())
+  if (parts.length < 3) return null
+  const channels = parts.slice(0, 3).map((part) => Number(part.replace('%', '')))
+  if (channels.some((channel) => !Number.isFinite(channel))) return null
+  const alpha = parts[3] == null ? 1 : Number(parts[3])
+  return {
+    r: Math.min(255, Math.max(0, channels[0])),
+    g: Math.min(255, Math.max(0, channels[1])),
+    b: Math.min(255, Math.max(0, channels[2])),
+    a: Number.isFinite(alpha) ? Math.min(1, Math.max(0, alpha)) : 1
+  }
+}
+
+// 计算背景色感知亮度，帮助检查面板提示纯白、纯黑或高饱和背景对图标交付的影响。
+function getCanvasColorLuminance(color: ParsedCanvasColor) {
+  const linear = [color.r, color.g, color.b].map((channel) => {
+    const value = channel / 255
+    return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+  })
+  return linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722
+}
+
+// 检查画布背景是否需要在导出时特别确认：透明背景、极深/极浅背景和无法解析的自定义色都给出轻量提示。
+function getCanvasBackgroundIssue(): IconCheckIssue | null {
+  if (isTransparentCanvasBg(canvasBg.value)) {
+    return {
+      id: 'transparent-background',
+      severity: 'info',
+      title: '当前使用透明背景',
+      detail: '请确认目标平台或导出预设允许透明背景。'
+    }
+  }
+
+  const parsed = parseCanvasColor(canvasBg.value)
+  if (!parsed) {
+    return {
+      id: 'custom-background-color',
+      severity: 'info',
+      title: '背景色需要人工确认',
+      detail: '当前背景色格式无法自动判断深浅，请确认导出时是否需要保留背景层。'
+    }
+  }
+
+  if (parsed.a < 1) {
+    return {
+      id: 'translucent-background-color',
+      severity: 'info',
+      title: '背景色带透明度',
+      detail: '半透明背景在不同平台合成后可能改变图标观感，导出前建议确认目标底色。'
+    }
+  }
+
+  const luminance = getCanvasColorLuminance(parsed)
+  if (luminance > 0.92) {
+    return {
+      id: 'light-background-color',
+      severity: 'info',
+      title: '浅色背景可能影响白色图形',
+      detail: '当前背景接近白色，若图标包含浅色元素，小尺寸或透明导出时可能不易辨认。'
+    }
+  }
+  if (luminance < 0.08) {
+    return {
+      id: 'dark-background-color',
+      severity: 'info',
+      title: '深色背景可能影响深色图形',
+      detail: '当前背景接近黑色，若图标包含深色元素，小尺寸或透明导出时可能不易辨认。'
+    }
+  }
+  return null
+}
+
+// 汇总画布级和对象级规范检查结果，结果仅用于右侧检查面板，不修改画布内容。
+function buildIconCheckIssues(): IconCheckIssue[] {
+  if (!fabricCanvas) return []
+  void layerVersion.value
+  const issues: IconCheckIssue[] = []
+  const backgroundIssue = getCanvasBackgroundIssue()
+  if (backgroundIssue) issues.push(backgroundIssue)
+  const colorSet = new Set<string>()
+  const objects = fabricCanvas.getObjects().filter((obj) => !isBooleanPreviewObject(obj))
+  objects.forEach((obj, index) => {
+    const safeIssue = getSafeAreaOverflowIssue(obj, index)
+    if (safeIssue) issues.push(safeIssue)
+    const strokeIssue = getThinStrokeIssue(obj, index)
+    if (strokeIssue) issues.push(strokeIssue)
+    const fractionalIssue = getFractionalBoundsIssue(obj, index)
+    if (fractionalIssue) issues.push(fractionalIssue)
+    getStyleTargets(obj).forEach((target) => {
+      ;[target.fill, target.stroke].forEach((value) => {
+        if (typeof value !== 'string') return
+        const normalized = value.trim().toLowerCase()
+        if (!normalized || normalized === 'none' || normalized === 'transparent') return
+        colorSet.add(normalized)
+      })
+    })
+  })
+  if (colorSet.size > 6) {
+    issues.push({
+      id: 'many-colors',
+      severity: 'info',
+      title: '颜色数量较多',
+      detail: `当前检测到 ${colorSet.size} 种颜色，图标风格统一性可能受影响。`
+    })
+  }
+  return issues
+}
+
+// 点击检查项时定位到关联对象，方便用户直接调整越界、描边过细或非整数坐标问题。
+function selectIconCheckIssue(issue: IconCheckIssue) {
+  if (!issue.target || !fabricCanvas) return
+  activeRightTab.value = 'properties'
+  applyActiveObjectsSelection([issue.target])
+}
+
 async function executeShortcutAction(actionId: ShortcutActionId) {
   switch (actionId) {
     case 'edit.copy':
@@ -3536,7 +4133,7 @@ function createRadialGradientCenterControl(source: FabricObject) {
     actionHandler: (_eventData, _transform, x, y) => {
       const target = getGradientTarget(source)
       if (!target || !fabricCanvas) return false
-      const local = new Point(x, y).transform(util.invertTransform(source.calcTransformMatrix()))
+      const local = getPixelGridAdjustedScenePoint(new Point(x, y)).transform(util.invertTransform(source.calcTransformMatrix()))
       const width = Math.max(1, source.width ?? 1)
       const height = Math.max(1, source.height ?? 1)
       target.fillGradientCenterX = Math.min(1, Math.max(0, (local.x + width / 2) / width))
@@ -3752,8 +4349,16 @@ function detachKaleidoscopeInstance() {
   if (!instance || !fabricCanvas) return
   detachLayerSources([instance])
 }
-function getLocalPointFromCanvas(obj: EditablePathObject, x: number, y: number) {
+// 将场景坐标转换为路径本地坐标，不经过网格吸附；用于命中测试等只读判断。
+function getRawLocalPointFromCanvas(obj: EditablePathObject, x: number, y: number) {
   return new Point(x, y)
+    .transform(util.invertTransform(obj.calcOwnMatrix()))
+    .add(obj.pathOffset)
+}
+
+// 将编辑拖拽坐标转换为路径本地坐标；启用吸附时先按场景网格对齐，再写回点位模型。
+function getLocalPointFromCanvas(obj: EditablePathObject, x: number, y: number) {
+  return getPixelGridAdjustedScenePoint(new Point(x, y))
     .transform(util.invertTransform(obj.calcOwnMatrix()))
     .add(obj.pathOffset)
 }
@@ -4157,6 +4762,12 @@ function canEditDirectSegmentPoints(editable: EditablePathObject) {
   return canEditSegments(editable) && !!getSpecialDirectEditSegment(editable)
 }
 
+// 将选中点整体移动到网格对齐后的锚点，保持多点相对形状并同步清理旧端点吸附关系。
+function moveEditablePointsWithPixelGridSnap(editable: EditablePathObject, indices: number[], anchorIndex: number, scenePoint: Point) {
+  moveEditablePoints(editable, indices, anchorIndex, getEditableLocalPointFromScene(editable, getPixelGridAdjustedScenePoint(scenePoint)))
+  clearEndpointAttachmentsForPoints(editable, indices)
+}
+
 function createDirectSegmentPointControl(editable: EditablePathObject, index: number) {
   return new Control({
     actionName: 'modifyEditablePath',
@@ -4179,8 +4790,7 @@ function createDirectSegmentPointControl(editable: EditablePathObject, index: nu
       const moveIndices = indices.includes(index) ? indices : [index]
       const scenePoint = new Point(x, y)
       if (moveIndices.length > 1) {
-        moveEditablePoints(editable, moveIndices, index, getEditableLocalPointFromScene(editable, scenePoint))
-        clearEndpointAttachmentsForPoints(editable, moveIndices)
+        moveEditablePointsWithPixelGridSnap(editable, moveIndices, index, scenePoint)
       } else {
         moveEndpointWithSnap(editable, index, scenePoint)
       }
@@ -4256,8 +4866,7 @@ function attachPointControls(obj: FabricObject | null) {
               ? pointGestureState.initialSelection
               : [index]
             const scenePoint = new Point(x, y)
-            moveEditablePoints(editable, indices, index, getEditableLocalPointFromScene(editable, scenePoint))
-            clearEndpointAttachmentsForPoints(editable, indices)
+            moveEditablePointsWithPixelGridSnap(editable, indices, index, scenePoint)
             updateCurveControls()
             syncObjProps()
             triggerKaleidoscopeContentSync(editable)
@@ -4491,7 +5100,7 @@ function syncCanvasBgFromFabric() {
   lastOpaqueCanvasBg.value = next
 }
 
-// 读取工程画布尺寸，过滤无效值，避免损坏文件把画布恢复成不可见尺寸。
+// 读取工程画布与辅助设置，过滤无效值，避免损坏文件把画布或网格恢复成不可用状态。
 function normalizeProjectCanvasSettings(value: unknown): IconCreatorProjectCanvas {
   const source = value && typeof value === 'object' ? value as Partial<IconCreatorProjectCanvas> : {}
   const width = Number(source.width)
@@ -4499,7 +5108,12 @@ function normalizeProjectCanvasSettings(value: unknown): IconCreatorProjectCanva
   return {
     width: Number.isFinite(width) && width > 0 ? width : 512,
     height: Number.isFinite(height) && height > 0 ? height : 512,
-    background: normalizeCanvasBg(source.background ?? '#ffffff')
+    background: normalizeCanvasBg(source.background ?? '#ffffff'),
+    gridSize: normalizePixelGridSize(source.gridSize ?? DEFAULT_PIXEL_GRID_SIZE),
+    showPixelGrid: source.showPixelGrid === true,
+    snapToPixelGrid: source.snapToPixelGrid === true,
+    keylineTemplate: normalizeKeylineTemplate(source.keylineTemplate),
+    keylineMargin: normalizeKeylineMargin(source.keylineMargin ?? DEFAULT_KEYLINE_MARGIN)
   }
 }
 
@@ -4518,7 +5132,12 @@ function createProjectFile(): IconCreatorProjectFile {
     canvas: {
       width: canvasWidth.value,
       height: canvasHeight.value,
-      background: canvasBg.value
+      background: canvasBg.value,
+      gridSize: pixelGridSize.value,
+      showPixelGrid: showPixelGrid.value,
+      snapToPixelGrid: snapToPixelGrid.value,
+      keylineTemplate: keylineTemplate.value,
+      keylineMargin: keylineMargin.value
     },
     fabric: serializeFabricCanvas(),
     layerOrder
@@ -4594,6 +5213,14 @@ async function loadProjectFile(project: IconCreatorProjectFile, options: Project
   canvasWidth.value = settings.width
   canvasHeight.value = settings.height
   canvasBg.value = settings.background
+  pixelGridSize.value = normalizePixelGridSize(settings.gridSize)
+  showPixelGrid.value = settings.showPixelGrid === true
+  snapToPixelGrid.value = settings.snapToPixelGrid === true
+  keylineTemplate.value = normalizeKeylineTemplate(settings.keylineTemplate)
+  keylineMargin.value = normalizeKeylineMargin(settings.keylineMargin)
+  syncPixelGridSizeInput()
+  syncKeylineMarginInput()
+  syncCanvasInteractionMode()
   if (!isTransparentCanvasBg(settings.background)) lastOpaqueCanvasBg.value = settings.background
   syncCanvasSizeInputs()
   skipSnapshot = true
@@ -5173,9 +5800,13 @@ function toggleSizeRatioLock() {
 }
 
 // ── 同步选中对象属性 ──
+// 同步 Fabric 的交互模式；除选择模式外，也把当前网格吸附状态映射到对象旋转角度吸附。
 function syncCanvasInteractionMode() {
   if (!fabricCanvas) return
   fabricCanvas.selection = selectionMode.value === 'shape'
+  fabricCanvas.getObjects().forEach((obj) => {
+    obj.snapAngle = snapToPixelGrid.value ? 15 : undefined
+  })
 }
 
 function setSelectionMode(mode: 'shape' | 'point' | 'segment') {
@@ -5220,7 +5851,7 @@ function handleSegmentPointerDown(sceneX: number, sceneY: number) {
   if (!obj || selectionMode.value !== 'segment' || getArrowRenderMode(obj) === 'hollow-shaft') return false
   const segmentRef = getEditableSegmentByLocalPoint(
     obj,
-    getLocalPointFromCanvas(obj, sceneX, sceneY),
+    getRawLocalPointFromCanvas(obj, sceneX, sceneY),
     getSegmentPickTolerance(obj)
   )
   if (!segmentRef) return false
@@ -6034,6 +6665,7 @@ function toggleStroke(enabled: boolean) {
   syncObjProps()
 }
 
+// 按属性面板输入缩放当前对象；开启网格吸附时会继续量化显示尺寸和边界位置。
 function setObjSize(dim: 'width' | 'height', value: number) {
   const obj = activeObject.value
   if (!obj || !Number.isFinite(value) || value <= 0) return
@@ -6049,6 +6681,8 @@ function setObjSize(dim: 'width' | 'height', value: number) {
     obj.scaleToHeight(value)
   }
   rebuildObjectGradientFill(obj)
+  snapObjectSizeToPixelGrid(obj)
+  snapObjectPositionToPixelGrid(obj)
   clearOwnedEndpointAttachmentsForTransformedObject(obj)
   obj.dirty = true
   obj.setCoords()
@@ -6915,7 +7549,7 @@ async function runExportDialogExport() {
   }
 }
 
-// 新建空白文档时清理当前选择、历史记录和旧草稿，避免上一份作品继续触发恢复提示。
+// 新建空白文档时清理当前选择、历史记录、网格辅助设置和旧草稿，避免上一份作品继续触发恢复提示。
 function newDoc() {
   if (!fabricCanvas) return
   clearBooleanPreview()
@@ -6924,6 +7558,14 @@ function newDoc() {
   skipSnapshot = true
   fabricCanvas.clear()
   skipSnapshot = false
+  showPixelGrid.value = false
+  snapToPixelGrid.value = false
+  pixelGridSize.value = DEFAULT_PIXEL_GRID_SIZE
+  keylineTemplate.value = DEFAULT_KEYLINE_TEMPLATE
+  keylineMargin.value = DEFAULT_KEYLINE_MARGIN
+  syncPixelGridSizeInput()
+  syncKeylineMarginInput()
+  syncCanvasInteractionMode()
   applyCanvasBgToFabric(canvasBg.value)
   fabricCanvas.requestRenderAll()
   syncActiveObject(null)
@@ -7048,6 +7690,296 @@ async function runBooleanOperation(operation: BooleanOperation, subtractDirectio
     skipSnapshot = false
     booleanBusy.value = false
   }
+  snapshot()
+}
+
+// 生成描边轮廓对象使用的填充样式：用原描边色填充轮廓，并关闭新对象自身描边。
+function createStrokeOutlineStyle(style: FabricBooleanStyleSnapshot): FabricBooleanStyleSnapshot {
+  const fill = typeof style.stroke === 'string' && isFillEnabled(style.stroke)
+    ? style.stroke
+    : style.lastStroke || '#000000'
+  return {
+    ...style,
+    fill,
+    stroke: 'transparent',
+    strokeWidth: 0,
+    strokeDashArray: null,
+    lastFill: fill,
+    fillMode: 'solid',
+    fillGradientType: undefined,
+    fillGradientStops: undefined,
+    fillGradientAngle: undefined,
+    fillGradientCenterX: undefined,
+    fillGradientCenterY: undefined,
+    fillGradientRadius: undefined
+  }
+}
+
+// 批量描边转轮廓失败时回滚已完成的对象替换，尽量恢复到转换前的画布结构和源对象描边状态。
+function rollbackStrokeOutlineConversions(results: StrokeOutlineResult[]) {
+  if (!fabricCanvas) return
+  results.slice().reverse().forEach(({ source, outline, sourceIndex, keepFilledSource, style }) => {
+    if (fabricCanvas!.getObjects().includes(outline)) {
+      fabricCanvas!.remove(outline as AnyFabricObject)
+    }
+    if (keepFilledSource) {
+      source.set({
+        stroke: style.stroke,
+        strokeWidth: style.strokeWidth,
+        strokeDashArray: style.strokeDashArray ? [...style.strokeDashArray] : null
+      })
+      ;(source as AnyFabricObject).lastStroke = style.lastStroke
+      ;(source as AnyFabricObject).lastStrokeWidth = style.lastStrokeWidth
+      ;(source as AnyFabricObject).lastStrokeDashArray = style.lastStrokeDashArray ? [...style.lastStrokeDashArray] : null
+    } else if (!fabricCanvas!.getObjects().includes(source)) {
+      fabricCanvas!.insertAt(Math.min(sourceIndex, fabricCanvas!.getObjects().length), source as AnyFabricObject)
+    }
+    source.dirty = true
+    source.setCoords()
+  })
+}
+
+// 把单个对象的可见描边转换成独立可编辑路径；有填充的源对象保留填充但移除描边以维持视觉效果。
+async function convertObjectStrokeToOutline(obj: FabricObject): Promise<StrokeOutlineResult> {
+  if (!fabricCanvas) throw new Error('画布尚未初始化')
+  const pathKit = await getPathKit()
+  const sourceIndex = Math.max(0, fabricCanvas.getObjects().indexOf(obj))
+  const converted = fabricStrokeToPathKitWithApi(pathKit, obj)
+  if (converted.error) throw new Error(converted.error)
+  if (!converted.path || !converted.style) throw new Error('描边轮廓转换失败')
+  try {
+    const outline = pathKitToFabricPath(converted.path, {
+      name: nextName(`${getObjectDisplayName(obj)} 轮廓`),
+      shapeId: 'stroke-outline',
+      style: createStrokeOutlineStyle(converted.style),
+      sourceCornerRadius: null
+    })
+    if (!outline) throw new Error('描边轮廓转换失败')
+    applyDefaultEndpointSnapMargin(outline)
+    ensureEditorObjectId(outline)
+    applyCanvasThemeToObject(outline)
+    const keepFilledSource = isFillEnabled(obj.fill)
+    if (keepFilledSource) {
+      obj.set({ stroke: 'transparent', strokeWidth: 0, strokeDashArray: null })
+      ;(obj as AnyFabricObject).lastStroke = converted.style.lastStroke
+      ;(obj as AnyFabricObject).lastStrokeWidth = converted.style.lastStrokeWidth
+      obj.dirty = true
+      obj.setCoords()
+      fabricCanvas.insertAt(Math.min(sourceIndex + 1, fabricCanvas.getObjects().length), outline as AnyFabricObject)
+    } else {
+      removeEndpointAttachmentsReferencing(obj)
+      fabricCanvas.remove(obj as AnyFabricObject)
+      fabricCanvas.insertAt(Math.min(sourceIndex, fabricCanvas.getObjects().length), outline as AnyFabricObject)
+    }
+    return { source: obj, outline, sourceIndex, keepFilledSource, style: converted.style }
+  } finally {
+    converted.path.delete()
+  }
+}
+
+// 对当前选择批量执行描边转轮廓；转换前先完整校验所有对象，避免一部分对象已转换后才因后续对象失败而留下半成品。
+async function convertSelectionStrokeToOutline() {
+  if (!fabricCanvas || strokeOutlineBusy.value) return
+  const canvasObjects = fabricCanvas.getObjects()
+  const targets = fabricCanvas.getActiveObjects()
+    .filter((obj) => canvasObjects.includes(obj) && !isBooleanPreviewObject(obj))
+    .sort((a, b) => canvasObjects.indexOf(a) - canvasObjects.indexOf(b))
+  if (!targets.length) return
+
+  const unsupportedReason = targets
+    .map((target) => getStrokeOutlineUnsupportedReason(target))
+    .find((reason): reason is string => !!reason)
+  if (unsupportedReason) {
+    booleanError.value = unsupportedReason
+    return
+  }
+
+  strokeOutlineBusy.value = true
+  booleanError.value = ''
+  clearBooleanPreview()
+  clearPointEditing()
+  const outlines: FabricObject[] = []
+  const convertedResults: StrokeOutlineResult[] = []
+  skipSnapshot = true
+  try {
+    fabricCanvas.discardActiveObject()
+    for (const target of targets) {
+      const result = await convertObjectStrokeToOutline(target)
+      convertedResults.push(result)
+      outlines.push(result.outline)
+    }
+  } catch (error) {
+    rollbackStrokeOutlineConversions(convertedResults)
+    outlines.length = 0
+    booleanError.value = error instanceof Error ? error.message : '描边转轮廓失败'
+  } finally {
+    skipSnapshot = false
+    strokeOutlineBusy.value = false
+  }
+  if (!outlines.length) {
+    fabricCanvas.requestRenderAll()
+    return
+  }
+  setSelectionMode('shape')
+  applyActiveObjectsSelection(outlines)
+  refreshLayers()
+  fabricCanvas.requestRenderAll()
+  snapshot()
+}
+
+// 根据当前画布尺寸选择文字追踪倍率，避免超大画布在文字转轮廓时生成过大的离屏位图。
+function getTextOutlineTraceMultiplier() {
+  const maxSide = Math.max(canvasWidth.value, canvasHeight.value, 1)
+  return Math.max(0.5, Math.min(TEXT_OUTLINE_TRACE_MULTIPLIER, 1536 / maxSide))
+}
+
+// 仅渲染目标文字到透明离屏画布，后续通过 alpha 蒙版追踪出近似轮廓路径。
+function renderTextObjectMaskCanvas(text: Textbox, multiplier: number) {
+  if (!fabricCanvas) return null
+  const currentZoom = fabricCanvas.getZoom()
+  const currentWidth = fabricCanvas.getWidth()
+  const currentHeight = fabricCanvas.getHeight()
+  const currentBg = fabricCanvas.backgroundColor
+  const visibility = new Map<FabricObject, boolean | undefined>()
+  fabricCanvas.getObjects().forEach((obj) => visibility.set(obj, obj.visible))
+  try {
+    text.exitEditing?.()
+    fabricCanvas.discardActiveObject()
+    fabricCanvas.setZoom(1)
+    fabricCanvas.setDimensions({ width: canvasWidth.value, height: canvasHeight.value })
+    fabricCanvas.backgroundColor = ''
+    fabricCanvas.getObjects().forEach((obj) => {
+      obj.visible = obj === text
+    })
+    text.visible = true
+    fabricCanvas.requestRenderAll()
+    return (fabricCanvas as any).toCanvasElement({ multiplier, enableRetinaScaling: false }) as HTMLCanvasElement
+  } finally {
+    visibility.forEach((visible, obj) => { obj.visible = visible })
+    fabricCanvas.backgroundColor = currentBg
+    fabricCanvas.setZoom(currentZoom)
+    fabricCanvas.setDimensions({ width: currentWidth, height: currentHeight })
+    fabricCanvas.requestRenderAll()
+  }
+}
+
+// 将文字位图的 alpha 蒙版按横向连续像素段写成 PathKit 矩形路径，再交给 simplify 合并为轮廓。
+function createPathFromTextMask(pathKit: any, maskCanvas: HTMLCanvasElement, multiplier: number) {
+  const ctx = maskCanvas.getContext('2d')
+  if (!ctx) return null
+  const { width, height } = maskCanvas
+  const data = ctx.getImageData(0, 0, width, height).data
+  const path = pathKit.NewPath()
+  let hasPixels = false
+  for (let y = 0; y < height; y += 1) {
+    let x = 0
+    while (x < width) {
+      const alpha = data[(y * width + x) * 4 + 3]
+      if (alpha <= TEXT_OUTLINE_ALPHA_THRESHOLD) {
+        x += 1
+        continue
+      }
+      const startX = x
+      while (x < width && data[(y * width + x) * 4 + 3] > TEXT_OUTLINE_ALPHA_THRESHOLD) x += 1
+      path.rect(startX / multiplier, y / multiplier, (x - startX) / multiplier, 1 / multiplier)
+      hasPixels = true
+    }
+  }
+  if (!hasPixels) {
+    path.delete()
+    return null
+  }
+  path.simplify?.()
+  return path
+}
+
+// 生成文字轮廓路径的样式，使用原文字填充色或描边色作为轮廓填充色。
+function createTextOutlineStyle(text: Textbox): FabricBooleanStyleSnapshot {
+  const fill = typeof text.fill === 'string' && isFillEnabled(text.fill)
+    ? text.fill
+    : typeof text.stroke === 'string' && isFillEnabled(text.stroke)
+      ? text.stroke
+      : '#000000'
+  return {
+    fill,
+    stroke: 'transparent',
+    strokeWidth: 0,
+    strokeDashArray: null,
+    opacity: text.opacity ?? 1,
+    strokeUniform: false,
+    fillRule: 'nonzero',
+    lastFill: fill,
+    lastStroke: typeof text.stroke === 'string' ? text.stroke : undefined,
+    lastStrokeWidth: Number(text.strokeWidth || 0),
+    lastStrokeDashArray: null,
+    fillMode: 'solid'
+  }
+}
+
+// 将单个 Fabric Textbox 近似追踪为可编辑填充路径，并放回原文字所在图层位置。
+async function convertTextObjectToOutline(text: Textbox) {
+  if (!fabricCanvas) throw new Error('画布尚未初始化')
+  const sourceIndex = Math.max(0, fabricCanvas.getObjects().indexOf(text))
+  const multiplier = getTextOutlineTraceMultiplier()
+  const maskCanvas = renderTextObjectMaskCanvas(text, multiplier)
+  if (!maskCanvas) throw new Error('文字轮廓渲染失败')
+  const pathKit = await getPathKit()
+  const tracedPath = createPathFromTextMask(pathKit, maskCanvas, multiplier)
+  if (!tracedPath) throw new Error('未识别到可转换的文字轮廓')
+  try {
+    const outline = pathKitToFabricPath(tracedPath, {
+      name: nextName(`${getObjectDisplayName(text)} 轮廓`),
+      shapeId: 'text-outline',
+      style: createTextOutlineStyle(text),
+      sourceCornerRadius: null
+    })
+    if (!outline) throw new Error('文字轮廓转换失败')
+    applyDefaultEndpointSnapMargin(outline)
+    ensureEditorObjectId(outline)
+    applyCanvasThemeToObject(outline)
+    removeEndpointAttachmentsReferencing(text)
+    fabricCanvas.remove(text as AnyFabricObject)
+    fabricCanvas.insertAt(Math.min(sourceIndex, fabricCanvas.getObjects().length), outline as AnyFabricObject)
+    return outline
+  } finally {
+    tracedPath.delete()
+  }
+}
+
+// 对当前选中文字批量执行文字转轮廓，输出为可点位编辑、可导出的近似矢量路径。
+async function convertSelectionTextToOutline() {
+  if (!fabricCanvas || textOutlineBusy.value) return
+  const canvasObjects = fabricCanvas.getObjects()
+  const targets = fabricCanvas.getActiveObjects()
+    .filter((obj): obj is Textbox => obj instanceof Textbox && canvasObjects.includes(obj))
+    .sort((a, b) => canvasObjects.indexOf(a) - canvasObjects.indexOf(b))
+  if (!targets.length) return
+
+  textOutlineBusy.value = true
+  booleanError.value = ''
+  clearBooleanPreview()
+  clearPointEditing()
+  const outlines: FabricObject[] = []
+  skipSnapshot = true
+  try {
+    fabricCanvas.discardActiveObject()
+    for (const target of targets) {
+      outlines.push(await convertTextObjectToOutline(target))
+    }
+  } catch (error) {
+    booleanError.value = error instanceof Error ? error.message : '文字转轮廓失败'
+  } finally {
+    skipSnapshot = false
+    textOutlineBusy.value = false
+  }
+  if (!outlines.length) {
+    fabricCanvas.requestRenderAll()
+    return
+  }
+  setSelectionMode('shape')
+  applyActiveObjectsSelection(outlines)
+  refreshLayers()
+  fabricCanvas.requestRenderAll()
   snapshot()
 }
 
@@ -7239,6 +8171,7 @@ function nudgeActiveObject(dx: number, dy: number) {
   if (nextLeft === currentLeft && nextTop === currentTop) return false
   clearBooleanPreview()
   obj.set({ left: nextLeft, top: nextTop })
+  snapObjectPositionToPixelGrid(obj)
   clearOwnedEndpointAttachmentsForTransformedObject(obj)
   obj.setCoords()
   syncEndpointsForChangedObject(obj)
@@ -7500,11 +8433,17 @@ function setupCanvasEvents() {
     syncActiveObject(null)
   })
   fabricCanvas.on('object:modified', (event) => {
-    if (isBooleanPreviewObject(event.target ?? null)) return
+    const target = event.target ?? null
+    if (isBooleanPreviewObject(target)) return
     clearBooleanPreview()
-    syncEndpointsForChangedObject(event.target ?? null)
-    triggerKaleidoscopeContentSync(event.target ?? null)
-    triggerKaleidoscopeTransformSync(event.target ?? null)
+    if (target) {
+      snapObjectSizeToPixelGrid(target)
+      snapObjectPositionToPixelGrid(target)
+      target.setCoords()
+    }
+    syncEndpointsForChangedObject(target)
+    triggerKaleidoscopeContentSync(target)
+    triggerKaleidoscopeTransformSync(target)
     snapshot()
     syncObjProps()
     refreshLayers()
@@ -7512,6 +8451,7 @@ function setupCanvasEvents() {
   // Real-time sync during drag interactions
   fabricCanvas.on('object:scaling', (event) => {
     clearBooleanPreview()
+    snapObjectSizeToPixelGrid(event.target ?? null)
     clearOwnedEndpointAttachmentsForTransformedObject(event.target ?? null)
     syncEndpointsForChangedObject(event.target ?? null)
     syncObjProps()
@@ -7519,6 +8459,7 @@ function setupCanvasEvents() {
   })
   fabricCanvas.on('object:moving', (event) => {
     clearBooleanPreview()
+    snapObjectPositionToPixelGrid(event.target ?? null)
     clearOwnedEndpointAttachmentsForTransformedObject(event.target ?? null)
     syncEndpointsForChangedObject(event.target ?? null)
     syncObjProps()
@@ -7540,6 +8481,7 @@ function setupCanvasEvents() {
       ensureEditorObjectId(target)
       normalizeEndpointAttachments(target)
       applyCanvasThemeToObject(target)
+      target.snapAngle = snapToPixelGrid.value ? 15 : undefined
     }
     refreshLayers()
     snapshot()
@@ -8095,6 +9037,44 @@ $panel-bg: #fff;
     background-position: 0 0, 8px 8px;
     background-size: 16px 16px;
   }
+  .pixel-grid-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 8;
+    pointer-events: none;
+    background-image:
+      linear-gradient(to right, rgba(30, 111, 255, 0.22) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(30, 111, 255, 0.22) 1px, transparent 1px);
+    background-position: 0 0;
+  }
+  .keyline-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 9;
+    pointer-events: none;
+    overflow: visible;
+  }
+  .keyline-safe-area,
+  .keyline-shape {
+    fill: rgba(30, 111, 255, 0.05);
+    stroke: rgba(30, 111, 255, 0.85);
+    stroke-width: 1.5;
+    vector-effect: non-scaling-stroke;
+    stroke-dasharray: 8 5;
+  }
+  .keyline-shape {
+    fill: none;
+    stroke: rgba(30, 111, 255, 0.48);
+    stroke-dasharray: 5 5;
+  }
+  .keyline-axis {
+    stroke: rgba(30, 111, 255, 0.42);
+    stroke-width: 1;
+    vector-effect: non-scaling-stroke;
+    stroke-dasharray: 4 6;
+  }
   :deep(canvas) {
     display: block;
   }
@@ -8490,6 +9470,68 @@ $panel-bg: #fff;
 }
 .preview-hint {
   margin-top: 10px;
+}
+.icon-check-count {
+  min-width: 22px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--primary-light-bg);
+  color: var(--primary-color);
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+}
+.icon-check-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 8px 10px;
+}
+.icon-check-item {
+  display: block;
+  width: 100%;
+  padding: 8px;
+  border: 1px solid rgba(128, 128, 128, 0.18);
+  border-left-width: 3px;
+  border-radius: 6px;
+  background: var(--control-bg);
+  color: var(--text-color);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+  &.severity-warning {
+    border-left-color: #f59e0b;
+  }
+  &.severity-info {
+    border-left-color: var(--primary-color);
+  }
+  &:hover {
+    border-color: var(--primary-color);
+    background: color-mix(in srgb, var(--primary-color) 8%, var(--control-bg));
+  }
+}
+.icon-check-item-title {
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+.icon-check-item-detail,
+.icon-check-item-target,
+.icon-check-empty {
+  font-size: 11px;
+  color: #777;
+  line-height: 1.35;
+}
+.icon-check-item-target {
+  margin-top: 5px;
+  color: var(--primary-color);
+}
+.icon-check-empty {
+  margin: 0 8px;
+  padding: 14px 8px;
+  border: 1px dashed rgba(128, 128, 128, 0.24);
+  border-radius: 6px;
+  text-align: center;
 }
 
 .gradient-stop-actions {
