@@ -94,6 +94,32 @@
               </div>
             </div>
           </ZTabPane>
+          <ZTabPane name="templates" tab="模板" display-directive="show">
+            <div class="left-content">
+              <div class="section-title">内置模板库</div>
+              <div class="template-list">
+                <article
+                  v-for="template in iconTemplates"
+                  :key="template.id"
+                  class="template-card"
+                  :title="template.description"
+                >
+                  <button type="button" class="template-preview" @click="insertIconTemplate(template)">
+                    <svg class="template-preview-svg" :viewBox="`0 0 ${template.width} ${template.height}`" aria-hidden="true" v-html="getTemplatePreviewMarkup(template)"></svg>
+                  </button>
+                  <div class="template-info">
+                    <div class="template-name">{{ template.name }}</div>
+                    <div class="template-meta">{{ template.category }} · {{ template.width }}×{{ template.height }}</div>
+                    <p class="template-desc">{{ template.description }}</p>
+                    <div class="template-actions">
+                      <ZButton size="small" @click="insertIconTemplate(template)">插入</ZButton>
+                      <ZButton size="small" @click="applyIconTemplateAsDocument(template)">新建</ZButton>
+                    </div>
+                  </div>
+                </article>
+              </div>
+            </div>
+          </ZTabPane>
           <ZTabPane name="iconify" tab="图标库" display-directive="show">
             <div class="left-content">
               <div class="section-title">Iconify 图标搜索</div>
@@ -1171,8 +1197,8 @@ import { ZInput, ZSelect, ZColorPicker, ZSwitch, ZSlider, ZPopover, ZButton, ZTa
 import { Icon } from '@iconify/vue'
 import { Canvas, Control, FabricObject, Gradient, Textbox, Group, ActiveSelection, FabricImage, Path, Point, Rect, Circle, Triangle, Polygon, Line, util, loadSVGFromString } from 'fabric'
 import { AligningGuidelines } from '../../fabric-aligning-guidelines'
-import { basicShapes, textPresets, canvasPresets, shapePreviewPaths } from './editorCatalog'
-import type { ShapeLibraryItem, TextLibraryItem } from './editorCatalog'
+import { basicShapes, textPresets, canvasPresets, shapePreviewPaths, iconTemplates } from './editorCatalog'
+import type { ShapeLibraryItem, TextLibraryItem, IconTemplateItem } from './editorCatalog'
 import {
   DEFAULT_FILL_GRADIENT_ANGLE,
   DEFAULT_FILL_GRADIENT_RADIUS,
@@ -1530,7 +1556,7 @@ let draftDirty = false
 let restoringDraftPromptShown = false
 let artboardIdSeed = 0
 
-const leftTab = ref<'shape' | 'text' | 'iconify'>('shape')
+const leftTab = ref<'shape' | 'text' | 'templates' | 'iconify'>('shape')
 const activeRightTab = ref<'properties' | 'preview' | 'checks' | 'artboards' | 'layers'>('properties')
 const showRuler = ref(true)
 const showPixelGrid = ref(false)
@@ -6983,6 +7009,39 @@ function addText(preset: TextLibraryItem) {
   fabricCanvas.requestRenderAll()
 }
 
+// ── 模板 ──
+// 从内置模板 SVG 中提取预览图形，去掉外层 <svg> 后复用模板真实内容渲染左侧缩略图。
+function getTemplatePreviewMarkup(template: IconTemplateItem) {
+  const match = template.svg.match(/<svg\b[^>]*>([\s\S]*?)<\/svg>/i)
+  return match ? match[1] : template.svg
+}
+
+// 把模板 SVG 插入当前画布，作为普通可编辑对象继续参与图层、属性、导出和撤销流程。
+async function insertIconTemplate(template: IconTemplateItem) {
+  await importSVGText(template.svg, template.name)
+}
+
+// 用模板尺寸、背景和 SVG 内容创建一份新文档；应用失败时保留已有画布，避免误清空当前作品。
+async function applyIconTemplateAsDocument(template: IconTemplateItem) {
+  if (!fabricCanvas) return
+  const previousProject = createProjectFile()
+  try {
+    newDoc()
+    canvasWidth.value = template.width
+    canvasHeight.value = template.height
+    canvasBg.value = normalizeCanvasBg(template.background)
+    if (!isTransparentCanvasBg(canvasBg.value)) lastOpaqueCanvasBg.value = canvasBg.value
+    applyCanvasBgToFabric(canvasBg.value)
+    applyCanvasSize()
+    await importSVGText(template.svg, template.name)
+    clearStoredDraft()
+    resetHistoryToCurrentCanvas()
+  } catch (error) {
+    await loadProjectFile(previousProject, { keepDraft: true })
+    window.alert(error instanceof Error ? error.message : '应用模板失败')
+  }
+}
+
 // ── 导入 ──
 // 打开隐藏的 SVG 文件选择器，保持顶栏导入入口和文件读取逻辑解耦。
 function importSVG() {
@@ -8937,6 +8996,79 @@ $panel-bg: #fff;
   cursor: pointer;
   text-align: left;
   &:hover { border-color: #1e6fff; }
+}
+.template-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.template-card {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid rgba(128, 128, 128, 0.15);
+  border-radius: 8px;
+  background: #fafafa;
+}
+.template-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 76px;
+  height: 76px;
+  border: 1px solid rgba(128, 128, 128, 0.12);
+  border-radius: 7px;
+  background:
+    linear-gradient(45deg, rgba(128, 128, 128, 0.08) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(128, 128, 128, 0.08) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(128, 128, 128, 0.08) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(128, 128, 128, 0.08) 75%);
+  background-color: #fff;
+  background-position: 0 0, 0 6px, 6px -6px, -6px 0;
+  background-size: 12px 12px;
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.15s;
+  &:hover {
+    border-color: #1e6fff;
+    transform: translateY(-1px);
+  }
+}
+.template-preview-svg {
+  width: 62px;
+  height: 62px;
+  overflow: visible;
+}
+.template-info {
+  min-width: 0;
+}
+.template-name {
+  overflow: hidden;
+  color: #333;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.template-meta {
+  margin-top: 2px;
+  color: #777;
+  font-size: 11px;
+}
+.template-desc {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 4px 0 7px;
+  color: #666;
+  font-size: 11px;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.template-actions {
+  display: flex;
+  gap: 6px;
 }
 .iconify-search-row {
   display: grid;

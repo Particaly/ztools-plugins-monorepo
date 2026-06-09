@@ -38,6 +38,17 @@ export type TextLibraryItem = {
   fontWeight?: string
 }
 
+export type IconTemplateItem = {
+  id: string
+  name: string
+  category: string
+  description: string
+  width: number
+  height: number
+  background: string
+  svg: string
+}
+
 export type CanvasPreset = {
   label: string
   value: string
@@ -142,5 +153,90 @@ export const canvasPresets: CanvasPreset[] = [
     value: '128x128',
     width: 128,
     height: 128
+  }
+]
+
+export const iconTemplates: IconTemplateItem[] = [
+  {
+    id: 'app-icon-rounded-square',
+    name: 'App Icon 圆角底板',
+    category: 'App Icon',
+    description: '圆角渐变底板搭配中心符号，适合快速制作应用入口图标。',
+    width: 512,
+    height: 512,
+    background: 'transparent',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="app-bg" x1="96" y1="72" x2="416" y2="440" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#5ee7ff" />
+      <stop offset="1" stop-color="#2563eb" />
+    </linearGradient>
+    <linearGradient id="app-mark" x1="176" y1="144" x2="336" y2="368" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" />
+      <stop offset="1" stop-color="#dbeafe" />
+    </linearGradient>
+  </defs>
+  <rect x="72" y="72" width="368" height="368" rx="92" fill="url(#app-bg)" />
+  <path d="M256 136 L352 312 H304 L286 276 H226 L208 312 H160 L256 136 Z M242 238 H270 L256 208 Z" fill="url(#app-mark)" />
+  <circle cx="348" cy="160" r="34" fill="#ffffff" opacity="0.28" />
+</svg>`
+  },
+  {
+    id: 'favicon-letter-mark',
+    name: 'Favicon 字母标识',
+    category: 'Favicon',
+    description: '高对比单字母标识，保留粗边界和安全留白，便于 16px 小尺寸识别。',
+    width: 256,
+    height: 256,
+    background: 'transparent',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <rect x="32" y="32" width="192" height="192" rx="48" fill="#111827" />
+  <path d="M82 180 L128 64 L174 180 H142 L134 154 H122 L114 180 H82 Z M126 132 H130 L128 126 Z" fill="#f9fafb" />
+  <rect x="64" y="198" width="128" height="14" rx="7" fill="#38bdf8" />
+</svg>`
+  },
+  {
+    id: 'status-success-badge',
+    name: '状态成功徽章',
+    category: '状态图标',
+    description: '圆形状态徽章和对勾结构，可快速改色为成功、警告或错误状态。',
+    width: 512,
+    height: 512,
+    background: 'transparent',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <circle cx="256" cy="256" r="184" fill="#22c55e" />
+  <circle cx="256" cy="256" r="136" fill="#ffffff" opacity="0.16" />
+  <path d="M168 264 L226 322 L352 190" fill="none" stroke="#ffffff" stroke-width="44" stroke-linecap="round" stroke-linejoin="round" />
+</svg>`
+  },
+  {
+    id: 'badge-notification',
+    name: '通知徽章模板',
+    category: '徽章',
+    description: '主体图形叠加右上角提示点，适合制作消息、提醒或角标图标。',
+    width: 512,
+    height: 512,
+    background: 'transparent',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect x="92" y="132" width="328" height="248" rx="54" fill="#4f46e5" />
+  <path d="M148 204 H320 M148 256 H278 M148 308 H224" fill="none" stroke="#ffffff" stroke-width="28" stroke-linecap="round" />
+  <circle cx="386" cy="142" r="58" fill="#ef4444" stroke="#ffffff" stroke-width="22" />
+</svg>`
+  },
+  {
+    id: 'file-type-document',
+    name: '文件类型图标',
+    category: '文件类型',
+    description: '带折角的文件底板和可替换扩展名区域，适合制作不同文件格式图标。',
+    width: 512,
+    height: 512,
+    background: 'transparent',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <path d="M136 64 H300 L392 156 V448 H136 Z" fill="#e0f2fe" stroke="#0284c7" stroke-width="18" stroke-linejoin="round" />
+  <path d="M300 64 V156 H392" fill="#bae6fd" stroke="#0284c7" stroke-width="18" stroke-linejoin="round" />
+  <rect x="172" y="300" width="168" height="64" rx="18" fill="#0284c7" />
+  <path d="M196 342 H316" stroke="#ffffff" stroke-width="20" stroke-linecap="round" />
+  <path d="M188 220 H324 M188 260 H292" stroke="#0f172a" stroke-width="20" stroke-linecap="round" opacity="0.5" />
+</svg>`
   }
 ]
