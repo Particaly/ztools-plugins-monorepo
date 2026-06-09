@@ -143,6 +143,8 @@
             :boolean-error="booleanError"
             :can-group="canGroup"
             :can-ungroup="canUngroup"
+            :can-align-selection="canAlignSelection"
+            :can-distribute-selection="canDistributeSelection"
             :can-convert-stroke-selection="canConvertStrokeSelection"
             :stroke-outline-busy="strokeOutlineBusy"
             :can-convert-text-selection="canConvertTextSelection"
@@ -211,6 +213,8 @@
             :handle-subtract-popover-show-change="handleSubtractPopoverShowChange"
             :group-objects="groupObjects"
             :ungroup-object="ungroupObject"
+            :align-selection="alignSelection"
+            :distribute-selection="distributeSelection"
             :convert-selection-stroke-to-outline="convertSelectionStrokeToOutline"
             :convert-selection-text-to-outline="convertSelectionTextToOutline"
             :lock-object="lockObject"
@@ -2283,6 +2287,18 @@ const canGroup = computed(() => {
 const canUngroup = computed(() => {
   const obj = activeObject.value
   return obj instanceof Group && !(obj instanceof ActiveSelection)
+})
+
+const canAlignSelection = computed(() => {
+  void activeObject.value
+  void layerVersion.value
+  return getSelectedLayoutTargets().length >= 2
+})
+
+const canDistributeSelection = computed(() => {
+  void activeObject.value
+  void layerVersion.value
+  return getSelectedLayoutTargets().length >= 3
 })
 
 const isLayerDragDisabled = computed(() => !!layerSearch.value.trim())
@@ -6058,6 +6074,171 @@ function alignToCanvas(positionId: AlignPositionId) {
 function selectAlign(positionId: AlignPositionId) {
   alignPopoverVisible.value = false
   alignToCanvas(positionId)
+}
+
+type SelectionAlignAxis = 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom'
+type SelectionDistributeAxis = 'horizontal' | 'vertical'
+
+type ObjectLayoutBounds = {
+  object: FabricObject
+  left: number
+  top: number
+  right: number
+  bottom: number
+  width: number
+  height: number
+  centerX: number
+  centerY: number
+}
+
+type LayoutSelectionBounds = {
+  left: number
+  top: number
+  right: number
+  bottom: number
+  width: number
+  height: number
+}
+
+// 收集当前多选中可参与排版的顶层对象；万花筒实例由源对象托管，避免手动对齐后被同步逻辑覆盖或产生双重偏移。
+function getSelectedLayoutTargets() {
+  if (!fabricCanvas) return []
+  const canvasObjects = fabricCanvas.getObjects()
+  return fabricCanvas.getActiveObjects()
+    .filter((obj) => canvasObjects.includes(obj))
+    .filter((obj) => !isBooleanPreviewObject(obj) && !isKaleidoscopeInstance(obj))
+}
+
+// 获取对象在画布场景坐标中的包围盒，统一处理旋转、缩放和 ActiveSelection 内部对象的坐标换算。
+function getObjectLayoutBounds(object: FabricObject): ObjectLayoutBounds | null {
+  object.setCoords()
+  const bounds = object.getBoundingRect()
+  const values = [bounds.left, bounds.top, bounds.width, bounds.height]
+  if (!values.every(Number.isFinite) || bounds.width <= 0 || bounds.height <= 0) return null
+  const right = bounds.left + bounds.width
+  const bottom = bounds.top + bounds.height
+  return {
+    object,
+    left: bounds.left,
+    top: bounds.top,
+    right,
+    bottom,
+    width: bounds.width,
+    height: bounds.height,
+    centerX: bounds.left + bounds.width / 2,
+    centerY: bounds.top + bounds.height / 2
+  }
+}
+
+// 合并多对象的初始包围盒，作为“以选区为参考”的对齐和分布基准。
+function getLayoutSelectionBounds(items: ObjectLayoutBounds[]): LayoutSelectionBounds | null {
+  if (!items.length) return null
+  const left = Math.min(...items.map((item) => item.left))
+  const top = Math.min(...items.map((item) => item.top))
+  const right = Math.max(...items.map((item) => item.right))
+  const bottom = Math.max(...items.map((item) => item.bottom))
+  const values = [left, top, right, bottom]
+  if (!values.every(Number.isFinite) || right <= left || bottom <= top) return null
+  return { left, top, right, bottom, width: right - left, height: bottom - top }
+}
+
+// 按场景坐标偏移对象；使用 Fabric 的 getXY / setXY 让 ActiveSelection 子对象自动转换到当前父级坐标系。
+function moveObjectBySceneDelta(object: FabricObject, dx: number, dy: number) {
+  if ((dx === 0 && dy === 0) || !Number.isFinite(dx) || !Number.isFinite(dy)) return false
+  const current = object.getXY()
+  const nextX = object.lockMovementX ? current.x : current.x + dx
+  const nextY = object.lockMovementY ? current.y : current.y + dy
+  if (nextX === current.x && nextY === current.y) return false
+  object.setXY(new Point(nextX, nextY))
+  clearOwnedEndpointAttachmentsForTransformedObject(object)
+  object.setCoords()
+  syncEndpointsForChangedObject(object)
+  triggerKaleidoscopeTransformSync(object)
+  return true
+}
+
+// 完成多对象排版后的统一收尾：刷新 ActiveSelection 尺寸、图层、属性和撤销快照。
+function finalizeSelectionLayoutTransform(targets: FabricObject[]) {
+  if (!fabricCanvas) return
+  const active = fabricCanvas.getActiveObject()
+  if (active instanceof ActiveSelection || active instanceof Group) {
+    active.triggerLayout()
+    active.setCoords()
+  }
+  targets.forEach((target) => target.setCoords())
+  fabricCanvas.requestRenderAll()
+  refreshLayers()
+  snapshot()
+  syncObjProps()
+}
+
+// 以当前选区包围盒为参考执行多对象对齐，支持左右 / 水平居中 / 上下 / 垂直居中六个方向并保持操作可撤销。
+function alignSelection(axis: SelectionAlignAxis) {
+  if (!fabricCanvas) return
+  const targets = getSelectedLayoutTargets()
+  if (targets.length < 2) return
+  const items = targets
+    .map(getObjectLayoutBounds)
+    .filter((item): item is ObjectLayoutBounds => !!item)
+  const selectionBounds = getLayoutSelectionBounds(items)
+  if (!selectionBounds) return
+
+  clearBooleanPreview()
+  let moved = false
+  items.forEach((item) => {
+    let dx = 0
+    let dy = 0
+    if (axis === 'left') dx = selectionBounds.left - item.left
+    else if (axis === 'center') dx = selectionBounds.left + selectionBounds.width / 2 - item.centerX
+    else if (axis === 'right') dx = selectionBounds.right - item.right
+    else if (axis === 'top') dy = selectionBounds.top - item.top
+    else if (axis === 'middle') dy = selectionBounds.top + selectionBounds.height / 2 - item.centerY
+    else if (axis === 'bottom') dy = selectionBounds.bottom - item.bottom
+    moved = moveObjectBySceneDelta(item.object, dx, dy) || moved
+  })
+  if (!moved) return
+  finalizeSelectionLayoutTransform(targets)
+}
+
+// 在选区首尾对象之间按对象包围盒间距做等距分布，首尾位置保持不变，便于稳定整理图标元素阵列。
+function distributeSelection(axis: SelectionDistributeAxis) {
+  if (!fabricCanvas) return
+  const targets = getSelectedLayoutTargets()
+  if (targets.length < 3) return
+  const items = targets
+    .map(getObjectLayoutBounds)
+    .filter((item): item is ObjectLayoutBounds => !!item)
+  if (items.length < 3) return
+
+  clearBooleanPreview()
+  const sorted = [...items].sort((a, b) => axis === 'horizontal'
+    ? (a.left === b.left ? a.centerX - b.centerX : a.left - b.left)
+    : (a.top === b.top ? a.centerY - b.centerY : a.top - b.top)
+  )
+  const totalSize = sorted.reduce((sum, item) => sum + (axis === 'horizontal' ? item.width : item.height), 0)
+  const start = axis === 'horizontal' ? sorted[0].left : sorted[0].top
+  const end = axis === 'horizontal' ? sorted[sorted.length - 1].right : sorted[sorted.length - 1].bottom
+  const gap = (end - start - totalSize) / (sorted.length - 1)
+  if (!Number.isFinite(gap)) return
+
+  let moved = false
+  let cursor = start
+  sorted.forEach((item, index) => {
+    if (index === 0) {
+      cursor = (axis === 'horizontal' ? item.right : item.bottom) + gap
+      return
+    }
+    if (index === sorted.length - 1) return
+    if (axis === 'horizontal') {
+      moved = moveObjectBySceneDelta(item.object, cursor - item.left, 0) || moved
+      cursor += item.width + gap
+    } else {
+      moved = moveObjectBySceneDelta(item.object, 0, cursor - item.top) || moved
+      cursor += item.height + gap
+    }
+  })
+  if (!moved) return
+  finalizeSelectionLayoutTransform(targets)
 }
 
 // ── 画布尺寸 ──

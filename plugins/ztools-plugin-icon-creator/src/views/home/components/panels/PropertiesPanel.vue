@@ -116,6 +116,24 @@
               </div>
             </ZPopover>
           </div>
+          <div v-if="canAlignSelection" class="prop-group selection-layout-row">
+            <label>多选对齐</label>
+            <div class="selection-layout-actions">
+              <button class="tb-btn sm layout-tool-btn" title="以当前选区左边界为参考左对齐" @click="alignSelection('left')">左</button>
+              <button class="tb-btn sm layout-tool-btn" title="以当前选区水平中心为参考居中" @click="alignSelection('center')">横中</button>
+              <button class="tb-btn sm layout-tool-btn" title="以当前选区右边界为参考右对齐" @click="alignSelection('right')">右</button>
+              <button class="tb-btn sm layout-tool-btn" title="以当前选区上边界为参考顶对齐" @click="alignSelection('top')">顶</button>
+              <button class="tb-btn sm layout-tool-btn" title="以当前选区垂直中心为参考居中" @click="alignSelection('middle')">竖中</button>
+              <button class="tb-btn sm layout-tool-btn" title="以当前选区下边界为参考底对齐" @click="alignSelection('bottom')">底</button>
+            </div>
+          </div>
+          <div v-if="canDistributeSelection" class="prop-group selection-layout-row">
+            <label>等距分布</label>
+            <div class="selection-layout-actions distribute-actions">
+              <button class="tb-btn sm layout-tool-btn" title="在当前选区左右边界之间水平等距分布" @click="distributeSelection('horizontal')">水平</button>
+              <button class="tb-btn sm layout-tool-btn" title="在当前选区上下边界之间垂直等距分布" @click="distributeSelection('vertical')">垂直</button>
+            </div>
+          </div>
         </div>
         <div class="prop-section">
           <div class="prop-group style-toggle-row">
@@ -704,6 +722,8 @@ const props = defineProps<{
   booleanError: string
   canGroup: boolean
   canUngroup: boolean
+  canAlignSelection: boolean
+  canDistributeSelection: boolean
   canConvertStrokeSelection: boolean
   strokeOutlineBusy: boolean
   canConvertTextSelection: boolean
@@ -772,6 +792,8 @@ const props = defineProps<{
   handleSubtractPopoverShowChange: AnyFn
   groupObjects: AnyFn
   ungroupObject: AnyFn
+  alignSelection: AnyFn
+  distributeSelection: AnyFn
   convertSelectionStrokeToOutline: AnyFn
   convertSelectionTextToOutline: AnyFn
   lockObject: AnyFn
@@ -1034,6 +1056,19 @@ const keylineMarginInput = computed({
     justify-self: end;
   }
 }
+.selection-layout-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  min-width: 0;
+}
+.distribute-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.layout-tool-btn {
+  min-width: 0;
+  padding-inline: 4px;
+}
 .align-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -1135,6 +1170,11 @@ const keylineMarginInput = computed({
     display: grid;
     grid-template-columns: 48px 1fr 1fr;
     column-gap: 6px;
+  }
+  &.selection-layout-row {
+    display: grid;
+    grid-template-columns: 48px 1fr;
+    column-gap: 8px;
   }
   .stroke-line-type-picker {
     justify-self: end;
