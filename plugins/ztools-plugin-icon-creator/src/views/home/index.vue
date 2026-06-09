@@ -708,6 +708,47 @@
               </template>
             </div>
           </ZTabPane>
+          <ZTabPane name="preview" tab="预览" display-directive="show">
+            <div class="right-panel-scroll">
+              <div class="section-title">小尺寸预览</div>
+              <div class="preview-panel">
+                <div class="preview-bg-switcher" role="group" aria-label="预览背景">
+                  <button
+                    v-for="mode in previewBackgroundOptions"
+                    :key="mode.value"
+                    type="button"
+                    class="preview-bg-btn"
+                    :class="{ active: previewBackgroundMode === mode.value }"
+                    @click="setPreviewBackgroundMode(mode.value)"
+                  >{{ mode.label }}</button>
+                </div>
+                <div class="preview-grid">
+                  <div
+                    v-for="item in previewItems"
+                    :key="item.size"
+                    class="preview-card"
+                  >
+                    <div
+                      class="preview-stage"
+                      :class="previewStageClass"
+                      :style="{ width: `${item.width}px`, height: `${item.height}px` }"
+                    >
+                      <img
+                        v-if="item.dataUrl"
+                        class="preview-image"
+                        :src="item.dataUrl"
+                        :width="item.width"
+                        :height="item.height"
+                        :alt="`${item.size}px 图标预览`"
+                      />
+                    </div>
+                    <div class="preview-size-label">{{ item.size }}px</div>
+                  </div>
+                </div>
+                <div class="preview-hint">编辑后自动刷新，透明背景使用棋盘格辅助判断边缘。</div>
+              </div>
+            </div>
+          </ZTabPane>
           <ZTabPane name="layers" tab="图层" display-directive="show">
             <div class="right-panel-scroll">
         <!-- 图层区 -->
@@ -1219,6 +1260,13 @@ type PasteSVGDialogState = {
 }
 
 type ExportFormat = 'svg' | 'png'
+type PreviewBackgroundMode = 'transparent' | 'light' | 'dark'
+type PreviewItem = {
+  size: number
+  width: number
+  height: number
+  dataUrl: string
+}
 type ExportDialogState = {
   show: boolean
   svgEnabled: boolean
@@ -1242,6 +1290,7 @@ const PROJECT_FILE_EXTENSION = 'iconcreator.json'
 const DRAFT_STORAGE_KEY = 'icon-creator:auto-save-draft:v1'
 const DRAFT_SAVE_DELAY = 800
 const EXPORT_PNG_SIZE_OPTIONS = [16, 24, 32, 48, 64, 128, 256, 512]
+const SMALL_PREVIEW_SIZE_OPTIONS = [16, 24, 32, 48]
 let editorObjectIdSeed = 0
 
 // ── refs ──
@@ -1264,7 +1313,7 @@ let draftDirty = false
 let restoringDraftPromptShown = false
 
 const leftTab = ref<'shape' | 'text'>('shape')
-const activeRightTab = ref<'properties' | 'layers'>('properties')
+const activeRightTab = ref<'properties' | 'preview' | 'layers'>('properties')
 const showRuler = ref(true)
 const zoom = ref(1)
 const shortcutDrawerOpen = ref(false)
@@ -1518,6 +1567,15 @@ const exportDialog = reactive<ExportDialogState>({
   status: '',
   loading: false
 })
+const previewBackgroundOptions: Array<{ value: PreviewBackgroundMode; label: string }> = [
+  { value: 'transparent', label: '透明' },
+  { value: 'light', label: '浅色' },
+  { value: 'dark', label: '深色' }
+]
+const previewBackgroundMode = ref<PreviewBackgroundMode>('transparent')
+const previewItems = shallowRef<PreviewItem[]>([])
+const previewDirty = ref(true)
+let previewRenderTimer: ReturnType<typeof window.setTimeout> | null = null
 function refreshLayers() {
   layerVersion.value += 1
 }
@@ -4319,7 +4377,7 @@ function serializeFabricCanvas() {
   return (fabricCanvas as any).toObject(SERIALIZED_OBJECT_PROPS as unknown as string[]) as Record<string, unknown>
 }
 
-// 记录一次可撤销快照，并在真实编辑后触发草稿自动保存。
+// 记录一次可撤销快照，并在真实编辑后触发草稿自动保存和小尺寸预览刷新。
 function snapshot(options: SnapshotOptions = {}) {
   if (skipSnapshot || !fabricCanvas) return
   undoStack.push(JSON.stringify(serializeFabricCanvas()))
@@ -4327,6 +4385,7 @@ function snapshot(options: SnapshotOptions = {}) {
   redoStack.length = 0
   canUndo.value = undoStack.length > 1
   canRedo.value = false
+  markSmallPreviewsDirty()
   if (options.autoSave !== false) scheduleDraftSave()
 }
 
@@ -4452,7 +4511,7 @@ function applyProjectLayerOrder(layerOrder: string[]) {
   sorted.forEach((obj, index) => fabricCanvas!.moveObjectTo(obj as AnyFabricObject, index))
 }
 
-// 将工程数据恢复到 Fabric 画布，并同步尺寸、背景、图层和自定义元数据。
+// 将工程数据恢复到 Fabric 画布，并同步尺寸、背景、图层、自定义元数据和小尺寸预览状态。
 async function loadProjectFile(project: IconCreatorProjectFile, options: ProjectLoadOptions = {}) {
   if (!fabricCanvas) return
   clearBooleanPreview()
@@ -4481,6 +4540,7 @@ async function loadProjectFile(project: IconCreatorProjectFile, options: Project
     fabricCanvas.requestRenderAll()
     refreshLayers()
     fitCanvasInView()
+    markSmallPreviewsDirty()
   } finally {
     skipSnapshot = false
   }
@@ -4568,6 +4628,7 @@ async function promptRestoreDraft() {
   }
 }
 
+// 回退到上一份画布快照，恢复后同步图层、背景和小尺寸预览状态。
 function undo() {
   if (undoStack.length <= 1 || !fabricCanvas) return
   clearPointEditing()
@@ -4585,10 +4646,12 @@ function undo() {
     fabricCanvas!.requestRenderAll()
     skipSnapshot = false
     refreshLayers()
+    markSmallPreviewsDirty()
     canUndo.value = undoStack.length > 1
   })
 }
 
+// 重新应用被撤销的画布快照，恢复后同步图层、背景和小尺寸预览状态。
 function redo() {
   if (!redoStack.length || !fabricCanvas) return
   clearPointEditing()
@@ -4606,6 +4669,7 @@ function redo() {
     fabricCanvas!.requestRenderAll()
     skipSnapshot = false
     refreshLayers()
+    markSmallPreviewsDirty()
     canUndo.value = undoStack.length > 1
     canRedo.value = redoStack.length > 0
   })
@@ -4634,6 +4698,11 @@ function syncLayerDragItems() {
 watch(filteredLayers, () => {
   syncLayerDragItems()
 }, { immediate: true })
+
+// 切换到预览 Tab 时立即刷新过期缩略图，保持隐藏状态下不做额外渲染。
+watch(activeRightTab, (tab) => {
+  if (tab === 'preview' && previewDirty.value) refreshSmallPreviews()
+})
 
 function ensureShapeSelectionForLayerActions() {
   if (selectionMode.value !== 'shape') {
@@ -6426,6 +6495,7 @@ async function confirmPasteSVGImport() {
   }
 }
 
+// 把本地图片文件导入为 Fabric Image，并补齐编辑器元数据后放到画布中心附近。
 async function onImageFileChosen(e: Event) {
   const file = (e.target as HTMLInputElement).files?.[0]
   if (!file || !fabricCanvas) return
@@ -6491,6 +6561,49 @@ function getExportPngSizes() {
 const exportDialogCanExport = computed(() => (
   exportDialog.svgEnabled || (exportDialog.pngEnabled && getExportPngSizes().length > 0)
 ))
+const previewStageClass = computed(() => `preview-bg-${previewBackgroundMode.value}`)
+
+// 控制小尺寸预览背景，不影响真实画布背景，仅用于透明、浅色和深色环境下检查可读性。
+function setPreviewBackgroundMode(mode: PreviewBackgroundMode) {
+  previewBackgroundMode.value = mode
+}
+
+// 标记小尺寸预览需要更新，并用短延迟合并连续编辑产生的多次画布事件。
+function scheduleSmallPreviewsRefresh() {
+  previewDirty.value = true
+  if (previewRenderTimer != null) window.clearTimeout(previewRenderTimer)
+  previewRenderTimer = window.setTimeout(() => {
+    previewRenderTimer = null
+    refreshSmallPreviews()
+  }, 120)
+}
+
+// 取消等待中的预览刷新计时器，组件卸载或画布销毁前调用以避免访问失效画布。
+function cancelSmallPreviewsRefresh() {
+  if (previewRenderTimer == null) return
+  window.clearTimeout(previewRenderTimer)
+  previewRenderTimer = null
+}
+
+// 按 16/24/32/48 等标准小图标尺寸生成预览缩略图，复用 PNG 渲染逻辑保证和导出效果一致。
+function refreshSmallPreviews() {
+  if (!fabricCanvas) return
+  cancelSmallPreviewsRefresh()
+  const aspectRatio = canvasHeight.value / canvasWidth.value
+  previewItems.value = SMALL_PREVIEW_SIZE_OPTIONS.map((size) => ({
+    size,
+    width: size,
+    height: Math.max(1, Math.round(size * aspectRatio)),
+    dataUrl: renderPNGDataUrl(size, true)
+  }))
+  previewDirty.value = false
+}
+
+// 在预览 Tab 可见时立即补齐过期缩略图；隐藏时只记录 dirty，避免后台频繁生成 dataURL。
+function markSmallPreviewsDirty() {
+  previewDirty.value = true
+  if (activeRightTab.value === 'preview') scheduleSmallPreviewsRefresh()
+}
 
 // 打开导出面板并清空上一次状态，保留用户上次选择的格式、尺寸和文件名前缀。
 function openExportDialog() {
@@ -6600,6 +6713,8 @@ function exportSVG(fileName?: string, includeBackground = false) {
 function renderPNGDataUrl(size: number, transparentBackground: boolean) {
   if (!fabricCanvas) return ''
   const currentZoom = fabricCanvas.getZoom()
+  const currentWidth = fabricCanvas.getWidth()
+  const currentHeight = fabricCanvas.getHeight()
   const currentBg = fabricCanvas.backgroundColor
   const multiplier = size / canvasWidth.value
   try {
@@ -6611,10 +6726,7 @@ function renderPNGDataUrl(size: number, transparentBackground: boolean) {
   } finally {
     fabricCanvas.backgroundColor = currentBg
     fabricCanvas.setZoom(currentZoom)
-    fabricCanvas.setDimensions(
-      { width: canvasWidth.value * currentZoom, height: canvasHeight.value * currentZoom },
-      { cssOnly: true }
-    )
+    fabricCanvas.setDimensions({ width: currentWidth, height: currentHeight })
     fabricCanvas.requestRenderAll()
   }
 }
@@ -7351,6 +7463,7 @@ onBeforeUnmount(() => {
   endSpacePan()
   clearBooleanPreview()
   clearPointEditing()
+  cancelSmallPreviewsRefresh()
   flushDraftBeforeDispose()
   aligningGuidelines?.dispose()
   aligningGuidelines = null
@@ -8094,6 +8207,84 @@ $panel-bg: #fff;
       justify-self: end;
     }
   }
+}
+
+.preview-panel {
+  padding: 0 8px 12px;
+}
+.preview-bg-switcher {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.preview-bg-btn {
+  border: 1px solid var(--control-border);
+  border-radius: 4px;
+  padding: 5px 4px;
+  background: var(--control-bg);
+  color: var(--text-color);
+  cursor: pointer;
+  font-size: 12px;
+  &.active {
+    color: var(--primary-color);
+    border-color: var(--primary-color);
+    background: rgba(0, 128, 255, 0.08);
+  }
+}
+.preview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.preview-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 10px 6px;
+  border: 1px solid rgba(128, 128, 128, 0.16);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--control-bg) 78%, transparent);
+}
+.preview-stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px rgba(128, 128, 128, 0.24);
+  image-rendering: auto;
+  &.preview-bg-transparent {
+    background-color: #fff;
+    background-image:
+      linear-gradient(45deg, rgba(0, 0, 0, 0.12) 25%, transparent 25%, transparent 75%, rgba(0, 0, 0, 0.12) 75%, rgba(0, 0, 0, 0.12)),
+      linear-gradient(45deg, rgba(0, 0, 0, 0.12) 25%, transparent 25%, transparent 75%, rgba(0, 0, 0, 0.12) 75%, rgba(0, 0, 0, 0.12));
+    background-position: 0 0, 4px 4px;
+    background-size: 8px 8px;
+  }
+  &.preview-bg-light {
+    background: #fff;
+  }
+  &.preview-bg-dark {
+    background: #111827;
+  }
+}
+.preview-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.preview-size-label,
+.preview-hint {
+  font-size: 11px;
+  color: #777;
+  line-height: 1.35;
+}
+.preview-hint {
+  margin-top: 10px;
 }
 
 .gradient-stop-actions {
