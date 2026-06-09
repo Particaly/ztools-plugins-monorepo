@@ -285,6 +285,53 @@
             />
           </div>
         </div>
+        <div class="prop-section style-preset-section">
+          <div class="style-preset-title-row">
+            <span>色板</span>
+            <div class="style-preset-actions">
+              <button class="tb-btn sm" title="保存当前填充色到我的颜色" @click="saveCurrentColorSwatch('fill')">存填充</button>
+              <button class="tb-btn sm" title="保存当前描边色到我的颜色" @click="saveCurrentColorSwatch('stroke')">存描边</button>
+            </div>
+          </div>
+          <div class="palette-groups">
+            <section v-for="group in colorPaletteGroups" :key="group.id" class="palette-group">
+              <div class="palette-group-name">{{ group.name }}</div>
+              <div class="palette-grid">
+                <div v-for="swatch in group.colors" :key="swatch.id" class="palette-swatch-pair">
+                  <button
+                    v-for="target in colorSwatchTargets"
+                    :key="target.channel"
+                    type="button"
+                    class="palette-swatch-btn"
+                    :class="target.className"
+                    :title="getColorSwatchButtonTitle(swatch.name, target.channel)"
+                    :style="{ '--swatch-color': swatch.color }"
+                    @click="applyColorSwatch(target.channel, swatch.color)"
+                  >
+                    <span>{{ target.label }}</span>
+                  </button>
+                </div>
+              </div>
+            </section>
+          </div>
+          <div class="style-preset-title-row gradient-preset-title-row">
+            <span>渐变预设</span>
+            <button class="tb-btn sm" :disabled="objProps.fillMode !== 'gradient'" title="保存当前填充渐变到我的渐变" @click="saveCurrentGradientPreset">保存当前</button>
+          </div>
+          <div class="gradient-preset-grid">
+            <button
+              v-for="preset in gradientPresets"
+              :key="preset.id"
+              type="button"
+              class="gradient-preset-btn"
+              :title="getGradientPresetTitle(preset)"
+              @click="applyGradientPreset(preset)"
+            >
+              <span class="gradient-preset-preview" :style="getGradientPresetStyle(preset)"></span>
+              <span class="gradient-preset-name">{{ preset.name }}</span>
+            </button>
+          </div>
+        </div>
         <div class="prop-section">
           <div class="prop-group opacity-row">
             <label>透明度</label>
@@ -624,7 +671,7 @@ import { VueDraggable } from 'vue-draggable-plus'
 import { Icon } from '@iconify/vue'
 import { ActiveSelection, type FabricObject } from 'fabric'
 import { ZButton, ZColorPicker, ZInput, ZPopover, ZSelect, ZSlider, ZSwitch } from 'ztools-ui'
-import type { KeylineTemplate } from '../../types'
+import type { ColorPaletteGroup, GradientPresetItem, KeylineTemplate, StyleTargetChannel } from '../../types'
 
 type AnyFn = (...args: any[]) => any
 
@@ -673,6 +720,8 @@ const props = defineProps<{
   keylineTemplate: KeylineTemplate
   keylineTemplateOptions: SelectOption[]
   keylineMarginInput: string
+  colorPaletteGroups: ColorPaletteGroup[]
+  gradientPresets: GradientPresetItem[]
   selectKaleidoscopeSourceFromInstance: AnyFn
   detachKaleidoscopeInstance: AnyFn
   setObjPropFromInput: AnyFn
@@ -693,6 +742,10 @@ const props = defineProps<{
   addFillGradientStop: AnyFn
   setFillGradientAngleValue: AnyFn
   setFillGradientRadiusValue: AnyFn
+  applyColorSwatch: AnyFn
+  saveCurrentColorSwatch: AnyFn
+  applyGradientPreset: AnyFn
+  saveCurrentGradientPreset: AnyFn
   toggleStroke: AnyFn
   setStrokeWidthFromInput: AnyFn
   setStrokeLineType: AnyFn
@@ -740,6 +793,46 @@ const emit = defineEmits<{
   (event: 'update:pixel-grid-size-input', value: string): void
   (event: 'update:keyline-margin-input', value: string): void
 }>()
+
+const colorSwatchTargets: Array<{ channel: StyleTargetChannel; label: string; className: string }> = [
+  { channel: 'fill', label: '填', className: 'fill-target' },
+  { channel: 'stroke', label: '描', className: 'stroke-target' }
+]
+
+// 生成色板按钮提示，区分同一颜色应用到填充或描边，减少小按钮含义不清的问题。
+function getColorSwatchButtonTitle(name: string, channel: StyleTargetChannel) {
+  return `${channel === 'fill' ? '应用到填充' : '应用到描边'}：${name}`
+}
+
+// 把预设色标格式化为 CSS 渐变 stop，供属性面板中轻量预览渐变外观。
+function getGradientStopCss(preset: GradientPresetItem) {
+  const stops = [...preset.stops].sort((a, b) => a.offset - b.offset)
+  return stops.map((stop) => `${stop.color} ${Math.round(stop.offset * 100)}%`).join(', ')
+}
+
+// 将 Fabric 的 0° 向右角度转换为 CSS linear-gradient 的角度体系，用于保持预览方向接近实际填充。
+function getCssLinearGradientAngle(angle: unknown) {
+  const parsed = Number(angle)
+  const normalized = Number.isFinite(parsed) ? parsed : 0
+  return (normalized + 90) % 360
+}
+
+// 根据线性 / 径向预设生成预览块背景；只影响面板展示，不参与 Fabric 对象数据。
+function getGradientPresetStyle(preset: GradientPresetItem) {
+  const stops = getGradientStopCss(preset)
+  if (preset.type === 'radial') {
+    const x = Math.round((Number(preset.centerX) || 0.5) * 100)
+    const y = Math.round((Number(preset.centerY) || 0.5) * 100)
+    return { background: `radial-gradient(circle at ${x}% ${y}%, ${stops})` }
+  }
+  return { background: `linear-gradient(${getCssLinearGradientAngle(preset.angle)}deg, ${stops})` }
+}
+
+// 生成渐变预设 tooltip，补充类型和自定义来源，便于区分内置预设与用户保存预设。
+function getGradientPresetTitle(preset: GradientPresetItem) {
+  const typeLabel = preset.type === 'radial' ? '径向渐变' : '线性渐变'
+  return `${preset.name} · ${typeLabel}${preset.userCreated ? ' · 我的预设' : ''}`
+}
 
 const alignPopoverVisible = computed({
   get: () => props.alignPopoverVisible,
@@ -1057,6 +1150,124 @@ const keylineMarginInput = computed({
 }
 .gradient-stop-add-btn {
   width: 100%;
+}
+.style-preset-section {
+  padding: 8px;
+}
+.style-preset-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+  color: #555;
+  font-size: 12px;
+  font-weight: 700;
+}
+.style-preset-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.palette-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.palette-group-name {
+  margin-bottom: 4px;
+  color: #777;
+  font-size: 11px;
+}
+.palette-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 4px;
+}
+.palette-swatch-pair {
+  display: grid;
+  grid-template-rows: repeat(2, 18px);
+  overflow: hidden;
+  border: 1px solid rgba(128, 128, 128, 0.18);
+  border-radius: 6px;
+  background: #fff;
+}
+.palette-swatch-btn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: var(--swatch-color);
+  cursor: pointer;
+
+  span {
+    color: rgba(255, 255, 255, 0.92);
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+  }
+
+  &:hover {
+    z-index: 1;
+    outline: 2px solid var(--primary-color);
+    outline-offset: -2px;
+  }
+
+  &.stroke-target {
+    background:
+      linear-gradient(var(--swatch-color), var(--swatch-color)) center / 70% 3px no-repeat,
+      #fff;
+
+    span {
+      color: #333;
+      text-shadow: 0 1px 1px rgba(255, 255, 255, 0.75);
+    }
+  }
+}
+.gradient-preset-title-row {
+  margin-top: 12px;
+}
+.gradient-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+.gradient-preset-btn {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 4px;
+  border: 1px solid rgba(128, 128, 128, 0.18);
+  border-radius: 7px;
+  background: #fafafa;
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.15s;
+
+  &:hover {
+    border-color: var(--primary-color);
+    transform: translateY(-1px);
+  }
+}
+.gradient-preset-preview {
+  width: 32px;
+  height: 24px;
+  border-radius: 5px;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+}
+.gradient-preset-name {
+  overflow: hidden;
+  color: #444;
+  font-size: 11px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .gradient-stop-handle {
   display: inline-flex;

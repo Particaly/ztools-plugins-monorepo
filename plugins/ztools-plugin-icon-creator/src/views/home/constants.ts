@@ -4,6 +4,7 @@ export const PROJECT_SCHEMA_VERSION = 1
 export const PROJECT_FILE_EXTENSION = 'iconcreator.json'
 export const DRAFT_STORAGE_KEY = 'icon-creator:auto-save-draft:v1'
 export const USER_ASSET_STORAGE_KEY = 'icon-creator:user-assets:v1'
+export const USER_STYLE_PRESET_STORAGE_KEY = 'icon-creator:user-style-presets:v1'
 export const USER_ASSET_THUMBNAIL_SIZE = 96
 export const USER_ASSET_MAX_THUMBNAIL_SOURCE_SIZE = 1600
 export const DRAFT_SAVE_DELAY = 800

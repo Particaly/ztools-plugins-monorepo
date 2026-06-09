@@ -1,7 +1,7 @@
 import type { Control, FabricObject, Point } from 'fabric'
 import type { FabricBooleanStyleSnapshot } from './geometry/fabricToPathKit'
 import type { EditablePathObject, EditableSegmentRef } from './geometry/editablePath'
-import type { FillGradientStop } from './fabric/objectMetadata'
+import type { FillGradientStop, FillGradientType } from './fabric/objectMetadata'
 
 export type FabricControls = Record<string, Control>
 
@@ -19,6 +19,37 @@ export type FillModeOption = 'solid' | 'gradient'
 
 export type UiFillGradientStop = FillGradientStop & {
   id: string
+}
+
+export type StyleTargetChannel = 'fill' | 'stroke'
+
+export type ColorSwatchItem = {
+  id: string
+  name: string
+  color: string
+}
+
+export type ColorPaletteGroup = {
+  id: string
+  name: string
+  colors: ColorSwatchItem[]
+}
+
+export type GradientPresetItem = {
+  id: string
+  name: string
+  type: FillGradientType
+  stops: FillGradientStop[]
+  angle?: number
+  centerX?: number
+  centerY?: number
+  radius?: number
+  userCreated?: boolean
+}
+
+export type UserStylePresets = {
+  colors: ColorSwatchItem[]
+  gradients: GradientPresetItem[]
 }
 
 export type ClipboardEntry = {

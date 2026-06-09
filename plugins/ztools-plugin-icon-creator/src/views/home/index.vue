@@ -159,6 +159,8 @@
             :keyline-template="keylineTemplate"
             :keyline-template-options="keylineTemplateOptions"
             :keyline-margin-input="keylineMarginInput"
+            :color-palette-groups="visibleColorPaletteGroups"
+            :gradient-presets="visibleGradientPresets"
             :select-kaleidoscope-source-from-instance="selectKaleidoscopeSourceFromInstance"
             :detach-kaleidoscope-instance="detachKaleidoscopeInstance"
             :set-obj-prop-from-input="setObjPropFromInput"
@@ -179,6 +181,10 @@
             :add-fill-gradient-stop="addFillGradientStop"
             :set-fill-gradient-angle-value="setFillGradientAngleValue"
             :set-fill-gradient-radius-value="setFillGradientRadiusValue"
+            :apply-color-swatch="applyColorSwatch"
+            :save-current-color-swatch="saveCurrentColorSwatch"
+            :apply-gradient-preset="applyGradientPreset"
+            :save-current-gradient-preset="saveCurrentGradientPreset"
             :toggle-stroke="toggleStroke"
             :set-stroke-width-from-input="setStrokeWidthFromInput"
             :set-stroke-line-type="setStrokeLineType"
@@ -335,7 +341,7 @@ import { ref, shallowRef, triggerRef, reactive, computed, onMounted, onBeforeUnm
 import { useZtoolsTheme } from 'ztools-ui'
 import { Canvas, Control, FabricObject, Gradient, Textbox, Group, ActiveSelection, FabricImage, Path, Point, Rect, Circle, Triangle, Polygon, Line, StaticCanvas, util, loadSVGFromString } from 'fabric'
 import { AligningGuidelines } from '../../fabric-aligning-guidelines'
-import { basicShapes, textPresets, canvasPresets, shapePreviewPaths, iconTemplates } from './editorCatalog'
+import { basicShapes, textPresets, canvasPresets, shapePreviewPaths, iconTemplates, colorPaletteGroups, gradientPresets } from './editorCatalog'
 import type { ShapeLibraryItem, TextLibraryItem, IconTemplateItem } from './editorCatalog'
 import {
   DEFAULT_FILL_GRADIENT_ANGLE,
@@ -405,12 +411,14 @@ import {
   TEXT_OUTLINE_TRACE_MULTIPLIER,
   USER_ASSET_MAX_THUMBNAIL_SOURCE_SIZE,
   USER_ASSET_STORAGE_KEY,
-  USER_ASSET_THUMBNAIL_SIZE
+  USER_ASSET_THUMBNAIL_SIZE,
+  USER_STYLE_PRESET_STORAGE_KEY
 } from './constants'
 import type {
   BooleanPreviewHiddenObject,
   BoundsEndpointAttachment,
   ClipboardEntry,
+  ColorSwatchItem,
   CurveControlPointKey,
   EditableSegmentRefWithTarget,
   EndpointAttachment,
@@ -422,6 +430,7 @@ import type {
   ExportFormat,
   FabricControls,
   FillModeOption,
+  GradientPresetItem,
   IconCheckIssue,
   IconCreatorDraftFile,
   IconCreatorProjectFile,
@@ -445,9 +454,11 @@ import type {
   SpacePanStart,
   StrokeLineType,
   StrokeOutlineResult,
+  StyleTargetChannel,
   UiFillGradientStop,
   UserAssetDialogState,
-  UserAssetItem
+  UserAssetItem,
+  UserStylePresets
 } from './types'
 import { isTransparentCanvasBg, normalizeCanvasBg, normalizeKeylineMargin, normalizeKeylineTemplate, normalizePixelGridSize } from './canvasSettings'
 import { ensureOptimizedSVGRoot, stripFabricSVGNoise, svgEscapeText, trimSVGWhitespace } from './exportUtils'
@@ -816,6 +827,10 @@ const pasteSVGDialog = reactive<PasteSVGDialogState>({
   loading: false
 })
 const userAssets = ref<UserAssetItem[]>([])
+const userStylePresets = reactive<UserStylePresets>({
+  colors: [],
+  gradients: []
+})
 const userAssetDialog = reactive<UserAssetDialogState>({
   show: false,
   mode: 'create',
@@ -861,6 +876,18 @@ const previewBackgroundMode = ref<PreviewBackgroundMode>('transparent')
 const previewItems = shallowRef<PreviewItem[]>([])
 const previewDirty = ref(true)
 let previewRenderTimer: ReturnType<typeof window.setTimeout> | null = null
+const visibleColorPaletteGroups = computed(() => {
+  const groups = [...colorPaletteGroups]
+  if (userStylePresets.colors.length) {
+    groups.push({
+      id: 'user',
+      name: '我的颜色',
+      colors: userStylePresets.colors
+    })
+  }
+  return groups
+})
+const visibleGradientPresets = computed(() => [...gradientPresets, ...userStylePresets.gradients])
 function refreshLayers() {
   layerVersion.value += 1
 }
@@ -2751,6 +2778,208 @@ function saveUserAssets() {
     console.warn('保存个人素材失败', error)
     throw new Error('保存个人素材失败，请检查浏览器本地存储空间')
   }
+}
+
+// 为用户保存的颜色和渐变生成稳定 id，避免同名预设在列表渲染和再次应用时互相覆盖。
+function createUserStylePresetId(kind: 'color' | 'gradient') {
+  return `${kind}-preset-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+// 规范用户样式预设名称；本地旧数据缺失名称时回退到便于识别的默认标题。
+function normalizeUserStylePresetName(value: unknown, fallback: string) {
+  return typeof value === 'string' && value.trim() ? value.trim() : fallback
+}
+
+// 规范可保存的颜色值；保持 hex / rgba 等 CSS 字符串原样，空值返回空串表示不可保存。
+function normalizeSavedColor(value: unknown) {
+  return typeof value === 'string' && value.trim() ? value.trim() : ''
+}
+
+// 读取本地颜色预设时执行最小校验，过滤空颜色并为旧数据补齐名称和 id。
+function normalizeStoredColorSwatch(value: unknown, index: number): ColorSwatchItem | null {
+  const source = value && typeof value === 'object' ? value as Partial<ColorSwatchItem> : null
+  const color = normalizeSavedColor(source?.color)
+  if (!source || !color) return null
+  return {
+    id: typeof source.id === 'string' && source.id.trim() ? source.id : createUserStylePresetId('color'),
+    name: normalizeUserStylePresetName(source.name, `颜色 ${index + 1}`),
+    color
+  }
+}
+
+// 将角度预设归一到 0-359，避免手写或旧版本数据导致 Fabric 渐变方向异常。
+function normalizeGradientPresetAngle(value: unknown, fallback = DEFAULT_FILL_GRADIENT_ANGLE) {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return fallback
+  const normalized = parsed % 360
+  return normalized < 0 ? normalized + 360 : normalized
+}
+
+// 将渐变中心比例限制在对象内部，保证径向渐变预设应用后控制点仍可见可拖拽。
+function normalizeGradientPresetUnit(value: unknown, fallback = 0.5) {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return fallback
+  return Math.min(1, Math.max(0, parsed))
+}
+
+// 读取本地渐变预设时补齐类型、色标和径向参数，坏数据会被降级为安全的默认渐变。
+function normalizeStoredGradientPreset(value: unknown, index: number): GradientPresetItem | null {
+  const source = value && typeof value === 'object' ? value as Partial<GradientPresetItem> : null
+  if (!source) return null
+  const type = source.type === 'radial' ? 'radial' : 'linear'
+  const stopsSource = Array.isArray(source.stops) ? source.stops : undefined
+  const stops = cloneFillGradientStops(stopsSource)
+  if (!stops.length) return null
+  return {
+    id: typeof source.id === 'string' && source.id.trim() ? source.id : createUserStylePresetId('gradient'),
+    name: normalizeUserStylePresetName(source.name, `渐变 ${index + 1}`),
+    type,
+    stops,
+    angle: normalizeGradientPresetAngle(source.angle),
+    centerX: normalizeGradientPresetUnit(source.centerX),
+    centerY: normalizeGradientPresetUnit(source.centerY),
+    radius: normalizeFillGradientRadiusInput(Number(source.radius ?? DEFAULT_FILL_GRADIENT_RADIUS)),
+    userCreated: true
+  }
+}
+
+// 启动时加载用户保存的颜色和渐变预设；解析失败只清空内存状态，避免影响编辑器主体功能。
+function loadUserStylePresets() {
+  try {
+    const raw = window.localStorage.getItem(USER_STYLE_PRESET_STORAGE_KEY)
+    if (!raw) return
+    const parsed = JSON.parse(raw) as Partial<UserStylePresets>
+    const rawColors = Array.isArray(parsed.colors) ? parsed.colors : []
+    const rawGradients = Array.isArray(parsed.gradients) ? parsed.gradients : []
+    userStylePresets.colors = rawColors
+      .map(normalizeStoredColorSwatch)
+      .filter((item): item is ColorSwatchItem => !!item)
+    userStylePresets.gradients = rawGradients
+      .map(normalizeStoredGradientPreset)
+      .filter((item): item is GradientPresetItem => !!item)
+  } catch (error) {
+    console.warn('读取样式预设失败', error)
+    userStylePresets.colors = []
+    userStylePresets.gradients = []
+  }
+}
+
+// 将用户自定义颜色和渐变写入 localStorage，供重启插件后继续复用个人配色风格。
+function saveUserStylePresets() {
+  try {
+    window.localStorage.setItem(USER_STYLE_PRESET_STORAGE_KEY, JSON.stringify({
+      schemaVersion: 1,
+      colors: userStylePresets.colors,
+      gradients: userStylePresets.gradients
+    }))
+  } catch (error) {
+    console.warn('保存样式预设失败', error)
+  }
+}
+
+// 应用描边色板时同步补齐描边宽度，确保从无描边对象点击色板也能立即看到效果。
+function applyStrokeColorSwatch(color: string) {
+  const obj = activeObject.value
+  if (!obj || !fabricCanvas) return
+  getStyleTargets(obj).forEach((target) => {
+    const typedTarget = target as AnyFabricObject
+    typedTarget.lastStroke = color
+    const patch: Record<string, unknown> = { stroke: color }
+    if (!isStrokeEnabled(color, target.strokeWidth)) {
+      const fallbackWidth = Number(typedTarget.lastStrokeWidth ?? objProps.strokeWidth)
+      patch.strokeWidth = Number.isFinite(fallbackWidth) && fallbackWidth > 0 ? fallbackWidth : 2
+      typedTarget.lastStrokeWidth = patch.strokeWidth
+    }
+    target.set(patch as any)
+    typedTarget.lastStrokeDashArray = normalizeStrokeDashArray(typedTarget.lastStrokeDashArray)
+      ?? getDefaultStrokeDashArray(target.strokeWidth)
+    target.dirty = true
+    target.setCoords()
+  })
+  if (obj instanceof Group) obj.triggerLayout()
+  obj.dirty = true
+  obj.setCoords()
+  triggerKaleidoscopeContentSync(obj)
+  fabricCanvas.requestRenderAll()
+  refreshLayers()
+  snapshot()
+  syncObjProps()
+}
+
+// 根据用户选择把色板颜色应用到填充或描边；填充复用纯色逻辑，描边使用上面的宽度补齐策略。
+function applyColorSwatch(channel: StyleTargetChannel, color: string) {
+  const normalized = normalizeSavedColor(color)
+  if (!normalized) return
+  if (channel === 'stroke') {
+    applyStrokeColorSwatch(normalized)
+    return
+  }
+  setSolidFillColor(normalized)
+}
+
+// 把当前填充色或描边色保存到“我的颜色”，重复颜色会前置更新名称，避免本地色板堆积重复项。
+function saveCurrentColorSwatch(channel: StyleTargetChannel) {
+  const color = normalizeSavedColor(channel === 'stroke' ? objProps.stroke : objProps.fill)
+  if (!color) return
+  const name = `${channel === 'stroke' ? '描边色' : '填充色'} ${userStylePresets.colors.length + 1}`
+  const existingIndex = userStylePresets.colors.findIndex((item) => item.color.toLowerCase() === color.toLowerCase())
+  if (existingIndex >= 0) {
+    const [existing] = userStylePresets.colors.splice(existingIndex, 1)
+    existing.name = name
+    userStylePresets.colors = [existing, ...userStylePresets.colors]
+  } else {
+    userStylePresets.colors = [{ id: createUserStylePresetId('color'), name, color }, ...userStylePresets.colors]
+  }
+  saveUserStylePresets()
+}
+
+// 将渐变预设写入当前填充，保留对象原位置尺寸并刷新径向渐变控制点和万花筒同步内容。
+function applyGradientPreset(preset: GradientPresetItem) {
+  const obj = activeObject.value
+  if (!obj || !fabricCanvas) return
+  getStyleTargets(obj).forEach((target) => {
+    const typedTarget = target as AnyFabricObject
+    applyDefaultFillGradientMetadata(typedTarget)
+    typedTarget.fillMode = 'gradient'
+    typedTarget.fillGradientType = preset.type === 'radial' ? 'radial' : 'linear'
+    typedTarget.fillGradientStops = cloneFillGradientStops(preset.stops)
+    typedTarget.fillGradientAngle = normalizeGradientPresetAngle(preset.angle)
+    typedTarget.fillGradientCenterX = normalizeGradientPresetUnit(preset.centerX)
+    typedTarget.fillGradientCenterY = normalizeGradientPresetUnit(preset.centerY)
+    typedTarget.fillGradientRadius = normalizeFillGradientRadiusInput(Number(preset.radius ?? DEFAULT_FILL_GRADIENT_RADIUS))
+    applyGradientFillToTarget(target)
+    target.dirty = true
+    target.setCoords()
+  })
+  if (obj instanceof Group) obj.triggerLayout()
+  objProps.fillEnabled = true
+  objProps.fillMode = 'gradient'
+  objProps.fillGradientType = preset.type === 'radial' ? 'radial' : 'linear'
+  triggerKaleidoscopeContentSync(obj)
+  updateCurveControls()
+  fabricCanvas.requestRenderAll()
+  refreshLayers()
+  snapshot()
+  syncObjProps()
+}
+
+// 保存当前对象填充渐变为用户预设；只有处于渐变填充模式时才会生成可复用条目。
+function saveCurrentGradientPreset() {
+  if (!activeObject.value || objProps.fillMode !== 'gradient') return
+  const name = `渐变 ${userStylePresets.gradients.length + 1}`
+  const preset: GradientPresetItem = {
+    id: createUserStylePresetId('gradient'),
+    name,
+    type: objProps.fillGradientType === 'radial' ? 'radial' : 'linear',
+    stops: cloneFillGradientStops(objProps.fillGradientStops.map(({ color, offset }) => ({ color, offset }))),
+    angle: normalizeGradientPresetAngle(objProps.fillGradientAngle),
+    centerX: normalizeGradientPresetUnit(objProps.fillGradientCenterX),
+    centerY: normalizeGradientPresetUnit(objProps.fillGradientCenterY),
+    radius: normalizeFillGradientRadiusInput(objProps.fillGradientRadius),
+    userCreated: true
+  }
+  userStylePresets.gradients = [preset, ...userStylePresets.gradients]
+  saveUserStylePresets()
 }
 
 // 打开保存素材弹窗，并使用当前选区名称作为默认值以减少重复输入。
@@ -7539,6 +7768,7 @@ onMounted(() => {
 
   loadShortcutBindings()
   loadUserAssets()
+  loadUserStylePresets()
   ensureCanvasObjectMetadata()
   applyCanvasTheme()
   syncCanvasInteractionMode()

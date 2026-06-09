@@ -1,3 +1,5 @@
+import type { ColorPaletteGroup, GradientPresetItem } from './types'
+
 export type ShapeId =
   | 'base-rectangle'
   | 'base-square'
@@ -153,6 +155,116 @@ export const canvasPresets: CanvasPreset[] = [
     value: '128x128',
     width: 128,
     height: 128
+  }
+]
+
+export const colorPaletteGroups: ColorPaletteGroup[] = [
+  {
+    id: 'brand',
+    name: '品牌色',
+    colors: [
+      { id: 'brand-blue', name: '品牌蓝', color: '#2563eb' },
+      { id: 'brand-cyan', name: '清爽青', color: '#06b6d4' },
+      { id: 'brand-violet', name: '品牌紫', color: '#7c3aed' },
+      { id: 'brand-pink', name: '活力粉', color: '#ec4899' },
+      { id: 'brand-orange', name: '暖橙', color: '#f97316' },
+      { id: 'brand-lime', name: '荧光绿', color: '#84cc16' }
+    ]
+  },
+  {
+    id: 'neutral',
+    name: '中性色',
+    colors: [
+      { id: 'neutral-950', name: '深墨', color: '#030712' },
+      { id: 'neutral-800', name: '标题灰', color: '#1f2937' },
+      { id: 'neutral-500', name: '正文灰', color: '#6b7280' },
+      { id: 'neutral-300', name: '边框灰', color: '#d1d5db' },
+      { id: 'neutral-100', name: '浅底灰', color: '#f3f4f6' },
+      { id: 'neutral-white', name: '纯白', color: '#ffffff' }
+    ]
+  },
+  {
+    id: 'status',
+    name: '状态色',
+    colors: [
+      { id: 'status-success', name: '成功', color: '#22c55e' },
+      { id: 'status-info', name: '信息', color: '#0ea5e9' },
+      { id: 'status-warning', name: '警告', color: '#f59e0b' },
+      { id: 'status-danger', name: '错误', color: '#ef4444' },
+      { id: 'status-muted', name: '禁用', color: '#94a3b8' },
+      { id: 'status-focus', name: '强调', color: '#a855f7' }
+    ]
+  }
+]
+
+export const gradientPresets: GradientPresetItem[] = [
+  {
+    id: 'gradient-ocean-blue',
+    name: '海洋蓝',
+    type: 'linear',
+    angle: 45,
+    stops: [
+      { color: '#22d3ee', offset: 0 },
+      { color: '#2563eb', offset: 1 }
+    ]
+  },
+  {
+    id: 'gradient-violet-glow',
+    name: '紫光',
+    type: 'linear',
+    angle: 135,
+    stops: [
+      { color: '#c084fc', offset: 0 },
+      { color: '#7c3aed', offset: 0.55 },
+      { color: '#312e81', offset: 1 }
+    ]
+  },
+  {
+    id: 'gradient-sunset',
+    name: '日落橙',
+    type: 'linear',
+    angle: 35,
+    stops: [
+      { color: '#facc15', offset: 0 },
+      { color: '#fb7185', offset: 0.55 },
+      { color: '#7c2d12', offset: 1 }
+    ]
+  },
+  {
+    id: 'gradient-mint',
+    name: '薄荷绿',
+    type: 'linear',
+    angle: 25,
+    stops: [
+      { color: '#86efac', offset: 0 },
+      { color: '#14b8a6', offset: 1 }
+    ]
+  },
+  {
+    id: 'gradient-radial-focus',
+    name: '中心高光',
+    type: 'radial',
+    centerX: 0.42,
+    centerY: 0.36,
+    radius: 0.7,
+    stops: [
+      { color: '#ffffff', offset: 0 },
+      { color: '#60a5fa', offset: 0.42 },
+      { color: '#1d4ed8', offset: 1 }
+    ]
+  },
+  {
+    id: 'gradient-radial-badge',
+    name: '徽章暗角',
+    type: 'radial',
+    centerX: 0.35,
+    centerY: 0.3,
+    radius: 0.85,
+    stops: [
+      { color: '#fef3c7', offset: 0 },
+      { color: '#f97316', offset: 0.55 },
+      { color: '#9a3412', offset: 1 }
+    ]
   }
 ]
 
