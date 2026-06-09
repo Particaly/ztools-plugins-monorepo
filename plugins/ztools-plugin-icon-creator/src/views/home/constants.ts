@@ -1,0 +1,22 @@
+import type { KeylineTemplate } from './types'
+
+export const PROJECT_SCHEMA_VERSION = 1
+export const PROJECT_FILE_EXTENSION = 'iconcreator.json'
+export const DRAFT_STORAGE_KEY = 'icon-creator:auto-save-draft:v1'
+export const USER_ASSET_STORAGE_KEY = 'icon-creator:user-assets:v1'
+export const USER_ASSET_THUMBNAIL_SIZE = 96
+export const USER_ASSET_MAX_THUMBNAIL_SOURCE_SIZE = 1600
+export const DRAFT_SAVE_DELAY = 800
+export const EXPORT_PNG_SIZE_OPTIONS = [16, 24, 32, 48, 64, 128, 256, 512]
+export const SMALL_PREVIEW_SIZE_OPTIONS = [16, 24, 32, 48]
+export const DEFAULT_PIXEL_GRID_SIZE = 8
+export const MIN_PIXEL_GRID_SIZE = 1
+export const MAX_PIXEL_GRID_SIZE = 256
+export const MIN_PIXEL_GRID_VISIBLE_STEP = 4
+export const DEFAULT_KEYLINE_TEMPLATE: KeylineTemplate = 'none'
+export const DEFAULT_KEYLINE_MARGIN = 48
+export const MIN_KEYLINE_MARGIN = 0
+export const MAX_KEYLINE_MARGIN = 512
+export const TEXT_OUTLINE_TRACE_MULTIPLIER = 2
+export const TEXT_OUTLINE_ALPHA_THRESHOLD = 12
+export const ICONIFY_SEARCH_LIMIT = 48

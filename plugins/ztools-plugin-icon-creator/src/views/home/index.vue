@@ -7,201 +7,62 @@
     }"
   >
     <!-- 顶栏 -->
-    <header class="top-bar">
-      <div class="top-bar-left">
-        <span class="app-title">图标编辑器</span>
-      </div>
-      <div class="top-bar-center">
-        <ZButton size="small" class="top-bar-btn" @click="newDoc" title="新建">新建</ZButton>
-        <ZButton size="small" class="top-bar-btn" @click="openProject" title="打开工程">打开工程</ZButton>
-        <ZButton size="small" class="top-bar-btn" @click="saveProject" title="保存工程">保存工程</ZButton>
-        <ZButton size="small" class="top-bar-btn" @click="importSVG" title="导入 SVG">导入 SVG</ZButton>
-        <ZButton size="small" class="top-bar-btn" @click="openPasteSVGDialog" title="粘贴 SVG 或 Path">粘贴 SVG</ZButton>
-        <ZButton size="small" class="top-bar-btn" @click="importImage" title="导入图片">导入图片</ZButton>
-        <ZButton size="small" class="top-bar-btn" @click="openExportDialog" title="导出面板">导出</ZButton>
-        <span class="tb-sep"></span>
-        <ZButton size="small" class="top-bar-btn" :disabled="!canUndo" @click="undo" title="撤销">撤销</ZButton>
-        <ZButton size="small" class="top-bar-btn" :disabled="!canRedo" @click="redo" title="重做">重做</ZButton>
-        <span class="tb-sep"></span>
-        <ZButton size="small" class="top-bar-btn" :class="{ 'is-active': showRuler }" @click="toggleRuler" title="标尺">标尺</ZButton>
-        <ZButton size="small" class="top-bar-btn" :class="{ 'is-active': showPixelGrid }" @click="togglePixelGrid" title="像素网格">网格</ZButton>
-        <ZButton size="small" class="top-bar-btn" :class="{ 'is-active': snapToPixelGrid }" @click="toggleSnapToPixelGrid" title="吸附到网格">吸附</ZButton>
-        <ZButton size="small" class="top-bar-btn" :class="{ 'is-active': keylineTemplate !== 'none' }" @click="toggleKeylineOverlay" title="Keyline 与安全区参考线">参考线</ZButton>
-        <ZButton size="small" class="top-bar-btn shortcut-topbar-btn" :class="{ 'is-active': shortcutDrawerOpen }" @click="openShortcutDrawer" title="快捷键设置">快捷键</ZButton>
-        <span class="tb-sep"></span>
-        <ZButton size="small" class="top-bar-icon-btn" :class="{ 'is-active': selectionMode === 'shape' }" title="选择图形" @click="setSelectionMode('shape')">
-          <Icon icon="mdi:cursor-default-outline" />
-        </ZButton>
-        <ZButton size="small" class="top-bar-icon-btn" :class="{ 'is-active': selectionMode === 'point' }" :disabled="!hasEditablePoints" title="选择点位" @click="setSelectionMode('point')">
-          <Icon icon="mdi:circle-outline" />
-        </ZButton>
-        <ZButton size="small" class="top-bar-icon-btn" :class="{ 'is-active': selectionMode === 'segment' }" :disabled="!hasEditablePoints" title="选择线段" @click="setSelectionMode('segment')">
-          <Icon icon="mdi:minus" />
-        </ZButton>
-      </div>
-      <div class="top-bar-right">
-        <span class="zoom-label">{{ Math.round(zoom * 100) }}%</span>
-        <ZButton size="small" class="top-bar-icon-btn" @click="setZoom(zoom - 0.1)">−</ZButton>
-        <ZButton size="small" class="top-bar-icon-btn" @click="setZoom(zoom + 0.1)">+</ZButton>
-        <ZButton size="small" class="top-bar-btn top-bar-reset-btn" @click="setZoom(1)">1:1</ZButton>
-      </div>
-    </header>
+    <HomeTopBar
+      :can-undo="canUndo"
+      :can-redo="canRedo"
+      :show-ruler="showRuler"
+      :show-pixel-grid="showPixelGrid"
+      :snap-to-pixel-grid="snapToPixelGrid"
+      :keyline-active="keylineTemplate !== 'none'"
+      :shortcut-drawer-open="shortcutDrawerOpen"
+      :selection-mode="selectionMode"
+      :has-editable-points="hasEditablePoints"
+      :zoom="zoom"
+      @new-doc="newDoc"
+      @open-project="openProject"
+      @save-project="saveProject"
+      @import-svg="importSVG"
+      @open-paste-svg="openPasteSVGDialog"
+      @import-image="importImage"
+      @open-export="openExportDialog"
+      @undo="undo"
+      @redo="redo"
+      @toggle-ruler="toggleRuler"
+      @toggle-pixel-grid="togglePixelGrid"
+      @toggle-snap-to-pixel-grid="toggleSnapToPixelGrid"
+      @toggle-keyline-overlay="toggleKeylineOverlay"
+      @open-shortcut-drawer="openShortcutDrawer"
+      @set-selection-mode="setSelectionMode"
+      @set-zoom="setZoom"
+    />
 
     <div class="editor-body">
       <!-- 左栏 -->
-      <aside class="left-panel">
-        <ZTabs
-          v-model:value="leftTab"
-          class="side-tabs left-tabs"
-          type="line"
-          size="small"
-          placement="top"
-          :animated="false"
-          justify-content="space-between"
-          :tabs-padding="0"
-          tab-class="side-tabs-tab"
-          pane-wrapper-class="left-tabs-pane-wrapper"
-          pane-class="left-tabs-pane"
-        >
-          <ZTabPane name="shape" tab="形状" display-directive="show">
-            <div class="left-content">
-              <div class="section-title">基础形状</div>
-              <div class="asset-grid">
-                <div
-                  v-for="s in basicShapes"
-                  :key="s.id"
-                  class="asset-item"
-                  :title="s.label"
-                  @click="addShape(s)"
-                >
-                  <svg class="shape-preview-svg" viewBox="0 0 64 64" aria-hidden="true">
-                    <path :d="shapePreviewPaths[s.id]" fill="#fff" stroke="#333" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
-                  </svg>
-                </div>
-              </div>
-            </div>
-          </ZTabPane>
-          <ZTabPane name="text" tab="文字" display-directive="show">
-            <div class="left-content">
-              <div class="section-title">文字预设</div>
-              <div class="text-list">
-                <button
-                  v-for="t in textPresets" :key="t.id" class="text-preset-btn"
-                  @click="addText(t)"
-                >
-                  <span :style="{ fontSize: t.fontSize > 30 ? 20 : t.fontSize + 'px', fontWeight: t.fontWeight }">{{ t.label }}</span>
-                </button>
-              </div>
-            </div>
-          </ZTabPane>
-          <ZTabPane name="templates" tab="模板" display-directive="show">
-            <div class="left-content">
-              <div class="section-title">内置模板库</div>
-              <div class="template-list">
-                <article
-                  v-for="template in iconTemplates"
-                  :key="template.id"
-                  class="template-card"
-                  :title="template.description"
-                >
-                  <button type="button" class="template-preview" @click="insertIconTemplate(template)">
-                    <svg class="template-preview-svg" :viewBox="`0 0 ${template.width} ${template.height}`" aria-hidden="true" v-html="getTemplatePreviewMarkup(template)"></svg>
-                  </button>
-                  <div class="template-info">
-                    <div class="template-name">{{ template.name }}</div>
-                    <div class="template-meta">{{ template.category }} · {{ template.width }}×{{ template.height }}</div>
-                    <p class="template-desc">{{ template.description }}</p>
-                    <div class="template-actions">
-                      <ZButton size="small" @click="insertIconTemplate(template)">插入</ZButton>
-                      <ZButton size="small" @click="applyIconTemplateAsDocument(template)">新建</ZButton>
-                    </div>
-                  </div>
-                </article>
-              </div>
-            </div>
-          </ZTabPane>
-          <ZTabPane name="assets" tab="素材" display-directive="show">
-            <div class="left-content">
-              <div class="section-title-row asset-title-row">
-                <div class="section-title">我的素材</div>
-                <ZButton size="small" class="user-asset-save-btn" :disabled="!canSaveUserAsset" @click="openCreateUserAssetDialog">保存选中</ZButton>
-              </div>
-              <div v-if="userAssets.length" class="user-asset-list">
-                <article
-                  v-for="asset in userAssets"
-                  :key="asset.id"
-                  class="user-asset-card"
-                  :title="asset.name"
-                >
-                  <button type="button" class="user-asset-preview" @click="insertUserAsset(asset)">
-                    <img v-if="asset.thumbnail" :src="asset.thumbnail" :alt="`${asset.name} 预览`" />
-                    <span v-else class="user-asset-preview-placeholder">素材</span>
-                  </button>
-                  <div class="user-asset-info">
-                    <div class="user-asset-name">{{ asset.name }}</div>
-                    <div class="user-asset-meta">{{ getUserAssetObjectCountLabel(asset) }} · {{ formatUserAssetDate(asset.updatedAt) }}</div>
-                    <div class="user-asset-actions">
-                      <ZButton size="small" @click="insertUserAsset(asset)">插入</ZButton>
-                      <ZButton size="small" @click="openRenameUserAssetDialog(asset)">重命名</ZButton>
-                      <ZButton size="small" @click="deleteUserAsset(asset)">删除</ZButton>
-                    </div>
-                  </div>
-                </article>
-              </div>
-              <div v-if="!userAssets.length" class="user-asset-empty">
-                选中画布对象后点击“保存选中”，即可把常用对象或组合保存到本地素材库。
-              </div>
-            </div>
-          </ZTabPane>
-          <ZTabPane name="iconify" tab="图标库" display-directive="show">
-            <div class="left-content">
-              <div class="section-title">Iconify 图标搜索</div>
-              <div class="iconify-search-row">
-                <ZInput
-                  v-model="iconifySearch.query"
-                  size="small"
-                  type="text"
-                  placeholder="搜索 home、user、arrow"
-                  @keydown.enter="searchIconifyIcons"
-                />
-                <ZButton size="small" :disabled="iconifySearch.loading || !iconifySearch.query.trim()" @click="searchIconifyIcons">
-                  {{ iconifySearch.loading ? '搜索中' : '搜索' }}
-                </ZButton>
-              </div>
-              <div v-if="iconifySearch.error" class="iconify-error">{{ iconifySearch.error }}</div>
-              <template v-else-if="iconifySearch.lastQuery && !iconifySearch.loading">
-                <div class="iconify-summary">
-                  找到 {{ iconifySearch.total }} 个结果，显示 {{ filteredIconifyResults.length }} 个
-                </div>
-                <ZSelect
-                  v-if="iconifyCollectionOptions.length > 1"
-                  size="small"
-                  class="iconify-collection-filter"
-                  :model-value="iconifySearch.collectionFilter"
-                  :options="iconifyCollectionOptions"
-                  @change="iconifySearch.collectionFilter = String($event)"
-                />
-              </template>
-              <div v-if="filteredIconifyResults.length" class="iconify-grid">
-                <button
-                  v-for="name in filteredIconifyResults"
-                  :key="name"
-                  type="button"
-                  class="iconify-item"
-                  :title="`插入 ${name}`"
-                  :disabled="iconifySearch.inserting === name"
-                  @click="insertIconifyIcon(name)"
-                >
-                  <Icon class="iconify-preview-icon" :icon="name" />
-                  <span class="iconify-name">{{ name }}</span>
-                </button>
-              </div>
-              <div v-else-if="iconifySearch.lastQuery && !iconifySearch.loading && !iconifySearch.error" class="iconify-empty">未找到匹配图标</div>
-              <div v-else class="iconify-hint">输入关键词后从 Iconify 在线图标库搜索，点击结果即可插入为可编辑 SVG。</div>
-            </div>
-          </ZTabPane>
-        </ZTabs>
-      </aside>
+      <LeftPanel
+        :active-tab="leftTab"
+        :basic-shapes="basicShapes"
+        :shape-preview-paths="shapePreviewPaths"
+        :text-presets="textPresets"
+        :icon-templates="iconTemplates"
+        :user-assets="userAssets"
+        :can-save-user-asset="canSaveUserAsset"
+        :iconify-search="iconifySearch"
+        :filtered-iconify-results="filteredIconifyResults"
+        :iconify-collection-options="iconifyCollectionOptions"
+        @update:active-tab="leftTab = $event"
+        @add-shape="addShape"
+        @add-text="addText"
+        @insert-template="insertIconTemplate"
+        @apply-template-as-document="applyIconTemplateAsDocument"
+        @open-create-user-asset-dialog="openCreateUserAssetDialog"
+        @insert-user-asset="insertUserAsset"
+        @rename-user-asset="openRenameUserAssetDialog"
+        @delete-user-asset="deleteUserAsset"
+        @update:iconify-query="iconifySearch.query = $event"
+        @search-iconify-icons="searchIconifyIcons"
+        @update:iconify-collection-filter="iconifySearch.collectionFilter = $event"
+        @insert-iconify-icon="insertIconifyIcon"
+      />
 
       <!-- 中间画布区 -->
       <div class="canvas-frame" :class="{ 'with-ruler': showRuler }">
@@ -253,1000 +114,214 @@
       </div>
 
       <!-- 右栏 -->
-      <aside class="right-panel">
-        <ZTabs
-          v-model:value="activeRightTab"
-          class="side-tabs right-tabs"
-          type="line"
-          size="small"
-          placement="top"
-          :animated="false"
-          justify-content="space-between"
-          :tabs-padding="0"
-          tab-class="side-tabs-tab"
-          pane-wrapper-class="right-tabs-pane-wrapper"
-          pane-class="right-tabs-pane"
-        >
-          <ZTabPane name="properties" tab="属性" display-directive="show">
-            <div class="right-panel-scroll">
-              <!-- 对象属性 -->
-              <template v-if="activeObject">
-                <template v-if="activeKaleidoscopeInstance">
-                  <div class="prop-section">
-                    <div class="prop-actions instance-actions">
-                      <button class="tb-btn" @click="selectKaleidoscopeSourceFromInstance">选中源对象</button>
-                      <button class="tb-btn" @click="detachKaleidoscopeInstance">脱离万花筒</button>
-                    </div>
-                  </div>
-                </template>
-                <template v-else>
-                <div class="prop-section">
-                  <div class="prop-group transform-row">
-                    <label>位置</label>
-                    <span class="size-lock-spacer"></span>
-                    <ZInput
-                      size="small"
-                      type="text"
-                      :model-value="objProps.leftInput"
-                      @update:model-value="objProps.leftInput = String($event)"
-                      @change="setObjPropFromInput('left', $event)"
-                    />
-                    <ZInput
-                      size="small"
-                      type="text"
-                      :model-value="objProps.topInput"
-                      @update:model-value="objProps.topInput = String($event)"
-                      @change="setObjPropFromInput('top', $event)"
-                    />
-                  </div>
-                  <div class="prop-group transform-row">
-                    <label>尺寸</label>
-                    <Icon
-                      class="size-lock-icon"
-                      :class="{ active: sizeRatioLocked }"
-                      :icon="sizeRatioLocked ? 'mdi:lock' : 'mdi:lock-open-variant'"
-                      :title="sizeRatioLocked ? '解锁宽高比例' : '锁定宽高比例'"
-                      @click="toggleSizeRatioLock"
-                    />
-                    <ZInput
-                      size="small"
-                      type="text"
-                      :model-value="objProps.widthInput"
-                      @update:model-value="objProps.widthInput = String($event)"
-                      @change="setObjSizeFromInput('width', $event)"
-                    />
-                    <ZInput
-                      size="small"
-                      type="text"
-                      :model-value="objProps.heightInput"
-                      @update:model-value="objProps.heightInput = String($event)"
-                      @change="setObjSizeFromInput('height', $event)"
-                    />
-                  </div>
-                  <div class="prop-group rotation-row">
-                    <label>旋转</label>
-                    <ZSlider
-                      :model-value="objProps.angle"
-                      :min="0"
-                      :max="360"
-                      :step="1"
-                      :formatter="(value) => `${Math.round(value)}°`"
-                      @change="setObjProp('angle', $event)"
-                    />
-                    <span class="val-label">{{ Math.round(objProps.angle) }}°</span>
-                  </div>
-                <div v-if="!(activeObject instanceof ActiveSelection)" class="prop-group style-color-row">
-                    <label>吸附边距</label>
-                    <ZInput
-                      size="small"
-                      type="text"
-                      :model-value="objProps.endpointSnapMarginInput"
-                      @update:model-value="objProps.endpointSnapMarginInput = String($event)"
-                      @change="setEndpointSnapMarginFromInput"
-                    />
-                  </div>
-                  <div class="prop-group align-row">
-                    <label>对齐</label>
-                    <ZPopover
-                      :show="alignPopoverVisible"
-                      trigger="hover"
-                      placement="bottom"
-                      :to="false"
-                      show-arrow
-                      keep-alive-on-hover
-                      @update:show="alignPopoverVisible = $event"
-                    >
-                      <template #trigger>
-                        <button
-                          class="align-btn align-trigger"
-                          :title="currentAlignPosition.label"
-                          @click="alignToCanvas(currentAlignPosition.id)"
-                        >
-                          <svg viewBox="0 0 18 18" aria-hidden="true">
-                            <rect x="1" y="1" width="16" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.2" />
-                            <rect :x="currentAlignPosition.svgX" :y="currentAlignPosition.svgY" width="6" height="4" rx="0.5" fill="currentColor" />
-                          </svg>
-                        </button>
-                      </template>
-                      <div class="align-grid align-popover-grid">
-                        <button
-                          v-for="pos in alignPositions"
-                          :key="pos.id"
-                          class="align-btn"
-                          :class="{ active: pos.id === currentAlignId }"
-                          :title="pos.label"
-                          @click="selectAlign(pos.id)"
-                        >
-                          <svg viewBox="0 0 18 18" aria-hidden="true">
-                            <rect x="1" y="1" width="16" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.2" />
-                            <rect :x="pos.svgX" :y="pos.svgY" width="6" height="4" rx="0.5" fill="currentColor" />
-                          </svg>
-                        </button>
-                      </div>
-                    </ZPopover>
-                  </div>
-                </div>
-                <div class="prop-section">
-                  <div class="prop-group style-toggle-row">
-                    <label>填充</label>
-                    <ZSwitch size="small" :model-value="objProps.fillEnabled" @change="toggleFill" />
-                  </div>
-                  <div v-if="objProps.fillEnabled" class="prop-group">
-                    <label>模式</label>
-                    <div class="stroke-line-type-picker fill-style-picker">
-                      <button
-                        class="stroke-line-swatch fill-style-solid"
-                        :class="{ active: currentFillStyleMode === 'solid' }"
-                        title="纯色"
-                        @click="setFillStyleMode('solid')"
-                      />
-                      <button
-                        class="stroke-line-swatch fill-style-radial"
-                        :class="{ active: currentFillStyleMode === 'radial' }"
-                        title="径向渐变"
-                        @click="setFillStyleMode('radial')"
-                      />
-                      <button
-                        class="stroke-line-swatch fill-style-linear"
-                        :class="{ active: currentFillStyleMode === 'linear' }"
-                        title="线性渐变"
-                        @click="setFillStyleMode('linear')"
-                      />
-                    </div>
-                  </div>
-                  <div v-if="objProps.fillEnabled && currentFillStyleMode === 'solid'" class="prop-group style-color-row">
-                    <label>填充色</label>
-                    <ZColorPicker
-                      size="small"
-                      show-alpha
-                      :model-value="objProps.fill || '#000000'"
-                      @change="setSolidFillColor(String($event))"
-                    />
-                  </div>
-                  <template v-if="objProps.fillEnabled && objProps.fillMode === 'gradient'">
-                    <VueDraggable
-                      v-model="objProps.fillGradientStops"
-                      class="gradient-stop-list"
-                      item-key="id"
-                      handle=".gradient-stop-handle"
-                      @end="reorderFillGradientStops"
-                    >
-                      <div
-                        v-for="(stop, stopIndex) in objProps.fillGradientStops"
-                        :key="stop.id"
-                        class="prop-group gradient-stop-row"
-                      >
-                        <button class="gradient-stop-handle" type="button" title="拖动排序">
-                          <Icon icon="mdi:drag-vertical" />
-                        </button>
-                        <ZColorPicker
-                          size="small"
-                          :show-input="false"
-                          show-alpha
-                          :model-value="stop.color"
-                          @change="setFillGradientStopColor(stopIndex, String($event))"
-                        />
-                        <ZSlider
-                          :model-value="Math.round(stop.offset * 100)"
-                          :min="0"
-                          :max="100"
-                          :step="1"
-                          :formatter="(value) => `${Math.round(value)}%`"
-                          :disabled-value="(value) => isFillGradientStopPercentDisabled(stopIndex, value)"
-                          @change="setFillGradientStopOffset(stopIndex, $event)"
-                        />
-                        <span class="val-label">{{ `${Math.round(stop.offset * 100)}%` }}</span>
-                        <button class="layer-icon-btn danger" :disabled="objProps.fillGradientStops.length <= 2" title="删除色标" @click="removeFillGradientStop(stopIndex)">
-                          <Icon icon="mdi:close" />
-                        </button>
-                      </div>
-                    </VueDraggable>
-                    <div class="gradient-stop-actions">
-                      <button class="tb-btn sm gradient-stop-add-btn" @click="addFillGradientStop">添加渐变</button>
-                    </div>
-                    <div v-if="objProps.fillGradientType === 'linear'" class="prop-group rotation-row">
-                      <label>角度</label>
-                      <ZSlider
-                        :model-value="objProps.fillGradientAngle"
-                        :min="0"
-                        :max="359"
-                        :step="1"
-                        :formatter="(value) => `${Math.round(value)}°`"
-                        @change="setFillGradientAngleValue($event)"
-                      />
-                      <span class="val-label">{{ `${Math.round(objProps.fillGradientAngle)}°` }}</span>
-                    </div>
-                    <template v-if="objProps.fillGradientType === 'radial'">
-                      <div class="prop-group gradient-radius-row">
-                        <label>扩散范围</label>
-                        <ZSlider
-                          :model-value="objProps.fillGradientRadius"
-                          :min="0.05"
-                          :max="2"
-                          :step="0.01"
-                          :formatter="(value) => `${Number(value).toFixed(2)}`"
-                          @change="setFillGradientRadiusValue($event)"
-                        />
-                        <span class="val-label">{{ objProps.fillGradientRadius.toFixed(2) }}</span>
-                      </div>
-                    </template>
-                  </template>
-                </div>
-                <div class="prop-section">
-                  <div class="prop-group style-toggle-row">
-                    <label>描边</label>
-                    <ZSwitch size="small" :model-value="objProps.strokeEnabled" @change="toggleStroke" />
-                  </div>
-                  <div v-if="objProps.strokeEnabled" class="prop-group style-color-row">
-                    <label>描边色</label>
-                    <ZColorPicker
-                      size="small"
-                      show-alpha
-                      :model-value="objProps.stroke || '#000000'"
-                      @change="setObjProp('stroke', String($event))"
-                    />
-                  </div>
-                  <div v-if="objProps.strokeEnabled" class="prop-group style-color-row">
-                    <label>描边宽</label>
-                    <ZInput
-                      size="small"
-                      type="text"
-                      :model-value="objProps.strokeWidthInput"
-                      @update:model-value="objProps.strokeWidthInput = String($event)"
-                      @change="setStrokeWidthFromInput"
-                    />
-                  </div>
-                  <div v-if="objProps.strokeEnabled" class="prop-group">
-                    <label>线型</label>
-                    <div class="stroke-line-type-picker">
-                      <button
-                        class="stroke-line-swatch solid"
-                        :class="{ active: objProps.strokeLineType === 'solid' }"
-                        title="实线"
-                        @click="setStrokeLineType('solid')"
-                      />
-                      <button
-                        class="stroke-line-swatch dashed"
-                        :class="{ active: objProps.strokeLineType === 'dashed' }"
-                        title="虚线"
-                        @click="setStrokeLineType('dashed')"
-                      />
-                    </div>
-                  </div>
-                  <div v-if="objProps.strokeEnabled && objProps.strokeLineType === 'dashed'" class="prop-group style-color-row">
-                    <label>虚线线长</label>
-                    <ZInput
-                      size="small"
-                      type="text"
-                      :model-value="objProps.strokeDashLengthInput"
-                      @update:model-value="objProps.strokeDashLengthInput = String($event)"
-                      @change="setStrokeDashLengthFromInput"
-                    />
-                  </div>
-                  <div v-if="objProps.strokeEnabled && objProps.strokeLineType === 'dashed'" class="prop-group style-color-row">
-                    <label>虚线间隔</label>
-                    <ZInput
-                      size="small"
-                      type="text"
-                      :model-value="objProps.strokeDashGapInput"
-                      @update:model-value="objProps.strokeDashGapInput = String($event)"
-                      @change="setStrokeDashGapFromInput"
-                    />
-                  </div>
-                </div>
-                <div class="prop-section">
-                  <div class="prop-group opacity-row">
-                    <label>透明度</label>
-                    <ZSlider
-                      :model-value="objProps.opacity"
-                      :min="0"
-                      :max="1"
-                      :step="0.01"
-                      :formatter="(value) => `${Math.round(value * 100)}%`"
-                      @change="setObjProp('opacity', $event)"
-                    />
-                    <span class="val-label">{{ Math.round(objProps.opacity * 100) }}%</span>
-                  </div>
-                </div>
-                <div v-if="hasEditablePoints" class="prop-section">
-                  <div v-if="!hasSelectedPoint" class="prop-group style-color-row">
-                    <label>圆角</label>
-                    <ZInput
-                      size="small"
-                      type="text"
-                      :model-value="objProps.cornerRadiusInput"
-                      @update:model-value="objProps.cornerRadiusInput = String($event)"
-                      @change="setCornerRadiusFromInput"
-                    />
-                  </div>
-                  <div v-else-if="!hasSelectedArrowEndpoint" class="prop-group style-color-row">
-                    <label>点圆角</label>
-                    <ZInput
-                      size="small"
-                      type="text"
-                      :model-value="objProps.pointCornerRadiusInput"
-                      @update:model-value="objProps.pointCornerRadiusInput = String($event)"
-                      @change="setSelectedPointCornerRadiusFromInput"
-                    />
-                  </div>
-                </div>
-                <div v-if="hasSelectedArrowEndpoint" class="prop-section">
-                  <div class="prop-group style-toggle-row">
-                    <label>箭头</label>
-                    <ZSwitch
-                      size="small"
-                      :model-value="arrowAggregated.enabled === true"
-                      @change="toggleSelectedArrowEnabled"
-                    />
-                  </div>
-                  <template v-if="arrowAggregated.enabled === true">
-                    <div v-if="!isHollowShaftArrow" class="prop-group">
-                      <label>形状</label>
-                      <div class="stroke-line-type-picker arrow-shape-picker">
-                        <button
-                          class="stroke-line-swatch arrow-shape-solid"
-                          :class="{ active: arrowAggregated.shape === 'solid' }"
-                          title="实心"
-                          @click="setSelectedArrowShape('solid')"
-                        />
-                        <button
-                          class="stroke-line-swatch arrow-shape-hollow"
-                          :class="{ active: arrowAggregated.shape === 'hollow' }"
-                          title="空心"
-                          @click="setSelectedArrowShape('hollow')"
-                        />
-                      </div>
-                    </div>
-                    <div v-if="!isHollowShaftArrow" class="prop-group rotation-row">
-                      <label>夹角</label>
-                      <ZSlider
-                        :model-value="arrowAggregated.angle ?? 60"
-                        :min="15"
-                        :max="150"
-                        :step="1"
-                        :formatter="(value) => `${Math.round(value)}°`"
-                        @change="setSelectedArrowAngle($event)"
-                      />
-                      <span class="val-label">{{ arrowAggregated.angle == null ? '—' : `${Math.round(arrowAggregated.angle)}°` }}</span>
-                    </div>
-                    <div v-if="isHollowShaftArrow" class="prop-group style-color-row">
-                      <label>线宽</label>
-                      <ZInput
-                        size="small"
-                        type="text"
-                        :model-value="objProps.arrowLineWidthInput"
-                        @update:model-value="objProps.arrowLineWidthInput = String($event)"
-                        @change="setHollowArrowLineWidthFromInput"
-                      />
-                    </div>
-                    <div v-if="isHollowShaftArrow" class="prop-group rotation-row">
-                      <label>顶角</label>
-                      <ZSlider
-                        :model-value="objProps.arrowTipAngle"
-                        :min="15"
-                        :max="165"
-                        :step="1"
-                        :formatter="(value) => `${Math.round(value)}°`"
-                        @change="setHollowArrowTipAngle"
-                      />
-                      <span class="val-label">{{ `${Math.round(objProps.arrowTipAngle)}°` }}</span>
-                    </div>
-                    <div v-if="isHollowShaftArrow" class="prop-group rotation-row">
-                      <label>边角</label>
-                      <ZSlider
-                        :model-value="objProps.arrowSideAngle"
-                        :min="15"
-                        :max="90"
-                        :step="1"
-                        :formatter="(value) => `${Math.round(value)}°`"
-                        @change="setHollowArrowSideAngle"
-                      />
-                      <span class="val-label">{{ `${Math.round(objProps.arrowSideAngle)}°` }}</span>
-                    </div>
-                    <div class="prop-group style-color-row">
-                      <label>{{ isHollowShaftArrow ? '高度' : '长度' }}</label>
-                      <ZInput
-                        size="small"
-                        type="text"
-                        :model-value="objProps.arrowLengthInput"
-                        @update:model-value="objProps.arrowLengthInput = String($event)"
-                        @change="setSelectedArrowLengthFromInput"
-                      />
-                    </div>
-                  </template>
-                </div>
-                <div v-if="hasSelectedCurveSegment" class="prop-section">
-                  <div class="prop-group style-toggle-row">
-                    <label>曲线</label>
-                    <ZSwitch size="small" :model-value="objProps.curveEnabled" @change="setSelectedSegmentCurveEnabled" />
-                  </div>
-                  <div v-if="objProps.curveEnabled" class="prop-group bezier-group-row">
-                    <label>CP1</label>
-                    <ZInput
-                      size="small"
-                      type="text"
-                      :model-value="objProps.curveCp1XInput"
-                      @update:model-value="objProps.curveCp1XInput = String($event)"
-                      @change="setSelectedSegmentControlPointCoordFromInput('cp1', 'x', $event)"
-                    />
-                    <ZInput
-                      size="small"
-                      type="text"
-                      :model-value="objProps.curveCp1YInput"
-                      @update:model-value="objProps.curveCp1YInput = String($event)"
-                      @change="setSelectedSegmentControlPointCoordFromInput('cp1', 'y', $event)"
-                    />
-                  </div>
-                  <div v-if="objProps.curveEnabled" class="prop-group bezier-group-row">
-                    <label>CP2</label>
-                    <ZInput
-                      size="small"
-                      type="text"
-                      :model-value="objProps.curveCp2XInput"
-                      @update:model-value="objProps.curveCp2XInput = String($event)"
-                      @change="setSelectedSegmentControlPointCoordFromInput('cp2', 'x', $event)"
-                    />
-                    <ZInput
-                      size="small"
-                      type="text"
-                      :model-value="objProps.curveCp2YInput"
-                      @update:model-value="objProps.curveCp2YInput = String($event)"
-                      @change="setSelectedSegmentControlPointCoordFromInput('cp2', 'y', $event)"
-                    />
-                  </div>
-                </div>
-                <div class="prop-section">
-                  <div class="prop-group style-toggle-row">
-                    <label>万花筒</label>
-                    <ZSwitch
-                      size="small"
-                      :model-value="objProps.kaleidoscopeEnabled"
-                      :disabled="!activeKaleidoscopeEditableSource"
-                      @change="setKaleidoscopeEnabled"
-                    />
-                  </div>
-                  <template v-if="activeKaleidoscopeEditableSource && objProps.kaleidoscopeEnabled">
-                    <div class="prop-group bezier-group-row">
-                      <label>中心点</label>
-                      <ZInput
-                        size="small"
-                        type="text"
-                        :model-value="objProps.kaleidoscopeCenterXInput"
-                        @update:model-value="objProps.kaleidoscopeCenterXInput = String($event)"
-                        @change="setKaleidoscopeCenterFromInput('x', $event)"
-                      />
-                      <ZInput
-                        size="small"
-                        type="text"
-                        :model-value="objProps.kaleidoscopeCenterYInput"
-                        @update:model-value="objProps.kaleidoscopeCenterYInput = String($event)"
-                        @change="setKaleidoscopeCenterFromInput('y', $event)"
-                      />
-                    </div>
-                    <div class="prop-group style-toggle-row">
-                      <label>跟随旋转</label>
-                      <ZSwitch size="small" :model-value="objProps.kaleidoscopeFollowRotation" @change="setKaleidoscopeFollowRotation" />
-                    </div>
-                    <div class="prop-group style-color-row">
-                      <label>份数</label>
-                      <ZInput
-                        size="small"
-                        type="text"
-                        :model-value="objProps.kaleidoscopeCountInput"
-                        @update:model-value="objProps.kaleidoscopeCountInput = String($event)"
-                        @change="setKaleidoscopeCountFromInput"
-                      />
-                    </div>
-                  </template>
-                </div>
-                <div class="prop-actions boolean-actions">
-                  <button class="tb-btn" @mouseenter="showBooleanPreview('union')" @mouseleave="clearBooleanPreview" @click="runBooleanOperation('union')" :disabled="!canBoolean">并集</button>
-                  <button class="tb-btn" @mouseenter="showBooleanPreview('intersect')" @mouseleave="clearBooleanPreview" @click="runBooleanOperation('intersect')" :disabled="!canBoolean">交集</button>
-                  <ZPopover
-                    v-if="canBoolean"
-                    :show="subtractPopoverVisible"
-                    trigger="hover"
-                    placement="top"
-                    :to="false"
-                    show-arrow
-                    keep-alive-on-hover
-                    @update:show="handleSubtractPopoverShowChange"
-                  >
-                    <template #trigger>
-                      <button class="tb-btn" @mouseenter="showBooleanPreview('subtract')" @click="runBooleanOperation('subtract')">差集</button>
-                    </template>
-                    <div class="boolean-preview-menu">
-                      <template v-if="canDirectionalSubtract">
-                        <button class="tb-btn sm boolean-preview-option" @mouseenter="showBooleanPreview('subtract', 'forward')" @click="runBooleanOperation('subtract', 'forward')">A - B</button>
-                        <button class="tb-btn sm boolean-preview-option" @mouseenter="showBooleanPreview('subtract', 'reverse')" @click="runBooleanOperation('subtract', 'reverse')">B - A</button>
-                      </template>
-                      <div v-else class="boolean-preview-note">多对象差集预览当前默认结果</div>
-                    </div>
-                  </ZPopover>
-                  <button v-else class="tb-btn" disabled>差集</button>
-                  <button class="tb-btn" @mouseenter="showBooleanPreview('xor')" @mouseleave="clearBooleanPreview" @click="runBooleanOperation('xor')" :disabled="!canBoolean">异或</button>
-                  <span v-if="booleanBusy" class="boolean-status">处理中...</span>
-                  <span v-if="booleanError" class="boolean-error">{{ booleanError }}</span>
-                </div>
-                <div class="prop-actions">
-                  <button class="tb-btn" @click="groupObjects" :disabled="!canGroup">成组</button>
-                  <button class="tb-btn" @click="ungroupObject" :disabled="!canUngroup">解组</button>
-                  <button class="tb-btn" @click="convertSelectionStrokeToOutline" :disabled="!canConvertStrokeSelection || strokeOutlineBusy">{{ strokeOutlineBusy ? '转换中...' : '描边转轮廓' }}</button>
-                  <button class="tb-btn" @click="convertSelectionTextToOutline" :disabled="!canConvertTextSelection || textOutlineBusy">{{ textOutlineBusy ? '转换中...' : '文字转轮廓' }}</button>
-                  <button class="tb-btn" @click="lockObject">{{ activeObject.lockMovementX ? '解锁' : '锁定' }}</button>
-                  <button class="tb-btn danger" @click="deleteObject">删除</button>
-                </div>
-                </template>
-              </template>
-              <template v-else>
-                <div class="section-title">画布设置</div>
-                <div class="prop-group">
-                  <label>预设</label>
-                  <ZSelect
-                    size="small"
-                    class="w-100%"
-                    :model-value="canvasPresetValue"
-                    :options="canvasPresetOptions"
-                    placeholder="请选择预设"
-                    @change="applyCanvasPreset(String($event))"
-                  />
-                </div>
-                <div class="prop-group">
-                  <label>宽高</label>
-                  <ZInput
-                    size="small"
-                    type="text"
-                    :model-value="canvasWidthInput"
-                    @update:model-value="canvasWidthInput = String($event)"
-                    @change="setCanvasSizeFromInput('width', $event)"
-                  />
-                  <ZInput
-                    size="small"
-                    type="text"
-                    :model-value="canvasHeightInput"
-                    @update:model-value="canvasHeightInput = String($event)"
-                    @change="setCanvasSizeFromInput('height', $event)"
-                  />
-                </div>
-                <div class="prop-group">
-                  <label>背景</label>
-                  <div class="canvas-bg-picker">
-                    <ZButton
-                      class="transparent-swatch"
-                      :class="{ active: isCanvasBgTransparent }"
-                      title="透明"
-                      @click="setCanvasBg('transparent')"
-                    />
-                    <ZColorPicker
-                      size="small"
-                      :show-input="false"
-                      :model-value="canvasBgPickerValue"
-                      @change="setCanvasBg(String($event))"
-                    />
-                  </div>
-                </div>
-                <div class="prop-group style-toggle-row">
-                  <label>网格</label>
-                  <ZSwitch size="small" :model-value="showPixelGrid" @change="setPixelGridVisible" />
-                </div>
-                <div class="prop-group style-toggle-row">
-                  <label>吸附</label>
-                  <ZSwitch size="small" :model-value="snapToPixelGrid" @change="setSnapToPixelGrid" />
-                </div>
-                <div class="prop-group style-color-row">
-                  <label>间距</label>
-                  <ZInput
-                    size="small"
-                    type="text"
-                    :model-value="pixelGridSizeInput"
-                    @update:model-value="pixelGridSizeInput = String($event)"
-                    @change="setPixelGridSizeFromInput"
-                  />
-                </div>
-                <div class="prop-group style-color-row">
-                  <label>参考线</label>
-                  <ZSelect
-                    size="small"
-                    class="w-100%"
-                    :model-value="keylineTemplate"
-                    :options="keylineTemplateOptions"
-                    @change="setKeylineTemplate(String($event) as KeylineTemplate)"
-                  />
-                </div>
-                <div v-if="keylineTemplate === 'custom'" class="prop-group style-color-row">
-                  <label>安全区</label>
-                  <ZInput
-                    size="small"
-                    type="text"
-                    :model-value="keylineMarginInput"
-                    @update:model-value="keylineMarginInput = String($event)"
-                    @change="setKeylineMarginFromInput"
-                  />
-                </div>
-              </template>
-            </div>
-          </ZTabPane>
-          <ZTabPane name="preview" tab="预览" display-directive="show">
-            <div class="right-panel-scroll">
-              <div class="section-title">小尺寸预览</div>
-              <div class="preview-panel">
-                <div class="preview-bg-switcher" role="group" aria-label="预览背景">
-                  <button
-                    v-for="mode in previewBackgroundOptions"
-                    :key="mode.value"
-                    type="button"
-                    class="preview-bg-btn"
-                    :class="{ active: previewBackgroundMode === mode.value }"
-                    @click="setPreviewBackgroundMode(mode.value)"
-                  >{{ mode.label }}</button>
-                </div>
-                <div class="preview-grid">
-                  <div
-                    v-for="item in previewItems"
-                    :key="item.size"
-                    class="preview-card"
-                  >
-                    <div
-                      class="preview-stage"
-                      :class="previewStageClass"
-                      :style="{ width: `${item.width}px`, height: `${item.height}px` }"
-                    >
-                      <img
-                        v-if="item.dataUrl"
-                        class="preview-image"
-                        :src="item.dataUrl"
-                        :width="item.width"
-                        :height="item.height"
-                        :alt="`${item.size}px 图标预览`"
-                      />
-                    </div>
-                    <div class="preview-size-label">{{ item.size }}px</div>
-                  </div>
-                </div>
-                <div class="preview-hint">编辑后自动刷新，透明背景使用棋盘格辅助判断边缘。</div>
-              </div>
-            </div>
-          </ZTabPane>
-          <ZTabPane name="checks" tab="检查" display-directive="show">
-            <div class="right-panel-scroll">
-              <div class="section-title-row">
-                <div class="section-title">图标规范检查</div>
-                <span class="icon-check-count">{{ iconCheckIssues.length }}</span>
-              </div>
-              <div v-if="iconCheckIssues.length" class="icon-check-list">
-                <button
-                  v-for="issue in iconCheckIssues"
-                  :key="issue.id"
-                  type="button"
-                  class="icon-check-item"
-                  :class="`severity-${issue.severity}`"
-                  @click="selectIconCheckIssue(issue)"
-                >
-                  <div class="icon-check-item-title">{{ issue.title }}</div>
-                  <div class="icon-check-item-detail">{{ issue.detail }}</div>
-                  <div v-if="issue.targetName" class="icon-check-item-target">{{ issue.targetName }}</div>
-                </button>
-              </div>
-              <div v-else class="icon-check-empty">未发现明显规范问题。</div>
-              <div class="preview-hint">检查会根据当前画布、安全区、颜色和小尺寸比例自动刷新；点击对象问题可定位图层。</div>
-            </div>
-          </ZTabPane>
-          <ZTabPane name="layers" tab="图层" display-directive="show">
-            <div class="right-panel-scroll">
-        <!-- 图层区 -->
-        <div class="section-title">
-          <span>图层</span>
-        </div>
-        <div class="layer-toolbar">
-          <ZButton class="layer-toolbar-btn" size="small" @click="layerUp" title="上移"><Icon icon="mdi:arrow-up" /></ZButton>
-          <ZButton class="layer-toolbar-btn" size="small" @click="layerDown" title="下移"><Icon icon="mdi:arrow-down" /></ZButton>
-          <ZButton class="layer-toolbar-btn" size="small" @click="layerTop" title="置顶"><Icon icon="mdi:arrow-collapse-up" /></ZButton>
-          <ZButton class="layer-toolbar-btn" size="small" @click="layerBottom" title="置底"><Icon icon="mdi:arrow-collapse-down" /></ZButton>
-          <ZInput class="layer-search" size="small" type="text" placeholder="搜索" v-model="layerSearch" />
-        </div>
-        <div v-if="filteredLayers.length" class="layer-list">
-          <VueDraggable
-            v-model="layerDragItems"
-            class="layer-draggable-list"
-            item-key="id"
-            handle=".layer-drag-handle"
-            :disabled="isLayerDragDisabled"
-            @start="isLayerDragging = true"
-            @end="reorderLayers"
-          >
-            <div
-              v-for="item in layerDragItems" :key="item.id"
-              class="layer-item"
-              :class="{ active: isLayerActive(item.obj), 'is-drag-disabled': isLayerDragDisabled }"
-              @mousedown="handleLayerMouseDown(item.obj, $event)"
-              @contextmenu.prevent.stop="openLayerContextMenu(item.obj, $event)"
-            >
-              <button class="layer-drag-handle" type="button" title="拖动排序" :disabled="isLayerDragDisabled">
-                <Icon icon="mdi:drag-vertical" />
-              </button>
-              <span class="layer-name">{{ item.name }}</span>
-              <button class="layer-icon-btn" @click.stop="toggleVisible(item.obj)">
-                <Icon :icon="item.obj.visible !== false ? 'mdi:eye-outline' : 'mdi:eye-off-outline'" />
-              </button>
-              <button class="layer-icon-btn" @click.stop="toggleLock(item.obj)">
-                <Icon :icon="item.obj.lockMovementX ? 'mdi:lock' : 'mdi:lock-open-variant'" />
-              </button>
-              <button class="layer-icon-btn danger" @click.stop="removeObject(item.obj)"><Icon icon="mdi:close" /></button>
-            </div>
-          </VueDraggable>
-          <ZContextMenu
-            :show="layerContextMenu.show"
-            :x="layerContextMenu.x"
-            :y="layerContextMenu.y"
-            :menu-items="layerContextMenuItems"
-            @update:show="layerContextMenu.show = $event"
-            @select="handleLayerContextMenuSelect"
+      <RightPanel
+        :active-tab="activeRightTab"
+        @update:active-tab="activeRightTab = $event"
+      >
+        <template #properties>
+          <PropertiesPanel
+            :active-object="activeObject"
+            :active-kaleidoscope-instance="activeKaleidoscopeInstance"
+            :active-kaleidoscope-editable-source="activeKaleidoscopeEditableSource"
+            :obj-props="objProps"
+            :size-ratio-locked="sizeRatioLocked"
+            :align-popover-visible="alignPopoverVisible"
+            :current-align-position="currentAlignPosition"
+            :align-positions="alignPositions"
+            :current-align-id="currentAlignId"
+            :current-fill-style-mode="currentFillStyleMode"
+            :has-editable-points="hasEditablePoints"
+            :has-selected-point="hasSelectedPoint"
+            :has-selected-arrow-endpoint="hasSelectedArrowEndpoint"
+            :arrow-aggregated="arrowAggregated"
+            :is-hollow-shaft-arrow="isHollowShaftArrow"
+            :has-selected-curve-segment="hasSelectedCurveSegment"
+            :can-boolean="canBoolean"
+            :can-directional-subtract="canDirectionalSubtract"
+            :subtract-popover-visible="subtractPopoverVisible"
+            :boolean-busy="booleanBusy"
+            :boolean-error="booleanError"
+            :can-group="canGroup"
+            :can-ungroup="canUngroup"
+            :can-convert-stroke-selection="canConvertStrokeSelection"
+            :stroke-outline-busy="strokeOutlineBusy"
+            :can-convert-text-selection="canConvertTextSelection"
+            :text-outline-busy="textOutlineBusy"
+            :canvas-preset-value="canvasPresetValue"
+            :canvas-preset-options="canvasPresetOptions"
+            :canvas-width-input="canvasWidthInput"
+            :canvas-height-input="canvasHeightInput"
+            :canvas-bg-picker-value="canvasBgPickerValue"
+            :is-canvas-bg-transparent="isCanvasBgTransparent"
+            :show-pixel-grid="showPixelGrid"
+            :snap-to-pixel-grid="snapToPixelGrid"
+            :pixel-grid-size-input="pixelGridSizeInput"
+            :keyline-template="keylineTemplate"
+            :keyline-template-options="keylineTemplateOptions"
+            :keyline-margin-input="keylineMarginInput"
+            :select-kaleidoscope-source-from-instance="selectKaleidoscopeSourceFromInstance"
+            :detach-kaleidoscope-instance="detachKaleidoscopeInstance"
+            :set-obj-prop-from-input="setObjPropFromInput"
+            :set-obj-size-from-input="setObjSizeFromInput"
+            :toggle-size-ratio-lock="toggleSizeRatioLock"
+            :set-obj-prop="setObjProp"
+            :set-endpoint-snap-margin-from-input="setEndpointSnapMarginFromInput"
+            :align-to-canvas="alignToCanvas"
+            :select-align="selectAlign"
+            :toggle-fill="toggleFill"
+            :set-fill-style-mode="setFillStyleMode"
+            :set-solid-fill-color="setSolidFillColor"
+            :reorder-fill-gradient-stops="reorderFillGradientStops"
+            :set-fill-gradient-stop-color="setFillGradientStopColor"
+            :is-fill-gradient-stop-percent-disabled="isFillGradientStopPercentDisabled"
+            :set-fill-gradient-stop-offset="setFillGradientStopOffset"
+            :remove-fill-gradient-stop="removeFillGradientStop"
+            :add-fill-gradient-stop="addFillGradientStop"
+            :set-fill-gradient-angle-value="setFillGradientAngleValue"
+            :set-fill-gradient-radius-value="setFillGradientRadiusValue"
+            :toggle-stroke="toggleStroke"
+            :set-stroke-width-from-input="setStrokeWidthFromInput"
+            :set-stroke-line-type="setStrokeLineType"
+            :set-stroke-dash-length-from-input="setStrokeDashLengthFromInput"
+            :set-stroke-dash-gap-from-input="setStrokeDashGapFromInput"
+            :set-corner-radius-from-input="setCornerRadiusFromInput"
+            :set-selected-point-corner-radius-from-input="setSelectedPointCornerRadiusFromInput"
+            :toggle-selected-arrow-enabled="toggleSelectedArrowEnabled"
+            :set-selected-arrow-shape="setSelectedArrowShape"
+            :set-selected-arrow-angle="setSelectedArrowAngle"
+            :set-hollow-arrow-line-width-from-input="setHollowArrowLineWidthFromInput"
+            :set-hollow-arrow-tip-angle="setHollowArrowTipAngle"
+            :set-hollow-arrow-side-angle="setHollowArrowSideAngle"
+            :set-selected-arrow-length-from-input="setSelectedArrowLengthFromInput"
+            :set-selected-segment-curve-enabled="setSelectedSegmentCurveEnabled"
+            :set-selected-segment-control-point-coord-from-input="setSelectedSegmentControlPointCoordFromInput"
+            :set-kaleidoscope-enabled="setKaleidoscopeEnabled"
+            :set-kaleidoscope-center-from-input="setKaleidoscopeCenterFromInput"
+            :set-kaleidoscope-follow-rotation="setKaleidoscopeFollowRotation"
+            :set-kaleidoscope-count-from-input="setKaleidoscopeCountFromInput"
+            :show-boolean-preview="showBooleanPreview"
+            :clear-boolean-preview="clearBooleanPreview"
+            :run-boolean-operation="runBooleanOperation"
+            :handle-subtract-popover-show-change="handleSubtractPopoverShowChange"
+            :group-objects="groupObjects"
+            :ungroup-object="ungroupObject"
+            :convert-selection-stroke-to-outline="convertSelectionStrokeToOutline"
+            :convert-selection-text-to-outline="convertSelectionTextToOutline"
+            :lock-object="lockObject"
+            :delete-object="deleteObject"
+            :apply-canvas-preset="applyCanvasPreset"
+            :set-canvas-size-from-input="setCanvasSizeFromInput"
+            :set-canvas-bg="setCanvasBg"
+            :set-pixel-grid-visible="setPixelGridVisible"
+            :set-snap-to-pixel-grid="setSnapToPixelGrid"
+            :set-pixel-grid-size-from-input="setPixelGridSizeFromInput"
+            :set-keyline-template="setKeylineTemplate"
+            :set-keyline-margin-from-input="setKeylineMarginFromInput"
+            @update:align-popover-visible="alignPopoverVisible = $event"
+            @update:canvas-width-input="canvasWidthInput = $event"
+            @update:canvas-height-input="canvasHeightInput = $event"
+            @update:pixel-grid-size-input="pixelGridSizeInput = $event"
+            @update:keyline-margin-input="keylineMarginInput = $event"
           />
-        </div>
-        <div v-else class="layer-empty">
-          {{ layerSearch.trim() ? '未找到匹配的图层' : '当前没有图层' }}
-        </div>
-      </div>
-    </ZTabPane>
-  </ZTabs>
-</aside>
+        </template>
+        <template #preview>
+          <PreviewPanel
+            :background-options="previewBackgroundOptions"
+            :background-mode="previewBackgroundMode"
+            :items="previewItems"
+            :stage-class="previewStageClass"
+            @set-background-mode="setPreviewBackgroundMode"
+          />
+        </template>
+        <template #checks>
+          <IconChecksPanel
+            :issues="iconCheckIssues"
+            @select-issue="selectIconCheckIssue"
+          />
+        </template>
+        <template #layers>
+          <LayersPanel
+            :filtered-layers="filteredLayers"
+            :layer-drag-items="layerDragItems"
+            :is-layer-drag-disabled="isLayerDragDisabled"
+            :layer-search="layerSearch"
+            :layer-context-menu="layerContextMenu"
+            :layer-context-menu-items="layerContextMenuItems"
+            :is-layer-active="isLayerActive"
+            @update:layer-drag-items="layerDragItems = $event"
+            @update:layer-search="layerSearch = $event"
+            @layer-up="layerUp"
+            @layer-down="layerDown"
+            @layer-top="layerTop"
+            @layer-bottom="layerBottom"
+            @drag-start="isLayerDragging = true"
+            @reorder-layers="reorderLayers"
+            @layer-mouse-down="handleLayerMouseDown"
+            @open-context-menu="openLayerContextMenu"
+            @toggle-visible="toggleVisible"
+            @toggle-lock="toggleLock"
+            @remove-object="removeObject"
+            @update-context-menu-show="layerContextMenu.show = $event"
+            @context-menu-select="handleLayerContextMenuSelect"
+          />
+        </template>
+      </RightPanel>
     </div>
 
-    <ZDrawer
+    <ShortcutDrawer
       v-model:show="shortcutDrawerOpen"
-      placement="right"
-      width="min(520px, 92vw)"
-      :z-index="40"
-      :block-scroll="false"
-      content-class="shortcut-drawer"
-    >
-      <header class="shortcut-drawer-header">
-        <div>
-          <h2>快捷键</h2>
-          <p>查看、搜索、录制并管理编辑器快捷键</p>
-        </div>
-        <button class="shortcut-close-btn" title="关闭" @click="closeShortcutDrawer">×</button>
-      </header>
-      <div class="shortcut-drawer-tools">
-        <ZInput v-model="shortcutSearch" size="small" type="text" placeholder="搜索动作、说明或快捷键" />
-        <button class="tb-btn" @click="resetShortcutBindingsToDefault">恢复默认</button>
-      </div>
-      <div class="shortcut-group-list">
-        <section v-for="group in filteredShortcutGroups" :key="group.id" class="shortcut-group">
-          <div class="shortcut-group-title">{{ group.label }}</div>
-          <div v-for="action in group.actions" :key="action.id" class="shortcut-action-row">
-            <div class="shortcut-action-info">
-              <div class="shortcut-action-name">{{ action.name }}</div>
-              <div class="shortcut-action-desc">{{ action.description }}</div>
-            </div>
-            <div class="shortcut-binding-list">
-              <div
-                v-for="(binding, bindingIndex) in shortcutBindings[action.id]"
-                :key="getShortcutBindingKey(action.id, binding, bindingIndex)"
-                class="shortcut-binding-row"
-              >
-                <ZHotkeyInput
-                  class="shortcut-hotkey-input"
-                  :model-value="binding"
-                  :platform="shortcutPlatform"
-                  placeholder="录制快捷键"
-                  @change="applyShortcutBinding(action.id, binding, $event)"
-                />
-                <button class="shortcut-binding-delete" title="删除" @click="removeShortcutBinding(action.id, binding)">×</button>
-                <button
-                  v-if="bindingIndex === shortcutBindings[action.id].length - 1"
-                  class="shortcut-binding-add"
-                  title="添加快捷键"
-                  @click="addShortcutBinding(action.id)"
-                >＋</button>
-              </div>
-              <button
-                v-if="!shortcutBindings[action.id].length"
-                class="shortcut-binding-add shortcut-binding-add--empty"
-                title="添加快捷键"
-                @click="addShortcutBinding(action.id)"
-              >＋</button>
-            </div>
-          </div>
-        </section>
-        <div v-if="!filteredShortcutGroups.length" class="shortcut-empty">未找到匹配的快捷键</div>
-      </div>
-    </ZDrawer>
+      v-model:search="shortcutSearch"
+      :groups="filteredShortcutGroups"
+      :bindings="shortcutBindings"
+      :platform="shortcutPlatform"
+      @close="closeShortcutDrawer"
+      @reset="resetShortcutBindingsToDefault"
+      @apply-binding="applyShortcutBinding"
+      @add-binding="addShortcutBinding"
+      @remove-binding="removeShortcutBinding"
+    />
 
-    <ZModal
+    <PasteSvgModal
       :show="pasteSVGDialog.show"
-      preset="dialog"
-      :show-mask="true"
-      :mask-closable="true"
-      :close-on-esc="true"
-      :auto-focus="true"
+      v-model:value="pasteSVGDialog.value"
+      :error="pasteSVGDialog.error"
+      :loading="pasteSVGDialog.loading"
       @update:show="handlePasteSVGDialogShowChange"
-    >
-      <div class="paste-svg-dialog">
-        <div class="paste-svg-header">
-          <div class="paste-svg-title">粘贴 SVG / Path</div>
-          <div class="paste-svg-desc">支持完整 SVG、单独 &lt;path d=&quot;...&quot;&gt; 或 path d 数据。</div>
-        </div>
-        <div class="paste-svg-content">
-          <textarea
-            v-model="pasteSVGDialog.value"
-            class="paste-svg-textarea"
-            placeholder="在这里粘贴 SVG 代码或 path d 数据，例如 M12 2L2 22h20z"
-            @keydown.ctrl.enter.prevent="confirmPasteSVGImport"
-            @keydown.meta.enter.prevent="confirmPasteSVGImport"
-          ></textarea>
-          <div v-if="pasteSVGDialog.error" class="paste-svg-error">{{ pasteSVGDialog.error }}</div>
-        </div>
-        <div class="paste-svg-actions">
-          <button class="tb-btn" type="button" :disabled="pasteSVGDialog.loading" @click="readClipboardIntoPasteSVGDialog">读取剪贴板</button>
-          <span class="paste-svg-action-spacer"></span>
-          <ZButton size="small" :disabled="pasteSVGDialog.loading" @click="handlePasteSVGDialogShowChange(false)">取消</ZButton>
-          <ZButton size="small" type="primary" :disabled="pasteSVGDialog.loading || !pasteSVGDialog.value.trim()" @click="confirmPasteSVGImport">
-            {{ pasteSVGDialog.loading ? '导入中...' : '导入' }}
-          </ZButton>
-        </div>
-      </div>
-    </ZModal>
+      @read-clipboard="readClipboardIntoPasteSVGDialog"
+      @confirm="confirmPasteSVGImport"
+    />
 
-    <ZModal
+    <ExportModal
       :show="exportDialog.show"
-      preset="dialog"
-      :show-mask="true"
-      :mask-closable="true"
-      :close-on-esc="true"
-      :auto-focus="true"
+      :dialog="exportDialog"
+      :size-options="EXPORT_PNG_SIZE_OPTIONS"
+      :selected-png-sizes="exportDialog.pngSizes"
+      :can-export="exportDialogCanExport"
       @update:show="handleExportDialogShowChange"
-    >
-      <div class="export-dialog">
-        <div class="export-dialog-header">
-          <div class="export-dialog-title">导出图标</div>
-          <div class="export-dialog-desc">选择导出格式、SVG 背景、PNG 尺寸、透明背景和文件名前缀。</div>
-        </div>
-        <div class="export-dialog-content">
-          <div class="export-section">
-            <div class="export-section-title">格式</div>
-            <label class="export-check-option">
-              <input type="checkbox" :checked="exportDialog.svgEnabled" @change="setExportFormatEnabled('svg', evChecked($event))" />
-              <span>SVG</span>
-            </label>
-            <label v-if="exportDialog.svgEnabled" class="export-check-option export-bg-option">
-              <input type="checkbox" :checked="exportDialog.svgIncludeBg" @change="exportDialog.svgIncludeBg = evChecked($event)" />
-              <span>SVG 保留画布背景</span>
-            </label>
-            <label class="export-check-option">
-              <input type="checkbox" :checked="exportDialog.pngEnabled" @change="setExportFormatEnabled('png', evChecked($event))" />
-              <span>PNG</span>
-            </label>
-          </div>
-          <div v-if="exportDialog.pngEnabled" class="export-section">
-            <div class="export-section-title">PNG 尺寸</div>
-            <div class="export-size-grid">
-              <button
-                v-for="size in EXPORT_PNG_SIZE_OPTIONS"
-                :key="size"
-                type="button"
-                class="export-size-btn"
-                :class="{ active: isExportPngSizeSelected(size) }"
-                @click="toggleExportPngSize(size)"
-              >{{ size }}</button>
-            </div>
-            <div class="export-custom-size-row">
-              <label>自定义</label>
-              <ZInput
-                size="small"
-                type="text"
-                :model-value="exportDialog.customSizeInput"
-                placeholder="例如 1024"
-                @update:model-value="exportDialog.customSizeInput = String($event)"
-              />
-            </div>
-            <label class="export-check-option export-transparent-option">
-              <input type="checkbox" :checked="exportDialog.transparentBg" @change="exportDialog.transparentBg = evChecked($event)" />
-              <span>PNG 使用透明背景</span>
-            </label>
-          </div>
-          <div class="export-section">
-            <div class="export-section-title">文件名</div>
-            <ZInput
-              size="small"
-              type="text"
-              :model-value="exportDialog.filePrefix"
-              placeholder="文件名前缀"
-              @update:model-value="exportDialog.filePrefix = String($event)"
-            />
-          </div>
-          <pre v-if="exportDialog.status" class="export-status">{{ exportDialog.status }}</pre>
-        </div>
-        <div class="export-dialog-actions">
-          <ZButton size="small" :disabled="exportDialog.loading" @click="handleExportDialogShowChange(false)">关闭</ZButton>
-          <ZButton size="small" type="primary" :disabled="exportDialog.loading || !exportDialogCanExport" @click="runExportDialogExport">
-            {{ exportDialog.loading ? '导出中...' : '导出' }}
-          </ZButton>
-        </div>
-      </div>
-    </ZModal>
+      @set-format-enabled="setExportFormatEnabled"
+      @update:svg-include-bg="exportDialog.svgIncludeBg = $event"
+      @toggle-png-size="toggleExportPngSize"
+      @update:custom-size-input="exportDialog.customSizeInput = $event"
+      @update:transparent-bg="exportDialog.transparentBg = $event"
+      @update:file-prefix="exportDialog.filePrefix = $event"
+      @export="runExportDialogExport"
+    />
 
-        <ZModal
-          :show="layerRenameDialog.show"
-          preset="dialog"
-          :show-mask="true"
-          :mask-closable="true"
-          :close-on-esc="true"
-          :auto-focus="true"
-          @update:show="handleLayerRenameDialogShowChange"
-        >
-          <div class="layer-rename-dialog">
-            <div class="layer-rename-header">
-              <div class="layer-rename-title">重命名图层</div>
-            </div>
-            <div class="layer-rename-content">
-              <ZInput
-                size="small"
-                type="text"
-                :model-value="layerRenameDialog.value"
-                placeholder="请输入图层名称"
-                @update:model-value="layerRenameDialog.value = String($event)"
-                @keydown.enter="confirmLayerRename"
-              />
-            </div>
-            <div class="layer-rename-actions">
-              <ZButton size="small" @click="handleLayerRenameDialogShowChange(false)">取消</ZButton>
-              <ZButton size="small" type="primary" @click="confirmLayerRename">确定</ZButton>
-            </div>
-          </div>
-        </ZModal>
+    <LayerRenameModal
+      :show="layerRenameDialog.show"
+      v-model:value="layerRenameDialog.value"
+      @update:show="handleLayerRenameDialogShowChange"
+      @confirm="confirmLayerRename"
+    />
 
-    <ZModal
+    <UserAssetModal
       :show="userAssetDialog.show"
-      preset="dialog"
-      :show-mask="true"
-      :mask-closable="true"
-      :close-on-esc="true"
-      :auto-focus="true"
+      v-model:name="userAssetDialog.name"
+      :mode="userAssetDialog.mode"
+      :error="userAssetDialog.error"
       @update:show="handleUserAssetDialogShowChange"
-    >
-      <div class="user-asset-dialog">
-        <div class="user-asset-dialog-header">
-          <div class="user-asset-dialog-title">{{ userAssetDialog.mode === 'create' ? '保存素材' : '重命名素材' }}</div>
-          <div class="user-asset-dialog-desc">{{ userAssetDialog.mode === 'create' ? '将当前选中对象保存到本地素材库，重启后仍可继续插入编辑。' : '更新素材名称，不影响已插入画布的对象。' }}</div>
-        </div>
-        <div class="user-asset-dialog-content">
-          <ZInput
-            size="small"
-            type="text"
-            :model-value="userAssetDialog.name"
-            placeholder="请输入素材名称"
-            @update:model-value="userAssetDialog.name = String($event)"
-            @keydown.enter="confirmUserAssetDialog"
-          />
-          <div v-if="userAssetDialog.error" class="user-asset-dialog-error">{{ userAssetDialog.error }}</div>
-        </div>
-        <div class="user-asset-dialog-actions">
-          <ZButton size="small" @click="handleUserAssetDialogShowChange(false)">取消</ZButton>
-          <ZButton size="small" type="primary" @click="confirmUserAssetDialog">确定</ZButton>
-        </div>
-      </div>
-    </ZModal>
+      @confirm="confirmUserAssetDialog"
+    />
 
         <!-- 隐藏的文件输入 -->
     <input ref="projectInputRef" type="file" accept=".iconcreator.json,application/json" style="display:none" @change="onProjectFileChosen" />
@@ -1257,9 +332,7 @@
 
 <script setup lang="ts">
 import { ref, shallowRef, triggerRef, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
-import { VueDraggable } from 'vue-draggable-plus'
-import { ZInput, ZSelect, ZColorPicker, ZSwitch, ZSlider, ZPopover, ZButton, ZTabs, ZTabPane, ZHotkeyInput, ZDrawer, ZContextMenu, ZModal, useZtoolsTheme } from 'ztools-ui'
-import { Icon } from '@iconify/vue'
+import { useZtoolsTheme } from 'ztools-ui'
 import { Canvas, Control, FabricObject, Gradient, Textbox, Group, ActiveSelection, FabricImage, Path, Point, Rect, Circle, Triangle, Polygon, Line, StaticCanvas, util, loadSVGFromString } from 'fabric'
 import { AligningGuidelines } from '../../fabric-aligning-guidelines'
 import { basicShapes, textPresets, canvasPresets, shapePreviewPaths, iconTemplates } from './editorCatalog'
@@ -1303,7 +376,84 @@ import {
   type ShortcutActionId,
   type ShortcutGroupId
 } from './shortcuts'
+import HomeTopBar from './components/HomeTopBar.vue'
+import LeftPanel from './components/LeftPanel.vue'
 import Ruler from './components/Ruler.vue'
+import ShortcutDrawer from './components/ShortcutDrawer.vue'
+import ExportModal from './components/modals/ExportModal.vue'
+import LayerRenameModal from './components/modals/LayerRenameModal.vue'
+import PasteSvgModal from './components/modals/PasteSvgModal.vue'
+import UserAssetModal from './components/modals/UserAssetModal.vue'
+import IconChecksPanel from './components/panels/IconChecksPanel.vue'
+import LayersPanel from './components/panels/LayersPanel.vue'
+import PreviewPanel from './components/panels/PreviewPanel.vue'
+import PropertiesPanel from './components/panels/PropertiesPanel.vue'
+import RightPanel from './components/panels/RightPanel.vue'
+import {
+  DEFAULT_KEYLINE_MARGIN,
+  DEFAULT_KEYLINE_TEMPLATE,
+  DEFAULT_PIXEL_GRID_SIZE,
+  DRAFT_SAVE_DELAY,
+  DRAFT_STORAGE_KEY,
+  EXPORT_PNG_SIZE_OPTIONS,
+  ICONIFY_SEARCH_LIMIT,
+  MIN_PIXEL_GRID_VISIBLE_STEP,
+  PROJECT_FILE_EXTENSION,
+  PROJECT_SCHEMA_VERSION,
+  SMALL_PREVIEW_SIZE_OPTIONS,
+  TEXT_OUTLINE_ALPHA_THRESHOLD,
+  TEXT_OUTLINE_TRACE_MULTIPLIER,
+  USER_ASSET_MAX_THUMBNAIL_SOURCE_SIZE,
+  USER_ASSET_STORAGE_KEY,
+  USER_ASSET_THUMBNAIL_SIZE
+} from './constants'
+import type {
+  BooleanPreviewHiddenObject,
+  BoundsEndpointAttachment,
+  ClipboardEntry,
+  CurveControlPointKey,
+  EditableSegmentRefWithTarget,
+  EndpointAttachment,
+  EndpointAttachmentEdge,
+  EndpointAttachmentMap,
+  EndpointAttachmentRatio,
+  EndpointSnapCandidate,
+  ExportDialogState,
+  ExportFormat,
+  FabricControls,
+  FillModeOption,
+  IconCheckIssue,
+  IconCreatorDraftFile,
+  IconCreatorProjectFile,
+  IconifySearchResponse,
+  IconifySearchState,
+  InternalClipboard,
+  KeylineSafeArea,
+  KeylineTemplate,
+  LeftPanelTab,
+  LayerContextMenuAction,
+  LayerContextMenuState,
+  LayerItem,
+  LayerRenameDialogState,
+  PasteSVGDialogState,
+  PreviewBackgroundMode,
+  PreviewItem,
+  RightPanelTab,
+  ProjectLoadOptions,
+  SnapshotOptions,
+  SegmentEndpointAttachment,
+  SpacePanStart,
+  StrokeLineType,
+  StrokeOutlineResult,
+  UiFillGradientStop,
+  UserAssetDialogState,
+  UserAssetItem
+} from './types'
+import { isTransparentCanvasBg, normalizeCanvasBg, normalizeKeylineMargin, normalizeKeylineTemplate, normalizePixelGridSize } from './canvasSettings'
+import { ensureOptimizedSVGRoot, stripFabricSVGNoise, svgEscapeText, trimSVGWhitespace } from './exportUtils'
+import { buildIconCheckIssues as buildIconCheckIssuesFromContext } from './iconChecks'
+import { commitNumericInput, commitPositiveNumericInput, formatNumericInputValue, normalizeInputValue } from './inputUtils'
+import { normalizeProjectCanvasSettings, parseProjectFileText, stringifyProjectFile } from './projectFile'
 import { isBooleanCandidate, fabricObjectToPathKitWithApi, fabricStrokeToPathKitWithApi, type FabricBooleanStyleSnapshot } from './geometry/fabricToPathKit'
 import { applyBooleanOperation, computeBooleanResult } from './geometry/booleanOps'
 import type { BooleanOperation, SubtractDirection } from './geometry/booleanOps'
@@ -1348,278 +498,11 @@ import {
 } from './geometry/editablePath'
 
 // ── 类型工具 ──
-type FabricControls = Record<string, Control>
-type BooleanPreviewHiddenObject = {
-  object: FabricObject
-  visible: boolean
-}
-type StrokeLineType = 'solid' | 'dashed'
-type CurveControlPointKey = 'cp1' | 'cp2'
-type FillModeOption = 'solid' | 'gradient'
-type UiFillGradientStop = FillGradientStop & {
-  id: string
-}
-type ClipboardEntry = {
-  object: Record<string, unknown>
-  sourceName: string
-  kaleidoscopeEnabled: boolean
-  sourceMissing: boolean
-}
-
-type UserAssetItem = {
-  id: string
-  name: string
-  createdAt: string
-  updatedAt: string
-  objects: Record<string, unknown>[]
-  layerOrder: string[]
-  thumbnail: string
-}
-
-type UserAssetDialogState = {
-  show: boolean
-  mode: 'create' | 'rename'
-  name: string
-  error: string
-  targetId: string
-}
-
-type InternalClipboard = {
-  entries: ClipboardEntry[]
-  pasteCount: number
-}
-
-type IconCreatorProjectCanvas = {
-  width: number
-  height: number
-  background: string
-  gridSize?: number
-  showPixelGrid?: boolean
-  snapToPixelGrid?: boolean
-  keylineTemplate?: KeylineTemplate
-  keylineMargin?: number
-}
-
-type IconCreatorProjectArtboard = {
-  id: string
-  name: string
-  canvas: IconCreatorProjectCanvas
-  fabric: Record<string, unknown>
-  layerOrder: string[]
-  thumbnail?: string
-}
-
-type IconCreatorProjectFile = {
-  app: 'icon-creator'
-  schemaVersion: number
-  createdAt: string
-  updatedAt: string
-  canvas: IconCreatorProjectCanvas
-  fabric: Record<string, unknown>
-  layerOrder: string[]
-  artboards?: IconCreatorProjectArtboard[]
-  activeArtboardId?: string
-}
-
-type IconCreatorDraftFile = {
-  app: 'icon-creator'
-  schemaVersion: number
-  updatedAt: string
-  project: IconCreatorProjectFile
-}
-
-type ParsedProjectFileResult = {
-  project: IconCreatorProjectFile
-  source: 'project' | 'draft'
-}
-
-type ProjectLoadOptions = {
-  keepDraft?: boolean
-  resetHistory?: boolean
-}
-
-type SnapshotOptions = {
-  autoSave?: boolean
-}
-
-type SpacePanStart = {
-  pointerId: number
-  x: number
-  y: number
-  scrollLeft: number
-  scrollTop: number
-}
-
-type EndpointAttachmentEdge = 'left' | 'right' | 'top' | 'bottom'
-type EndpointAttachmentRatio = number
-
-type BoundsEndpointAttachment = {
-  targetId: string
-  kind?: 'bounds'
-  edge: EndpointAttachmentEdge
-  ratio: EndpointAttachmentRatio
-}
-
-type SegmentEndpointAttachment = {
-  targetId: string
-  kind: 'segment'
-  contourIndex: number
-  segmentIndex: number
-  ratio: EndpointAttachmentRatio
-  normalSign?: 1 | -1
-}
-
-type EndpointAttachment = BoundsEndpointAttachment | SegmentEndpointAttachment
-
-type EndpointAttachmentMap = Record<string, EndpointAttachment | undefined>
-
-type EndpointSnapCandidate = {
-  target: FabricObject
-  attachment: EndpointAttachment
-  scenePoint: Point
-  distance: number
-}
-
-type EditableSegmentRefWithTarget = EditableSegmentRef & {
-  target: EditablePathObject
-}
-
-type LayerContextMenuAction =
-  | 'rename'
-  | 'show'
-  | 'hide'
-  | 'lock'
-  | 'unlock'
-  | 'delete'
-  | 'detach-source'
-  | 'select-source'
-  | 'move-up'
-  | 'move-top'
-  | 'move-down'
-  | 'move-bottom'
-  | 'duplicate'
-  | 'group'
-  | 'ungroup'
-
-type LayerItem = {
-  id: string
-  canvasIndex: number
-  name: string
-  obj: FabricObject
-}
-
-type LayerContextMenuState = {
-  show: boolean
-  x: number
-  y: number
-}
-
-type LayerRenameDialogState = {
-  show: boolean
-  value: string
-  target: FabricObject | null
-}
-
-type PasteSVGDialogState = {
-  show: boolean
-  value: string
-  error: string
-  loading: boolean
-}
-
-type IconifySearchState = {
-  query: string
-  lastQuery: string
-  loading: boolean
-  error: string
-  results: string[]
-  total: number
-  inserting: string
-  collectionFilter: string
-}
-
-type IconifySearchResponse = {
-  icons?: unknown
-  total?: unknown
-}
-
-type ExportFormat = 'svg' | 'png'
-type PreviewBackgroundMode = 'transparent' | 'light' | 'dark'
-type KeylineTemplate = 'none' | 'material' | 'ios' | 'favicon' | 'custom'
-type KeylineSafeArea = {
-  x: number
-  y: number
-  width: number
-  height: number
-  radius: number
-}
-type IconCheckSeverity = 'warning' | 'info'
-type IconCheckIssue = {
-  id: string
-  severity: IconCheckSeverity
-  title: string
-  detail: string
-  target?: FabricObject
-  targetName?: string
-}
-type ParsedCanvasColor = {
-  r: number
-  g: number
-  b: number
-  a: number
-}
-
-type StrokeOutlineResult = {
-  source: FabricObject
-  outline: FabricObject
-  sourceIndex: number
-  keepFilledSource: boolean
-  style: FabricBooleanStyleSnapshot
-}
-type PreviewItem = {
-  size: number
-  width: number
-  height: number
-  dataUrl: string
-}
-type ExportDialogState = {
-  show: boolean
-  svgEnabled: boolean
-  svgIncludeBg: boolean
-  pngEnabled: boolean
-  pngSizes: number[]
-  customSizeInput: string
-  transparentBg: boolean
-  filePrefix: string
-  status: string
-  loading: boolean
-}
-
 const KALEIDOSCOPE_CENTER_CONTROL_KEY = 'kaleidoscopeCenter'
 const RADIAL_GRADIENT_CENTER_CONTROL_KEY = 'radialGradientCenter'
 const DIRECT_EDIT_SHAPE_IDS = new Set(['base-line', 'base-arrow-right', 'base-solid-shaft-arrow', 'base-double-solid-shaft-arrow'])
 const FABRIC_TRANSFORM_CONTROL_KEYS = ['tl', 'tr', 'br', 'bl', 'ml', 'mt', 'mr', 'mb', 'mtr']
 const ENDPOINT_SNAP_MARGIN = 4
-const PROJECT_SCHEMA_VERSION = 1
-const PROJECT_FILE_EXTENSION = 'iconcreator.json'
-const DRAFT_STORAGE_KEY = 'icon-creator:auto-save-draft:v1'
-const USER_ASSET_STORAGE_KEY = 'icon-creator:user-assets:v1'
-const USER_ASSET_THUMBNAIL_SIZE = 96
-const USER_ASSET_MAX_THUMBNAIL_SOURCE_SIZE = 1600
-const DRAFT_SAVE_DELAY = 800
-const EXPORT_PNG_SIZE_OPTIONS = [16, 24, 32, 48, 64, 128, 256, 512]
-const SMALL_PREVIEW_SIZE_OPTIONS = [16, 24, 32, 48]
-const DEFAULT_PIXEL_GRID_SIZE = 8
-const MIN_PIXEL_GRID_SIZE = 1
-const MAX_PIXEL_GRID_SIZE = 256
-const MIN_PIXEL_GRID_VISIBLE_STEP = 4
-const DEFAULT_KEYLINE_TEMPLATE: KeylineTemplate = 'none'
-const DEFAULT_KEYLINE_MARGIN = 48
-const MIN_KEYLINE_MARGIN = 0
-const MAX_KEYLINE_MARGIN = 512
-const TEXT_OUTLINE_TRACE_MULTIPLIER = 2
-const TEXT_OUTLINE_ALPHA_THRESHOLD = 12
-const ICONIFY_SEARCH_LIMIT = 48
 let editorObjectIdSeed = 0
 
 // ── refs ──
@@ -1642,8 +525,8 @@ let draftDirty = false
 let restoringDraftPromptShown = false
 let artboardIdSeed = 0
 
-const leftTab = ref<'shape' | 'text' | 'templates' | 'assets' | 'iconify'>('shape')
-const activeRightTab = ref<'properties' | 'preview' | 'checks' | 'artboards' | 'layers'>('properties')
+const leftTab = ref<LeftPanelTab>('shape')
+const activeRightTab = ref<RightPanelTab>('properties')
 const showRuler = ref(true)
 const showPixelGrid = ref(false)
 const snapToPixelGrid = ref(false)
@@ -3249,10 +2132,6 @@ function addShortcutBinding(actionId: ShortcutActionId) {
   shortcutBindings[actionId].push('')
 }
 
-function getShortcutBindingKey(actionId: ShortcutActionId, binding: string, index: number) {
-  return `${actionId}-${binding || 'empty'}-${index}`
-}
-
 function removeShortcutBinding(actionId: ShortcutActionId, binding: string) {
   shortcutBindings[actionId] = shortcutBindings[actionId].filter((item) => item !== binding)
   saveShortcutBindings()
@@ -3296,48 +2175,6 @@ function openShortcutDrawer() {
 
 function closeShortcutDrawer() {
   shortcutDrawerOpen.value = false
-}
-
-// 模板事件值辅助
-function uiNum(value: string | number): number {
-  return Number(value)
-}
-
-function normalizeInputValue(value: string | number) {
-  return String(value).trim()
-}
-
-function commitNumericInput(
-  value: string | number,
-  fallback: number,
-  apply: (next: number) => void,
-  reflect: (next: string) => void
-) {
-  const normalized = normalizeInputValue(value)
-  const parsed = Number(normalized)
-  const next = normalized === '' || !Number.isFinite(parsed) ? fallback : parsed
-  reflect(String(next))
-  apply(next)
-}
-
-// 仅接受正数输入，适用于宽高等不能为 0 或负数的字段
-function commitPositiveNumericInput(
-  value: string | number,
-  fallback: number,
-  apply: (next: number) => void,
-  reflect: (next: string) => void
-) {
-  const normalized = normalizeInputValue(value)
-  const parsed = Number(normalized)
-  const next = normalized === '' || !Number.isFinite(parsed) || parsed <= 0 ? fallback : parsed
-  reflect(formatNumericInputValue(next))
-  apply(next)
-}
-function evNum(e: Event): number {
-  return +(e.target as HTMLInputElement).value
-}
-function evChecked(e: Event): boolean {
-  return (e.target as HTMLInputElement).checked
 }
 
 function getDefaultStrokeDashArray(strokeWidth: unknown = 2): [number, number] {
@@ -3990,19 +2827,6 @@ function deleteUserAsset(asset: UserAssetItem) {
   saveUserAssets()
 }
 
-// 格式化素材更新时间，列表空间有限时仅展示本地日期，异常日期回退为“未知时间”。
-function formatUserAssetDate(value: string) {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return '未知时间'
-  return date.toLocaleDateString()
-}
-
-// 展示素材包含的对象数量，帮助用户区分单个图形、组合和多对象素材。
-function getUserAssetObjectCountLabel(asset: UserAssetItem) {
-  const count = asset.objects.length
-  return count > 1 ? `${count} 个对象` : '1 个对象'
-}
-
 // 插入素材前为克隆对象换新内部 id、清理外部端点引用，并递归处理组内子对象元数据。
 function prepareUserAssetObjectForInsert(obj: FabricObject, assetName: string, index: number, isRoot = true) {
   prepareClonedObjectMetadata(obj)
@@ -4129,13 +2953,6 @@ function toggleRuler() {
   showRuler.value = !showRuler.value
 }
 
-// 将用户配置的网格间距限制在可用范围内，避免过小网格导致渲染密集或过大网格失去参考意义。
-function normalizePixelGridSize(value: unknown) {
-  const parsed = Math.round(Number(value))
-  if (!Number.isFinite(parsed)) return DEFAULT_PIXEL_GRID_SIZE
-  return Math.min(MAX_PIXEL_GRID_SIZE, Math.max(MIN_PIXEL_GRID_SIZE, parsed))
-}
-
 // 同步网格间距输入框显示，保证工程恢复、预设切换和非法输入回退后界面数值一致。
 function syncPixelGridSizeInput() {
   pixelGridSizeInput.value = formatNumericInputValue(pixelGridSize.value)
@@ -4181,20 +2998,6 @@ function toggleSnapToPixelGrid() {
   setSnapToPixelGrid(!snapToPixelGrid.value)
 }
 
-// 规范参考线模板值，避免旧工程或手写工程文件中的未知值让界面处于不可控状态。
-function normalizeKeylineTemplate(value: unknown): KeylineTemplate {
-  return value === 'material' || value === 'ios' || value === 'favicon' || value === 'custom'
-    ? value
-    : 'none'
-}
-
-// 将自定义安全区边距限制在合理范围内，防止参考线因负值或过大值完全不可见。
-function normalizeKeylineMargin(value: unknown) {
-  const parsed = Number(value)
-  if (!Number.isFinite(parsed)) return DEFAULT_KEYLINE_MARGIN
-  return Math.min(MAX_KEYLINE_MARGIN, Math.max(MIN_KEYLINE_MARGIN, parsed))
-}
-
 // 同步安全区输入框显示，保证工程恢复和非法输入回退后仍展示真实生效值。
 function syncKeylineMarginInput() {
   keylineMarginInput.value = formatNumericInputValue(keylineMargin.value)
@@ -4233,190 +3036,21 @@ function getObjectDisplayName(obj: FabricObject) {
   return String((obj as AnyFabricObject).name || obj.type || '对象')
 }
 
-// 检查对象包围盒是否超出当前安全区，只有启用 Keyline / 安全区模板时才提示。
-function getSafeAreaOverflowIssue(obj: FabricObject, index: number): IconCheckIssue | null {
-  if (keylineTemplate.value === 'none') return null
-  const bounds = obj.getBoundingRect()
-  const safe = keylineSafeArea.value
-  const overflows = bounds.left < safe.x
-    || bounds.top < safe.y
-    || bounds.left + bounds.width > safe.x + safe.width
-    || bounds.top + bounds.height > safe.y + safe.height
-  if (!overflows) return null
-  const targetName = getObjectDisplayName(obj)
-  return {
-    id: `safe-area-${index}`,
-    severity: 'warning',
-    title: '对象超出安全区',
-    detail: '当前对象边界超出参考线安全区，可能在平台图标裁切或小尺寸显示时被截断。',
-    target: obj,
-    targetName
-  }
-}
-
-// 检查细描边在 16px 输出下的近似像素宽度，提前暴露小尺寸图标容易发虚的问题。
-function getThinStrokeIssue(obj: FabricObject, index: number): IconCheckIssue | null {
-  const targets = getStyleTargets(obj)
-  const hasThinStroke = targets.some((target) => {
-    if (!isStrokeEnabled(target.stroke, target.strokeWidth)) return false
-    const scaledStroke = (target.strokeWidth || 0) * Math.max(Math.abs(target.scaleX || 1), Math.abs(target.scaleY || 1))
-    return scaledStroke > 0 && scaledStroke * (16 / canvasWidth.value) < 1
-  })
-  if (!hasThinStroke) return null
-  const targetName = getObjectDisplayName(obj)
-  return {
-    id: `thin-stroke-${index}`,
-    severity: 'warning',
-    title: '小尺寸描边过细',
-    detail: '该对象描边在 16px 预览中可能不足 1 像素，建议加粗或转为填充形状。',
-    target: obj,
-    targetName
-  }
-}
-
-// 检查对象边界是否落在非整数坐标上，辅助发现像素对齐问题。
-function getFractionalBoundsIssue(obj: FabricObject, index: number): IconCheckIssue | null {
-  const bounds = obj.getBoundingRect()
-  const values = [bounds.left, bounds.top, bounds.width, bounds.height]
-  if (values.every((value) => Math.abs(value - Math.round(value)) <= 0.01)) return null
-  const targetName = getObjectDisplayName(obj)
-  return {
-    id: `fractional-bounds-${index}`,
-    severity: 'info',
-    title: '边界存在非整数坐标',
-    detail: '对象位置或尺寸未落在整数像素上，小尺寸导出时可能出现轻微模糊。',
-    target: obj,
-    targetName
-  }
-}
-
-// 解析常见画布背景色格式，供规范检查判断深浅背景风险；无法识别时返回 null 避免误报。
-function parseCanvasColor(value: unknown): ParsedCanvasColor | null {
-  if (typeof value !== 'string') return null
-  const normalized = value.trim().toLowerCase()
-  if (!normalized || normalized === 'none' || normalized === 'transparent') return null
-
-  const hexMatch = normalized.match(/^#([0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i)
-  if (hexMatch) {
-    const raw = hexMatch[1]
-    const expanded = raw.length === 3 || raw.length === 4
-      ? raw.split('').map((char) => char + char).join('')
-      : raw
-    const r = Number.parseInt(expanded.slice(0, 2), 16)
-    const g = Number.parseInt(expanded.slice(2, 4), 16)
-    const b = Number.parseInt(expanded.slice(4, 6), 16)
-    const a = expanded.length === 8 ? Number.parseInt(expanded.slice(6, 8), 16) / 255 : 1
-    return [r, g, b, a].every(Number.isFinite) ? { r, g, b, a } : null
-  }
-
-  const rgbaMatch = normalized.match(/^rgba?\(([^)]+)\)$/)
-  if (!rgbaMatch) return null
-  const parts = rgbaMatch[1].split(',').map((part) => part.trim())
-  if (parts.length < 3) return null
-  const channels = parts.slice(0, 3).map((part) => Number(part.replace('%', '')))
-  if (channels.some((channel) => !Number.isFinite(channel))) return null
-  const alpha = parts[3] == null ? 1 : Number(parts[3])
-  return {
-    r: Math.min(255, Math.max(0, channels[0])),
-    g: Math.min(255, Math.max(0, channels[1])),
-    b: Math.min(255, Math.max(0, channels[2])),
-    a: Number.isFinite(alpha) ? Math.min(1, Math.max(0, alpha)) : 1
-  }
-}
-
-// 计算背景色感知亮度，帮助检查面板提示纯白、纯黑或高饱和背景对图标交付的影响。
-function getCanvasColorLuminance(color: ParsedCanvasColor) {
-  const linear = [color.r, color.g, color.b].map((channel) => {
-    const value = channel / 255
-    return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
-  })
-  return linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722
-}
-
-// 检查画布背景是否需要在导出时特别确认：透明背景、极深/极浅背景和无法解析的自定义色都给出轻量提示。
-function getCanvasBackgroundIssue(): IconCheckIssue | null {
-  if (isTransparentCanvasBg(canvasBg.value)) {
-    return {
-      id: 'transparent-background',
-      severity: 'info',
-      title: '当前使用透明背景',
-      detail: '请确认目标平台或导出预设允许透明背景。'
-    }
-  }
-
-  const parsed = parseCanvasColor(canvasBg.value)
-  if (!parsed) {
-    return {
-      id: 'custom-background-color',
-      severity: 'info',
-      title: '背景色需要人工确认',
-      detail: '当前背景色格式无法自动判断深浅，请确认导出时是否需要保留背景层。'
-    }
-  }
-
-  if (parsed.a < 1) {
-    return {
-      id: 'translucent-background-color',
-      severity: 'info',
-      title: '背景色带透明度',
-      detail: '半透明背景在不同平台合成后可能改变图标观感，导出前建议确认目标底色。'
-    }
-  }
-
-  const luminance = getCanvasColorLuminance(parsed)
-  if (luminance > 0.92) {
-    return {
-      id: 'light-background-color',
-      severity: 'info',
-      title: '浅色背景可能影响白色图形',
-      detail: '当前背景接近白色，若图标包含浅色元素，小尺寸或透明导出时可能不易辨认。'
-    }
-  }
-  if (luminance < 0.08) {
-    return {
-      id: 'dark-background-color',
-      severity: 'info',
-      title: '深色背景可能影响深色图形',
-      detail: '当前背景接近黑色，若图标包含深色元素，小尺寸或透明导出时可能不易辨认。'
-    }
-  }
-  return null
-}
-
-// 汇总画布级和对象级规范检查结果，结果仅用于右侧检查面板，不修改画布内容。
+// 汇总当前画布状态并委托纯检查模块生成规范问题，选择定位等副作用仍留在编辑器壳层。
 function buildIconCheckIssues(): IconCheckIssue[] {
   if (!fabricCanvas) return []
   void layerVersion.value
-  const issues: IconCheckIssue[] = []
-  const backgroundIssue = getCanvasBackgroundIssue()
-  if (backgroundIssue) issues.push(backgroundIssue)
-  const colorSet = new Set<string>()
-  const objects = fabricCanvas.getObjects().filter((obj) => !isBooleanPreviewObject(obj))
-  objects.forEach((obj, index) => {
-    const safeIssue = getSafeAreaOverflowIssue(obj, index)
-    if (safeIssue) issues.push(safeIssue)
-    const strokeIssue = getThinStrokeIssue(obj, index)
-    if (strokeIssue) issues.push(strokeIssue)
-    const fractionalIssue = getFractionalBoundsIssue(obj, index)
-    if (fractionalIssue) issues.push(fractionalIssue)
-    getStyleTargets(obj).forEach((target) => {
-      ;[target.fill, target.stroke].forEach((value) => {
-        if (typeof value !== 'string') return
-        const normalized = value.trim().toLowerCase()
-        if (!normalized || normalized === 'none' || normalized === 'transparent') return
-        colorSet.add(normalized)
-      })
-    })
+  return buildIconCheckIssuesFromContext({
+    canvasBg: canvasBg.value,
+    canvasWidth: canvasWidth.value,
+    keylineTemplate: keylineTemplate.value,
+    keylineSafeArea: keylineSafeArea.value,
+    objects: fabricCanvas.getObjects(),
+    isBooleanPreviewObject,
+    isStrokeEnabled,
+    getStyleTargets,
+    getObjectDisplayName
   })
-  if (colorSet.size > 6) {
-    issues.push({
-      id: 'many-colors',
-      severity: 'info',
-      title: '颜色数量较多',
-      detail: `当前检测到 ${colorSet.size} 种颜色，图标风格统一性可能受影响。`
-    })
-  }
-  return issues
 }
 
 // 点击检查项时定位到关联对象，方便用户直接调整越界、描边过细或非整数坐标问题。
@@ -4552,10 +3186,6 @@ function getEditableSegmentControlPoint(segmentRef: EditableSegmentRef, controlP
   return controlPoint === 'cp1'
     ? lerpEditablePoint(liveSegmentRef.fromPoint, liveSegmentRef.toPoint, 1 / 3)
     : lerpEditablePoint(liveSegmentRef.fromPoint, liveSegmentRef.toPoint, 2 / 3)
-}
-
-function formatNumericInputValue(value: number) {
-  return String(Math.round(value * 100) / 100)
 }
 
 function resetCurveProps() {
@@ -5541,17 +4171,6 @@ function snapshot(options: SnapshotOptions = {}) {
   if (options.autoSave !== false) scheduleDraftSave()
 }
 
-function isTransparentCanvasBg(value: unknown) {
-  if (value == null) return true
-  if (typeof value !== 'string') return false
-  const normalized = value.trim().toLowerCase()
-  return normalized === '' || normalized === 'none' || normalized === 'transparent'
-}
-
-function normalizeCanvasBg(value: unknown) {
-  return isTransparentCanvasBg(value) ? 'transparent' : String(value)
-}
-
 function applyCanvasBgToFabric(value: string) {
   if (!fabricCanvas) return
   fabricCanvas.backgroundColor = isTransparentCanvasBg(value) ? '' : value
@@ -5567,23 +4186,6 @@ function syncCanvasBgFromFabric() {
   const next = String(bg)
   canvasBg.value = next
   lastOpaqueCanvasBg.value = next
-}
-
-// 读取工程画布与辅助设置，过滤无效值，避免损坏文件把画布或网格恢复成不可用状态。
-function normalizeProjectCanvasSettings(value: unknown): IconCreatorProjectCanvas {
-  const source = value && typeof value === 'object' ? value as Partial<IconCreatorProjectCanvas> : {}
-  const width = Number(source.width)
-  const height = Number(source.height)
-  return {
-    width: Number.isFinite(width) && width > 0 ? width : 512,
-    height: Number.isFinite(height) && height > 0 ? height : 512,
-    background: normalizeCanvasBg(source.background ?? '#ffffff'),
-    gridSize: normalizePixelGridSize(source.gridSize ?? DEFAULT_PIXEL_GRID_SIZE),
-    showPixelGrid: source.showPixelGrid === true,
-    snapToPixelGrid: source.snapToPixelGrid === true,
-    keylineTemplate: normalizeKeylineTemplate(source.keylineTemplate),
-    keylineMargin: normalizeKeylineMargin(source.keylineMargin ?? DEFAULT_KEYLINE_MARGIN)
-  }
 }
 
 // 基于当前编辑器状态生成工程文件数据，供手动保存与自动草稿复用同一份 schema。
@@ -5610,40 +4212,6 @@ function createProjectFile(): IconCreatorProjectFile {
     },
     fabric: serializeFabricCanvas(),
     layerOrder
-  }
-}
-
-// 将工程数据包装成稳定的 JSON 文本，方便后续保存、比对和草稿落盘。
-function stringifyProjectFile(project: IconCreatorProjectFile) {
-  return JSON.stringify({
-    ...project,
-    updatedAt: new Date().toISOString()
-  }, null, 2)
-}
-
-// 解析手动工程文件或自动草稿，校验应用标识与 schema 版本后再允许恢复。
-function parseProjectFileText(text: string): ParsedProjectFileResult {
-  const parsed = JSON.parse(text) as Partial<IconCreatorProjectFile | IconCreatorDraftFile>
-  const maybeDraft = parsed as Partial<IconCreatorDraftFile>
-  const project = maybeDraft.app === 'icon-creator' && maybeDraft.project
-    ? maybeDraft.project
-    : parsed as Partial<IconCreatorProjectFile>
-  if (project.app !== 'icon-creator') throw new Error('不是 Icon Creator 工程文件')
-  if (typeof project.schemaVersion !== 'number' || project.schemaVersion > PROJECT_SCHEMA_VERSION) {
-    throw new Error('工程文件版本不兼容')
-  }
-  if (!project.fabric || typeof project.fabric !== 'object') throw new Error('工程文件缺少画布对象数据')
-  return {
-    project: {
-      app: 'icon-creator',
-      schemaVersion: project.schemaVersion || PROJECT_SCHEMA_VERSION,
-      createdAt: typeof project.createdAt === 'string' ? project.createdAt : new Date().toISOString(),
-      updatedAt: typeof project.updatedAt === 'string' ? project.updatedAt : new Date().toISOString(),
-      canvas: normalizeProjectCanvasSettings(project.canvas),
-      fabric: project.fabric as Record<string, unknown>,
-      layerOrder: Array.isArray(project.layerOrder) ? project.layerOrder.filter((id): id is string => typeof id === 'string') : []
-    },
-    source: maybeDraft.project ? 'draft' : 'project'
   }
 }
 
@@ -7453,12 +6021,6 @@ function addText(preset: TextLibraryItem) {
 }
 
 // ── 模板 ──
-// 从内置模板 SVG 中提取预览图形，去掉外层 <svg> 后复用模板真实内容渲染左侧缩略图。
-function getTemplatePreviewMarkup(template: IconTemplateItem) {
-  const match = template.svg.match(/<svg\b[^>]*>([\s\S]*?)<\/svg>/i)
-  return match ? match[1] : template.svg
-}
-
 // 把模板 SVG 插入当前画布，作为普通可编辑对象继续参与图层、属性、导出和撤销流程。
 async function insertIconTemplate(template: IconTemplateItem) {
   await importSVGText(template.svg, template.name)
@@ -7902,52 +6464,10 @@ function setExportFormatEnabled(format: ExportFormat, enabled: boolean) {
   exportDialog.status = ''
 }
 
-function isExportPngSizeSelected(size: number) {
-  return exportDialog.pngSizes.includes(size)
-}
-
-// 转义 SVG 属性值中的特殊字符，供手工插入背景 rect 时保持 XML 合法。
-function svgEscapeText(value: string) {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/"/g, '&quot;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-}
-
 // 根据导出选项生成画布背景矩形；透明背景或未勾选保留背景时不输出额外节点。
 function getOptimizedSVGBackgroundMarkup(includeBackground: boolean) {
   if (!includeBackground || isTransparentCanvasBg(canvasBg.value)) return ''
   return `<rect width="100%" height="100%" fill="${svgEscapeText(canvasBg.value)}"/>`
-}
-
-// 清理 Fabric 原始 SVG 中对最终图标交付没有帮助的注释、空属性和内部标识。
-function stripFabricSVGNoise(svg: string) {
-  return svg
-    .replace(/<\?xml[\s\S]*?\?>\s*/i, '')
-    .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/\s*(?:data-fabric|data-original|vector-effect)="[^"]*"/gi, '')
-    .replace(/\s*(?:id|name)="(?:Layer|图层|对象|SVG 元素|editor-object)[^"]*"/gi, '')
-    .replace(/\s+style="\s*"/gi, '')
-    .replace(/\s+stroke-dasharray="(?:none|null|undefined|)"/gi, '')
-    .replace(/\s+font-family="Times New Roman"/gi, '')
-}
-
-// 压缩标签间空白和重复空格，降低 SVG 体积但不改写路径或颜色数据。
-function trimSVGWhitespace(svg: string) {
-  return svg
-    .replace(/>\s+</g, '><')
-    .replace(/\s{2,}/g, ' ')
-    .replace(/\s+>/g, '>')
-    .trim()
-}
-
-// 重建标准 SVG 根节点，确保导出资源始终带有规范 viewBox、宽高和可选背景层。
-function ensureOptimizedSVGRoot(svg: string, includeBackground: boolean) {
-  const bodyMatch = svg.match(/<svg\b([^>]*)>([\s\S]*?)<\/svg>/i)
-  const body = bodyMatch ? bodyMatch[2] : svg
-  const background = getOptimizedSVGBackgroundMarkup(includeBackground)
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${canvasWidth.value} ${canvasHeight.value}" width="${canvasWidth.value}" height="${canvasHeight.value}">${background}${body}</svg>`
 }
 
 // 将 Fabric 原始 SVG 输出压缩为更适合交付的图标资源：规范根节点、viewBox、可选背景并移除冗余元数据。
@@ -7962,7 +6482,12 @@ function createOptimizedSVG(includeBackground = false) {
       width: String(canvasWidth.value),
       height: String(canvasHeight.value)
     })
-    return trimSVGWhitespace(ensureOptimizedSVGRoot(stripFabricSVGNoise(rawSvg), includeBackground))
+    return trimSVGWhitespace(ensureOptimizedSVGRoot(
+      stripFabricSVGNoise(rawSvg),
+      canvasWidth.value,
+      canvasHeight.value,
+      getOptimizedSVGBackgroundMarkup(includeBackground)
+    ))
   } finally {
     fabricCanvas.backgroundColor = currentBg
   }
@@ -9078,241 +7603,6 @@ $panel-bg: #fff;
   overflow: hidden;
 }
 
-/* ── 顶栏 ── */
-.top-bar {
-  display: flex;
-  align-items: center;
-  height: $topbar-h;
-  padding: 0 10px;
-  background: $panel-bg;
-  border-bottom: $border;
-  gap: 6px;
-  flex-shrink: 0;
-}
-.top-bar-left {
-  .app-title {
-    font-weight: 700;
-    font-size: 14px;
-    margin-right: 12px;
-  }
-}
-.top-bar-center {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex: 1;
-  justify-content: center;
-}
-.top-bar-right {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  .zoom-label {
-    font-size: 12px;
-    min-width: 42px;
-    text-align: right;
-  }
-}
-.tb-sep {
-  width: 1px;
-  height: 20px;
-  background: rgba(128, 128, 128, 0.2);
-  margin: 0 4px;
-}
-.top-bar-btn,
-.top-bar-icon-btn,
-.layer-toolbar-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  box-sizing: border-box;
-  border: 2px solid var(--control-border);
-  border-radius: 6px;
-  background: #fafafa;
-  box-shadow: none;
-  color: #555;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease, color 0.15s ease, background-color 0.15s ease;
-
-  &:hover:not(:disabled) {
-    background: #fafafa;
-    border-color: color-mix(in srgb, var(--primary-color), black 15%);
-    color: #333;
-  }
-
-  &:disabled {
-    box-shadow: none;
-  }
-
-  &.is-active {
-    border-color: var(--primary-color);
-    box-shadow: 0 0 0 3px var(--primary-light-bg);
-    color: var(--primary-color);
-  }
-}
-.top-bar-btn {
-  min-height: 28px;
-  white-space: nowrap;
-}
-.top-bar-icon-btn,
-.layer-toolbar-btn {
-  width: 28px;
-  min-width: 28px;
-  height: 28px;
-  padding: 0;
-  font-size: 14px;
-
-  :deep(svg) {
-    width: 14px;
-    height: 14px;
-  }
-}
-.top-bar-reset-btn {
-  width: auto;
-  min-width: 40px;
-}
-.shortcut-topbar-btn {
-  min-width: 54px;
-}
-
-:global(.zt-drawer__mask) {
-  background: rgba(0, 0, 0, 0.18);
-}
-:global(.shortcut-drawer) {
-  display: flex;
-  flex-direction: column;
-  background: $panel-bg;
-  border-left: $border;
-  box-shadow: -16px 0 36px rgba(0, 0, 0, 0.16);
-  overflow: hidden;
-}
-.shortcut-drawer-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 16px;
-  border-bottom: $border;
-  h2 {
-    margin: 0;
-    font-size: 18px;
-  }
-  p {
-    margin: 4px 0 0;
-    color: #666;
-    font-size: 12px;
-  }
-}
-.shortcut-close-btn,
-.shortcut-binding-delete {
-  border: 1px solid rgba(128, 128, 128, 0.24);
-  border-radius: 6px;
-  background: #fff;
-  color: #666;
-  cursor: pointer;
-  &:hover { background: #f1f1f1; color: #c00; }
-}
-.shortcut-close-btn {
-  width: 35px;
-  height: 35px;
-  font-size: 20px;
-  line-height: 1;
-}
-.shortcut-drawer-tools {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 8px;
-  padding: 12px 16px;
-  border-bottom: $border;
-}
-.shortcut-group-list {
-  flex: 1;
-  overflow-y: auto;
-  padding: 8px 16px 16px;
-}
-.shortcut-group {
-  margin-bottom: 14px;
-}
-.shortcut-group-title {
-  position: sticky;
-  top: -8px;
-  z-index: 1;
-  padding: 8px 0;
-  background: $panel-bg;
-  color: #555;
-  font-weight: 700;
-  font-size: 12px;
-}
-.shortcut-action-row {
-  display: grid;
-  grid-template-columns: 220px 1fr;
-  gap: 12px;
-  padding: 10px 0;
-  border-top: 1px solid rgba(128, 128, 128, 0.14);
-}
-.shortcut-action-name {
-  font-weight: 600;
-  color: #333;
-}
-.shortcut-action-desc {
-  margin-top: 3px;
-  color: #777;
-  font-size: 12px;
-  line-height: 1.35;
-}
-.shortcut-binding-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.shortcut-binding-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 35px 35px;
-  gap: 6px;
-  align-items: center;
-}
-.shortcut-hotkey-input {
-  min-width: 0;
-}
-.shortcut-binding-delete,
-.shortcut-binding-add {
-  width: 35px;
-  height: 35px;
-  padding: 0;
-  box-sizing: border-box;
-  border: 2px solid var(--control-border);
-  border-radius: 6px;
-  background: #fafafa;
-  color: #666;
-  cursor: pointer;
-  line-height: 1;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease, color 0.15s ease;
-
-  &:hover {
-    background: #fafafa;
-    border-color: var(--primary-color);
-  }
-}
-.shortcut-binding-delete {
-  font-size: 16px;
-
-  &:hover {
-    color: #c00;
-  }
-}
-.shortcut-binding-add {
-  font-size: 15px;
-  color: var(--primary-color);
-}
-.shortcut-binding-add--empty {
-  align-self: flex-end;
-}
-.shortcut-empty {
-  padding: 32px 0;
-  color: #777;
-  text-align: center;
-}
-
 .space-pan-ready .canvas-area,
 .space-pan-ready .canvas-wrapper,
 .space-pan-ready canvas {
@@ -9325,343 +7615,11 @@ $panel-bg: #fff;
   user-select: none;
 }
 
-/* ── 按钮通用 ── */
-.tb-btn {
-  padding: 4px 10px;
-  border: 1px solid rgba(128, 128, 128, 0.25);
-  border-radius: 5px;
-  background: #fff;
-  cursor: pointer;
-  font-size: 12px;
-  white-space: nowrap;
-  &:hover { background: #e8e8e8; }
-  &:disabled { opacity: 0.4; cursor: default; }
-  &.sm { padding: 3px 7px; font-size: 11px; }
-  &.xs { padding: 2px 6px; font-size: 11px; }
-  &.active { background: #d0e0ff; border-color: #7ba7e0; }
-  &.danger { color: #c00; }
-  &.primary { background: #1e6fff; color: #fff; border-color: #1e6fff; }
-}
-
 /* ── 主体 ── */
 .editor-body {
   display: flex;
   flex: 1;
   overflow: hidden;
-}
-
-/* ── 左栏 ── */
-.left-panel {
-  width: $left-w;
-  background: $panel-bg;
-  border-right: $border;
-  display: flex;
-  flex-direction: column;
-  flex-shrink: 0;
-  min-height: 0;
-}
-.side-tabs {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-:deep(.left-tabs-pane-wrapper),
-:deep(.left-tabs-pane),
-:deep(.right-tabs-pane-wrapper),
-:deep(.right-tabs-pane) {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-:deep(.side-tabs > .zt-tabs__nav) {
-  width: 100%;
-}
-:deep(.side-tabs > .zt-tabs__nav .zt-tabs__nav-list) {
-  width: 100%;
-}
-:deep(.side-tabs-tab) {
-  flex: 1 1 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 40px;
-  text-align: center;
-}
-.left-tabs {
-  border-bottom: $border;
-}
-.left-content {
-  flex: 1;
-  overflow-y: auto;
-  padding: 8px;
-}
-.section-title {
-  font-weight: 700;
-  font-size: 12px;
-  padding: 6px 4px;
-  color: #555;
-}
-.asset-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 4px;
-  margin-bottom: 8px;
-}
-.asset-item {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  aspect-ratio: 1;
-  border: 1px solid rgba(128, 128, 128, 0.15);
-  border-radius: 6px;
-  cursor: pointer;
-  padding: 6px;
-  background: #fafafa;
-  transition: border-color 0.15s;
-  &:hover { border-color: #1e6fff; }
-}
-.shape-preview-svg {
-  width: 70%;
-  height: 70%;
-  overflow: visible;
-}
-.text-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.text-preset-btn {
-  padding: 12px;
-  border: 1px solid rgba(128, 128, 128, 0.15);
-  border-radius: 6px;
-  background: #fafafa;
-  cursor: pointer;
-  text-align: left;
-  &:hover { border-color: #1e6fff; }
-}
-.template-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.template-card {
-  display: grid;
-  grid-template-columns: 76px minmax(0, 1fr);
-  gap: 8px;
-  padding: 8px;
-  border: 1px solid rgba(128, 128, 128, 0.15);
-  border-radius: 8px;
-  background: #fafafa;
-}
-.template-preview {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 76px;
-  height: 76px;
-  border: 1px solid rgba(128, 128, 128, 0.12);
-  border-radius: 7px;
-  background:
-    linear-gradient(45deg, rgba(128, 128, 128, 0.08) 25%, transparent 25%),
-    linear-gradient(-45deg, rgba(128, 128, 128, 0.08) 25%, transparent 25%),
-    linear-gradient(45deg, transparent 75%, rgba(128, 128, 128, 0.08) 75%),
-    linear-gradient(-45deg, transparent 75%, rgba(128, 128, 128, 0.08) 75%);
-  background-color: #fff;
-  background-position: 0 0, 0 6px, 6px -6px, -6px 0;
-  background-size: 12px 12px;
-  cursor: pointer;
-  transition: border-color 0.15s, transform 0.15s;
-  &:hover {
-    border-color: #1e6fff;
-    transform: translateY(-1px);
-  }
-}
-.template-preview-svg {
-  width: 62px;
-  height: 62px;
-  overflow: visible;
-}
-.template-info {
-  min-width: 0;
-}
-.template-name {
-  overflow: hidden;
-  color: #333;
-  font-size: 12px;
-  font-weight: 700;
-  line-height: 1.4;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.template-meta {
-  margin-top: 2px;
-  color: #777;
-  font-size: 11px;
-}
-.template-desc {
-  display: -webkit-box;
-  overflow: hidden;
-  margin: 4px 0 7px;
-  color: #666;
-  font-size: 11px;
-  line-height: 1.35;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-.template-actions {
-  display: flex;
-  gap: 6px;
-}
-.asset-title-row {
-  gap: 8px;
-  padding-right: 0;
-  .section-title {
-    flex: 1;
-  }
-}
-.user-asset-save-btn {
-  flex-shrink: 0;
-}
-.user-asset-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.user-asset-card {
-  display: grid;
-  grid-template-columns: 76px minmax(0, 1fr);
-  gap: 8px;
-  padding: 8px;
-  border: 1px solid rgba(128, 128, 128, 0.15);
-  border-radius: 8px;
-  background: #fafafa;
-}
-.user-asset-preview {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 76px;
-  height: 76px;
-  border: 1px solid rgba(128, 128, 128, 0.12);
-  border-radius: 7px;
-  background:
-    linear-gradient(45deg, rgba(128, 128, 128, 0.08) 25%, transparent 25%),
-    linear-gradient(-45deg, rgba(128, 128, 128, 0.08) 25%, transparent 25%),
-    linear-gradient(45deg, transparent 75%, rgba(128, 128, 128, 0.08) 75%),
-    linear-gradient(-45deg, transparent 75%, rgba(128, 128, 128, 0.08) 75%);
-  background-color: #fff;
-  background-position: 0 0, 0 6px, 6px -6px, -6px 0;
-  background-size: 12px 12px;
-  cursor: pointer;
-  transition: border-color 0.15s, transform 0.15s;
-  &:hover {
-    border-color: #1e6fff;
-    transform: translateY(-1px);
-  }
-  img {
-    display: block;
-    max-width: 62px;
-    max-height: 62px;
-  }
-}
-.user-asset-preview-placeholder {
-  color: #888;
-  font-size: 12px;
-}
-.user-asset-info {
-  min-width: 0;
-}
-.user-asset-name {
-  overflow: hidden;
-  color: #333;
-  font-size: 12px;
-  font-weight: 700;
-  line-height: 1.4;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.user-asset-meta {
-  margin-top: 2px;
-  color: #777;
-  font-size: 11px;
-}
-.user-asset-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 8px;
-}
-.user-asset-empty {
-  padding: 24px 8px;
-  color: #777;
-  font-size: 12px;
-  line-height: 1.6;
-  text-align: center;
-}
-.iconify-search-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 6px;
-  margin-bottom: 8px;
-}
-.iconify-summary,
-.iconify-hint,
-.iconify-empty,
-.iconify-error {
-  padding: 4px;
-  font-size: 12px;
-  line-height: 1.4;
-  color: #666;
-}
-.iconify-error {
-  color: #c00;
-}
-.iconify-collection-filter {
-  width: 100%;
-  margin: 4px 0 8px;
-}
-.iconify-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
-}
-.iconify-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  min-height: 72px;
-  padding: 7px 5px;
-  border: 1px solid rgba(128, 128, 128, 0.15);
-  border-radius: 6px;
-  background: #fafafa;
-  color: #333;
-  cursor: pointer;
-  transition: border-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
-  &:hover:not(:disabled) {
-    border-color: #1e6fff;
-    color: #1e6fff;
-  }
-  &:disabled {
-    cursor: wait;
-    opacity: 0.55;
-  }
-}
-.iconify-preview-icon {
-  width: 26px;
-  height: 26px;
-  flex-shrink: 0;
-}
-.iconify-name {
-  width: 100%;
-  overflow: hidden;
-  text-align: center;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 11px;
 }
 
 /* ── 画布区 ── */
@@ -9865,632 +7823,4 @@ $panel-bg: #fff;
   }
 }
 
-/* ── 右栏 ── */
-.right-panel {
-  width: $right-w;
-  background: $panel-bg;
-  border-left: $border;
-  display: flex;
-  flex-direction: column;
-  flex-shrink: 0;
-  min-height: 0;
-  overflow: hidden;
-}
-.right-tabs {
-  border-bottom: none;
-}
-.right-panel-scroll {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-}
-.section-title-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding-right: 8px;
-}
-.size-lock-icon,
-.size-lock-spacer {
-  width: 20px;
-  height: 22px;
-  flex-shrink: 0;
-}
-.size-lock-spacer {
-  display: block;
-}
-.size-lock-icon {
-  justify-self: center;
-  padding: 3px;
-  cursor: pointer;
-  color: #666;
-  &.active { color: #1e6fff; }
-}
-.prop-section {
-  padding: 4px 0;
-  border-bottom: $border;
-}
-.transform-row {
-  display: grid!important;
-  grid-template-columns: 28px 20px 1fr 1fr;
-  column-gap: 4px;
-}
-.align-row {
-  display: grid!important;
-  grid-template-columns: 36px 1fr;
-  column-gap: 8px;
-  align-items: center;
-  :deep(.zt-popover) {
-    justify-self: end;
-  }
-}
-.align-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  grid-auto-rows: 1fr;
-  gap: 4px;
-  width: 100%;
-}
-.align-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 3px;
-  border: 1px solid rgba(128, 128, 128, 0.25);
-  border-radius: 5px;
-  background: #fff;
-  color: #555;
-  cursor: pointer;
-  transition: border-color 0.15s, color 0.15s, background 0.15s;
-  &:hover {
-    background: color-mix(in srgb, var(--primary-color) 8%, #fff);
-    border-color: var(--primary-color);
-    color: var(--primary-color);
-  }
-  &.active {
-    border-color: var(--primary-color);
-    color: var(--primary-color);
-    background: color-mix(in srgb, var(--primary-color) 12%, #fff);
-  }
-  &.align-trigger {
-    color: var(--primary-color);
-  }
-  svg {
-    width: 100%;
-    height: 100%;
-    display: block;
-  }
-}
-.align-grid .align-btn {
-  width: 100%;
-  height: auto;
-  aspect-ratio: 1;
-}
-.align-popover-grid {
-  width: 108px;
-}
-:deep(.zt-popover__panel:has(.align-popover-grid) .zt-popover__content) {
-  min-width: 0;
-}
-:deep(.zt-popover__panel:has(.align-popover-grid) .zt-popover__body--card) {
-  padding: 8px;
-}
-.gradient-stop-list {
-  display: flex;
-  flex-direction: column;
-}
-
-.prop-group {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 8px;
-  label {
-    font-size: 11px;
-    color: #666;
-    min-width: 36px;
-  }
-  :deep(.zt-input) {
-    width: 100%;
-  }
-  input[type="color"] {
-    width: 28px;
-    height: 24px;
-    padding: 0;
-    border: 1px solid #ccc;
-    border-radius: 3px;
-    cursor: pointer;
-    &:disabled { opacity: 0.45; cursor: not-allowed; }
-  }
-  input[type="range"] {
-    flex: 1;
-  }
-  select {
-    flex: 1;
-    padding: 3px 4px;
-    border: 1px solid #ccc;
-    border-radius: 3px;
-    font-size: 12px;
-  }
-  .val-label {
-    font-size: 11px;
-    color: #666;
-    min-width: 36px;
-    text-align: right;
-  }
-  &.rotation-row,
-  &.opacity-row,
-  &.gradient-radius-row {
-    label {
-      width: 52px;
-      min-width: 52px;
-      white-space: nowrap;
-    }
-  }
-  &.style-toggle-row,
-  &.style-color-row {
-    display: grid;
-    grid-template-columns: 48px 1fr;
-    column-gap: 8px;
-  }
-  &.gradient-stop-row {
-    display: grid;
-    grid-template-columns: 20px auto minmax(0, 1fr) auto auto;
-    column-gap: 6px;
-    align-items: center;
-  }
-  &.bezier-group-row {
-    display: grid;
-    grid-template-columns: 48px 1fr 1fr;
-    column-gap: 6px;
-  }
-  .stroke-line-type-picker {
-    justify-self: end;
-  }
-  &.style-toggle-row {
-    :deep(.zt-switch) {
-      justify-self: end;
-    }
-  }
-}
-
-.preview-panel {
-  padding: 0 8px 12px;
-}
-.preview-bg-switcher {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
-  margin-bottom: 12px;
-}
-.preview-bg-btn {
-  border: 1px solid var(--control-border);
-  border-radius: 4px;
-  padding: 5px 4px;
-  background: var(--control-bg);
-  color: var(--text-color);
-  cursor: pointer;
-  font-size: 12px;
-  &.active {
-    color: var(--primary-color);
-    border-color: var(--primary-color);
-    background: rgba(0, 128, 255, 0.08);
-  }
-}
-.preview-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-.preview-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  padding: 10px 6px;
-  border: 1px solid rgba(128, 128, 128, 0.16);
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--control-bg) 78%, transparent);
-}
-.preview-stage {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  overflow: hidden;
-  box-shadow: 0 0 0 1px rgba(128, 128, 128, 0.24);
-  image-rendering: auto;
-  &.preview-bg-transparent {
-    background-color: #fff;
-    background-image:
-      linear-gradient(45deg, rgba(0, 0, 0, 0.12) 25%, transparent 25%, transparent 75%, rgba(0, 0, 0, 0.12) 75%, rgba(0, 0, 0, 0.12)),
-      linear-gradient(45deg, rgba(0, 0, 0, 0.12) 25%, transparent 25%, transparent 75%, rgba(0, 0, 0, 0.12) 75%, rgba(0, 0, 0, 0.12));
-    background-position: 0 0, 4px 4px;
-    background-size: 8px 8px;
-  }
-  &.preview-bg-light {
-    background: #fff;
-  }
-  &.preview-bg-dark {
-    background: #111827;
-  }
-}
-.preview-image {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-.preview-size-label,
-.preview-hint {
-  font-size: 11px;
-  color: #777;
-  line-height: 1.35;
-}
-.preview-hint {
-  margin-top: 10px;
-}
-.icon-check-count {
-  min-width: 22px;
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: var(--primary-light-bg);
-  color: var(--primary-color);
-  font-size: 11px;
-  font-weight: 700;
-  text-align: center;
-}
-.icon-check-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 0 8px 10px;
-}
-.icon-check-item {
-  display: block;
-  width: 100%;
-  padding: 8px;
-  border: 1px solid rgba(128, 128, 128, 0.18);
-  border-left-width: 3px;
-  border-radius: 6px;
-  background: var(--control-bg);
-  color: var(--text-color);
-  text-align: left;
-  cursor: pointer;
-  transition: border-color 0.15s ease, background 0.15s ease;
-  &.severity-warning {
-    border-left-color: #f59e0b;
-  }
-  &.severity-info {
-    border-left-color: var(--primary-color);
-  }
-  &:hover {
-    border-color: var(--primary-color);
-    background: color-mix(in srgb, var(--primary-color) 8%, var(--control-bg));
-  }
-}
-.icon-check-item-title {
-  font-size: 12px;
-  font-weight: 700;
-  margin-bottom: 4px;
-}
-.icon-check-item-detail,
-.icon-check-item-target,
-.icon-check-empty {
-  font-size: 11px;
-  color: #777;
-  line-height: 1.35;
-}
-.icon-check-item-target {
-  margin-top: 5px;
-  color: var(--primary-color);
-}
-.icon-check-empty {
-  margin: 0 8px;
-  padding: 14px 8px;
-  border: 1px dashed rgba(128, 128, 128, 0.24);
-  border-radius: 6px;
-  text-align: center;
-}
-
-.gradient-stop-actions {
-  padding: 4px 8px 8px;
-}
-
-.gradient-stop-add-btn {
-  width: 100%;
-}
-
-.gradient-stop-handle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: #888;
-  cursor: grab;
-  &:active {
-    cursor: grabbing;
-  }
-}
-
-.prop-actions {
-  display: flex;
-  gap: 4px;
-  padding: 6px 8px;
-  flex-wrap: wrap;
-}
-.boolean-actions {
-  border-bottom: $border;
-  margin-top: 0;
-}
-.boolean-preview-menu {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 120px;
-}
-.boolean-preview-option {
-  width: 100%;
-  justify-content: flex-start;
-}
-.boolean-preview-note {
-  font-size: 12px;
-  color: #666;
-  line-height: 1.4;
-  max-width: 180px;
-}
-.boolean-status,
-.boolean-error {
-  width: 100%;
-  font-size: 12px;
-}
-.boolean-status { color: #666; }
-.boolean-error { color: #c00; }
-
-/* ── 图层 ── */
-.layer-header {
-  margin-top: 8px;
-  border-top: $border;
-  padding-top: 8px;
-}
-.layer-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
-  .layer-search {
-    flex: 1;
-    min-width: 0;
-  }
-}
-.layer-toolbar-btn {
-  flex-shrink: 0;
-}
-.layer-list {
-  display: flex;
-  flex-direction: column;
-}
-.layer-draggable-list {
-  display: flex;
-  flex-direction: column;
-  user-select: none;
-}
-.layer-empty {
-  padding: 10px 8px 12px;
-  font-size: 12px;
-  color: #888;
-}
-.layer-item {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 8px;
-  cursor: pointer;
-  user-select: none;
-  &.active { background: #d0e0ff; }
-  &:hover { background: #e8e8e8; }
-  &.is-drag-disabled .layer-drag-handle {
-    cursor: not-allowed;
-    color: #bbb;
-  }
-  .layer-name {
-    flex: 1;
-    font-size: 12px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    user-select: none;
-  }
-}
-.layer-drag-handle {
-  width: 20px;
-  height: 20px;
-  border: none;
-  background: none;
-  color: #888;
-  padding: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: grab;
-  &:disabled {
-    cursor: not-allowed;
-  }
-  &:active:not(:disabled) {
-    cursor: grabbing;
-  }
-}
-.export-dialog,
-.paste-svg-dialog,
-.user-asset-dialog,
-.layer-rename-dialog {
-  min-width: 320px;
-  border: 1px solid var(--control-border);
-  border-radius: 6px;
-  overflow: hidden;
-  background: var(--dialog-bg, #fff);
-}
-.export-dialog {
-  width: min(520px, 92vw);
-}
-.export-dialog-header,
-.paste-svg-header,
-.user-asset-dialog-header,
-.layer-rename-header {
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--divider-color, rgba(128, 128, 128, 0.18));
-}
-.export-dialog-title,
-.paste-svg-title,
-.user-asset-dialog-title,
-.layer-rename-title {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-color, #333);
-  line-height: 1.2;
-}
-.export-dialog-content,
-.paste-svg-content,
-.user-asset-dialog-content,
-.layer-rename-content {
-  padding: 16px;
-}
-.export-dialog-desc,
-.paste-svg-desc,
-.user-asset-dialog-desc {
-  margin-top: 6px;
-  font-size: 12px;
-  line-height: 1.5;
-  color: #777;
-}
-.export-section {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  &:not(:last-child) {
-    margin-bottom: 16px;
-  }
-}
-.export-section-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-color, #333);
-}
-.export-check-option {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--text-color, #333);
-}
-.export-size-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 6px;
-}
-.export-size-btn {
-  border: 1px solid var(--control-border);
-  border-radius: 4px;
-  padding: 6px 4px;
-  background: var(--control-bg);
-  color: var(--text-color);
-  cursor: pointer;
-  &.active {
-    color: var(--primary-color);
-    border-color: var(--primary-color);
-    background: rgba(0, 128, 255, 0.08);
-  }
-}
-.export-custom-size-row {
-  display: grid;
-  grid-template-columns: 52px 1fr;
-  align-items: center;
-  gap: 8px;
-  label {
-    font-size: 12px;
-    color: #777;
-  }
-}
-.export-transparent-option,
-.export-bg-option {
-  margin-top: 2px;
-}
-.export-status {
-  margin: 8px 0 0;
-  max-height: 160px;
-  overflow: auto;
-  padding: 8px;
-  border-radius: 4px;
-  background: var(--control-bg);
-  color: var(--text-color);
-  font-size: 12px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-}
-.paste-svg-textarea {
-  width: 100%;
-  min-height: 180px;
-  resize: vertical;
-  border: 1px solid var(--control-border);
-  border-radius: 4px;
-  padding: 8px;
-  background: var(--control-bg);
-  color: var(--text-color);
-  font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace;
-  font-size: 12px;
-  line-height: 1.5;
-  outline: none;
-  box-sizing: border-box;
-  &:focus {
-    border-color: var(--primary-color);
-  }
-}
-.paste-svg-error,
-.user-asset-dialog-error {
-  margin-top: 8px;
-  color: #c00;
-  font-size: 12px;
-  line-height: 1.4;
-}
-.export-dialog-actions,
-.paste-svg-actions,
-.user-asset-dialog-actions,
-.layer-rename-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  padding: 14px 16px;
-  border-top: 1px solid var(--divider-color, rgba(128, 128, 128, 0.18));
-}
-.paste-svg-action-spacer {
-  flex: 1;
-}
-:deep(.zt-modal:has(.export-dialog) .zt-modal__body),
-:deep(.zt-modal:has(.paste-svg-dialog) .zt-modal__body),
-:deep(.zt-modal:has(.user-asset-dialog) .zt-modal__body),
-:deep(.zt-modal:has(.layer-rename-dialog) .zt-modal__body) {
-  padding: 0;
-  border-radius: 6px;
-}
-.layer-icon-btn {
-  width: 22px;
-  height: 22px;
-  border: none;
-  background: none;
-  cursor: pointer;
-  font-size: 14px;
-  padding: 2px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  &.danger:hover { color: #c00; }
-}
 </style>
