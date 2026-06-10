@@ -334,6 +334,7 @@
       :can-export="exportDialogCanExport"
       :artboards="artboards"
       :export-all-artboards="exportDialog.exportAllArtboards"
+      :selected-preset="exportDialogSelectedPreset"
       @update:show="handleExportDialogShowChange"
       @set-format-enabled="setExportFormatEnabled"
       @update:svg-include-bg="exportDialog.svgIncludeBg = $event"
@@ -342,6 +343,7 @@
       @update:transparent-bg="exportDialog.transparentBg = $event"
       @update:file-prefix="exportDialog.filePrefix = $event"
       @update:export-all-artboards="exportDialog.exportAllArtboards = $event"
+      @select-preset="handleExportPresetSelect"
       @export="runExportDialogExport"
     />
 
@@ -910,6 +912,7 @@ const exportDialog = reactive<ExportDialogState>({
   status: '',
   loading: false
 })
+const exportDialogSelectedPreset = ref('')
 
 // Toast 通知状态
 const toast = reactive<{
@@ -7320,6 +7323,27 @@ function toggleExportPngSize(size: number) {
     exportDialog.pngSizes = [...exportDialog.pngSizes, normalized].sort((a, b) => a - b)
   }
   exportDialog.status = ''
+}
+
+// 应用图标套装预设
+function handleExportPresetSelect(presetId: string) {
+  exportDialogSelectedPreset.value = presetId
+  if (!presetId) return
+
+  const presets: Record<string, number[]> = {
+    favicon: [16, 32, 48, 64, 128, 256],
+    pwa: [72, 96, 128, 144, 152, 192, 384, 512],
+    android: [48, 72, 96, 144, 192, 512],
+    ios: [20, 29, 40, 58, 60, 76, 80, 87, 120, 152, 167, 180, 1024],
+    electron: [16, 24, 32, 48, 64, 128, 256, 512, 1024]
+  }
+
+  const sizes = presets[presetId]
+  if (sizes) {
+    exportDialog.pngEnabled = true
+    exportDialog.pngSizes = sizes
+    exportDialog.transparentBg = true
+  }
 }
 
 // 导出优化后的 SVG 到下载目录，支持导出面板传入自定义文件名和是否保留画布背景。

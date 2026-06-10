@@ -23,6 +23,17 @@
           <div v-if="!exportAllArtboards" class="export-artboard-hint">仅导出当前画板</div>
         </div>
         <div class="export-section">
+          <div class="export-section-title">快速预设</div>
+          <select class="export-preset-select" :value="selectedPreset" @change="$emit('select-preset', ($event.target as HTMLSelectElement).value)">
+            <option value="">自定义配置</option>
+            <option value="favicon">Favicon 套装 (16-256px)</option>
+            <option value="pwa">PWA Icons (72-512px)</option>
+            <option value="android">Android Launcher (48-512px)</option>
+            <option value="ios">iOS App Icon (20-1024px)</option>
+            <option value="electron">Electron Icon (16-1024px)</option>
+          </select>
+        </div>
+        <div class="export-section">
           <div class="export-section-title">格式</div>
           <label class="export-check-option">
             <input type="checkbox" :checked="dialog.svgEnabled" @change="$emit('set-format-enabled', 'svg', getChecked($event))" />
@@ -98,6 +109,7 @@ defineProps<{
   canExport: boolean
   artboards: IconCreatorProjectArtboard[]
   exportAllArtboards: boolean
+  selectedPreset: string
 }>()
 
 defineEmits<{
@@ -109,6 +121,7 @@ defineEmits<{
   (event: 'update:transparent-bg', value: boolean): void
   (event: 'update:file-prefix', value: string): void
   (event: 'update:export-all-artboards', value: boolean): void
+  (event: 'select-preset', presetId: string): void
   (event: 'export'): void
 }>()
 
@@ -202,6 +215,20 @@ function getChecked(event: Event) {
   font-size: 12px;
   color: #999;
   padding-left: 24px;
+}
+.export-preset-select {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--control-border);
+  border-radius: 4px;
+  background: var(--control-bg);
+  color: var(--text-color);
+  font-size: 13px;
+  cursor: pointer;
+  &:focus {
+    outline: none;
+    border-color: var(--primary-color);
+  }
 }
 .export-status {
   margin: 8px 0 0;
