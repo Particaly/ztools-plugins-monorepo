@@ -341,6 +341,9 @@
     <input ref="projectInputRef" type="file" accept=".iconcreator.json,application/json" style="display:none" @change="onProjectFileChosen" />
     <input ref="svgInputRef" type="file" accept=".svg,image/svg+xml" style="display:none" @change="onSVGFileChosen" />
     <input ref="imgInputRef" type="file" accept="image/*" style="display:none" @change="onImageFileChosen" />
+
+    <!-- Toast 通知 -->
+    <Toast :message="toast.message" :type="toast.type" :duration="toast.duration" :key="toast.key" />
   </div>
 </template>
 
@@ -394,6 +397,7 @@ import HomeTopBar from './components/HomeTopBar.vue'
 import LeftPanel from './components/LeftPanel.vue'
 import Ruler from './components/Ruler.vue'
 import ShortcutDrawer from './components/ShortcutDrawer.vue'
+import Toast from './components/Toast.vue'
 import ExportModal from './components/modals/ExportModal.vue'
 import LayerRenameModal from './components/modals/LayerRenameModal.vue'
 import PasteSvgModal from './components/modals/PasteSvgModal.vue'
@@ -868,6 +872,28 @@ const exportDialog = reactive<ExportDialogState>({
   status: '',
   loading: false
 })
+
+// Toast 通知状态
+const toast = reactive<{
+  message: string
+  type: 'success' | 'error' | 'info' | 'warning'
+  duration: number
+  key: number
+}>({
+  message: '',
+  type: 'info',
+  duration: 3000,
+  key: 0
+})
+
+// 显示 Toast 通知
+function showToast(message: string, type: 'success' | 'error' | 'info' | 'warning' = 'info', duration = 3000) {
+  toast.message = message
+  toast.type = type
+  toast.duration = duration
+  toast.key = Date.now() // 强制重新渲染
+}
+
 const keylineTemplateOptions: Array<{ value: KeylineTemplate; label: string }> = [
   { value: 'none', label: '无参考线' },
   { value: 'material', label: 'Material Keyline' },
@@ -6457,7 +6483,7 @@ async function applyIconTemplateAsDocument(template: IconTemplateItem) {
     resetHistoryToCurrentCanvas()
   } catch (error) {
     await loadProjectFile(previousProject, { keepDraft: true })
-    window.alert(error instanceof Error ? error.message : '应用模板失败')
+    showToast(error instanceof Error ? error.message : '应用模板失败', 'error')
   }
 }
 
@@ -6491,7 +6517,7 @@ async function onProjectFileChosen(e: Event) {
     const { project } = parseProjectFileText(await file.text())
     await loadProjectFile(project)
   } catch (error) {
-    window.alert(error instanceof Error ? error.message : '打开工程失败')
+    showToast(error instanceof Error ? error.message : '打开工程失败', 'error')
   } finally {
     input.value = ''
   }
@@ -6505,7 +6531,7 @@ async function onSVGFileChosen(e: Event) {
   try {
     await importSVGFile(file)
   } catch (error) {
-    window.alert(error instanceof Error ? error.message : '导入 SVG 失败')
+    showToast(error instanceof Error ? error.message : '导入 SVG 失败', 'error')
   } finally {
     input.value = ''
   }
@@ -6755,13 +6781,13 @@ async function handleCanvasDrop(e: DragEvent) {
       try {
         await importSVGFile(file)
       } catch (error) {
-        window.alert(error instanceof Error ? error.message : '导入 SVG 失败')
+        showToast(error instanceof Error ? error.message : '导入 SVG 失败', 'error')
       }
     } else if (file.type.startsWith('image/')) {
       try {
         await importImageFile(file)
       } catch (error) {
-        window.alert(error instanceof Error ? error.message : '导入图片失败')
+        showToast(error instanceof Error ? error.message : '导入图片失败', 'error')
       }
     }
   }
@@ -6800,7 +6826,7 @@ async function onImageFileChosen(e: Event) {
   try {
     await importImageFile(file)
   } catch (error) {
-    window.alert(error instanceof Error ? error.message : '导入图片失败')
+    showToast(error instanceof Error ? error.message : '导入图片失败', 'error')
   } finally {
     ;(e.target as HTMLInputElement).value = ''
   }
@@ -6843,9 +6869,9 @@ function saveProject() {
   try {
     const filePath = window.services?.writeTextFile?.(stringifyProjectFile(createProjectFile()), PROJECT_FILE_EXTENSION)
     clearStoredDraft()
-    if (filePath) window.alert(`工程已保存：${filePath}`)
+    if (filePath) showToast(`工程已保存：${filePath}`, 'success')
   } catch (error) {
-    window.alert(error instanceof Error ? error.message : '保存工程失败')
+    showToast(error instanceof Error ? error.message : '保存工程失败', 'error')
   }
 }
 
@@ -7062,7 +7088,7 @@ async function copyAsSVG() {
   if (selectedObjects.length > 0) {
     const tempCanvas = createSelectionCanvas(selectedObjects)
     if (!tempCanvas) {
-      window.alert('无法复制选中对象：边界无效')
+      showToast('无法复制选中对象：边界无效', 'error')
       return
     }
     try {
@@ -7085,14 +7111,14 @@ async function copyAsSVG() {
     svgContent = createOptimizedSVG(false)
   }
   if (!svgContent) {
-    window.alert('生成 SVG 失败')
+    showToast('生成 SVG 失败', 'error')
     return
   }
   try {
     await navigator.clipboard.writeText(svgContent)
-    console.log('已复制 SVG 到剪贴板')
+    showToast('已复制 SVG 到剪贴板', 'success')
   } catch (error) {
-    window.alert('复制到剪贴板失败：' + (error instanceof Error ? error.message : '未知错误'))
+    showToast('复制到剪贴板失败：' + (error instanceof Error ? error.message : '未知错误'), 'error')
   }
 }
 
@@ -7105,7 +7131,7 @@ async function copyAsPNG() {
   if (selectedObjects.length > 0) {
     const tempCanvas = createSelectionCanvas(selectedObjects)
     if (!tempCanvas) {
-      window.alert('无法复制选中对象：边界无效')
+      showToast('无法复制选中对象：边界无效', 'error')
       return
     }
     try {
@@ -7117,7 +7143,7 @@ async function copyAsPNG() {
     dataUrl = renderPNGDataUrl(canvasWidth.value, true)
   }
   if (!dataUrl) {
-    window.alert('生成 PNG 失败')
+    showToast('生成 PNG 失败', 'error')
     return
   }
   try {
@@ -7126,9 +7152,9 @@ async function copyAsPNG() {
     await navigator.clipboard.write([
       new ClipboardItem({ 'image/png': blob })
     ])
-    console.log('已复制 PNG 到剪贴板')
+    showToast('已复制 PNG 到剪贴板', 'success')
   } catch (error) {
-    window.alert('复制到剪贴板失败：' + (error instanceof Error ? error.message : '未知错误'))
+    showToast('复制到剪贴板失败：' + (error instanceof Error ? error.message : '未知错误'), 'error')
   }
 }
 
