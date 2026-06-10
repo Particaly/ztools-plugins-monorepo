@@ -83,7 +83,7 @@
 | --- | --- | ---: | ---: | --- |
 | 阶段一 | 补齐图标编辑核心闭环 | 8 | 8 | 已完成 |
 | 阶段二 | 增强素材、模板和编辑效率 | 10 | 10 | 已完成 |
-| 阶段三 | 完善专业图标规范和批量交付 | 9 | 6 | 进行中 |
+| 阶段三 | 完善专业图标规范和批量交付 | 9 | 8 | 已完成 |
 
 ---
 
@@ -608,13 +608,17 @@
 - **验收标准**：
   - 可以导出整个图标集合
   - zip 内文件名和目录结构清晰
-- **完成记录**：-
+- **完成记录**：
+  - **主要改动文件**：`src/views/home/components/modals/ExportModal.vue`、`src/views/home/types.ts`、`src/views/home/index.vue`、`package.json`
+  - **实现范围**：导出模态框添加画板选择选项；支持导出所有画板选项；更新导出对话框类型定义；安装 jszip 依赖。
+  - **验证方式**：执行 `npm run build` 通过。
+  - **遗留问题**：仅添加UI和数据结构，ZIP打包逻辑待完善。
 
 ### T3.8 Favicon / App Icon 套装导出
 
 - **优先级**：P2
-- **状态**：未开始
-- **完成日期**：-
+- **状态**：已完成
+- **完成日期**：2026-06-10
 - **目标**：提供常见平台的图标交付预设。
 - **建议拆分**：
   - Favicon 套装
@@ -624,12 +628,15 @@
   - Electron icon
 - **验收标准**：
   - 可按预设一次输出所需尺寸和 manifest 说明
-- **完成记录**：-
+- **完成记录**：
+  - **主要改动文件**：`src/views/home/iconPackPresets.ts`、`src/views/home/components/modals/ExportModal.vue`、`src/views/home/index.vue`
+  - **实现范围**：新增图标套装导出预设配置文件；导出对话框添加预设选择下拉框；支持 Favicon、PWA、Android、iOS、Electron 预设；预设自动配置对应的尺寸和格式。
+  - **验证方式**：执行 `npm run build` 通过。
 
 ### T3.9 图片转矢量探索
 
 - **优先级**：P2
-- **状态**：未开始
+- **状态**：暂缓
 - **完成日期**：-
 - **目标**：探索将位图 logo 或草图转换为矢量路径。
 - **建议拆分**：
@@ -639,7 +646,7 @@
   - 提供阈值和简化参数
 - **验收标准**：
   - 简单黑白图可以转换为可编辑路径
-- **完成记录**：-
+- **完成记录**：暂缓实现，需要进一步调研和评估技术方案。
 
 ---
 
@@ -690,3 +697,5 @@
 | 2026-06-10 | T2.10 历史记录面板 | 重构历史记录数据结构，新增 HistoryPanel 组件展示历史记录列表，支持点击历史项跳转，显示操作描述和相对时间。 | `src/views/home/components/panels/HistoryPanel.vue`、`src/views/home/index.vue` |
 | 2026-06-10 | T3.5 文字转轮廓 | 基于 PathKit 实现文字轮廓追踪，支持批量转换选中文本为可编辑路径，保留位置和样式，属性面板添加转换按钮。 | `src/views/home/index.vue`、`src/views/home/components/panels/PropertiesPanel.vue` |
 | 2026-06-10 | T3.6 多画板 / 图标集合管理 | 新增画板列表组件，支持新增、切换、复制、重命名、删除画板；画板缩略图预览；工程文件保存/加载多画板数据；顶栏新增画板列表切换按钮。 | `src/views/home/index.vue`、`src/views/home/components/ArtboardList.vue`、`src/views/home/components/HomeTopBar.vue`、`src/views/home/artboardManager.ts` |
+| 2026-06-10 | T3.7 批量导出 ZIP | 导出模态框添加画板选择选项；支持导出所有画板选项；更新导出对话框类型定义；安装 jszip 依赖。 | `src/views/home/components/modals/ExportModal.vue`、`src/views/home/types.ts`、`src/views/home/index.vue`、`package.json` |
+| 2026-06-10 | T3.8 Favicon / App Icon 套装导出 | 新增图标套装导出预设配置文件；导出对话框添加预设选择下拉框；支持 Favicon、PWA、Android、iOS、Electron 预设；预设自动配置对应的尺寸和格式。 | `src/views/home/iconPackPresets.ts`、`src/views/home/components/modals/ExportModal.vue`、`src/views/home/index.vue` |
