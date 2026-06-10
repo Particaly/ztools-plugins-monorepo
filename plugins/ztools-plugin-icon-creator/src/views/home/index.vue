@@ -439,13 +439,9 @@ import {
   DEFAULT_KEYLINE_MARGIN,
   DEFAULT_KEYLINE_TEMPLATE,
   DEFAULT_PIXEL_GRID_SIZE,
-  DRAFT_SAVE_DELAY,
-  DRAFT_STORAGE_KEY,
   EXPORT_PNG_SIZE_OPTIONS,
   ICONIFY_SEARCH_LIMIT,
   MIN_PIXEL_GRID_VISIBLE_STEP,
-  PROJECT_FILE_EXTENSION,
-  PROJECT_SCHEMA_VERSION,
   SMALL_PREVIEW_SIZE_OPTIONS,
   TEXT_OUTLINE_ALPHA_THRESHOLD,
   TEXT_OUTLINE_TRACE_MULTIPLIER,
@@ -472,9 +468,6 @@ import type {
   FillModeOption,
   GradientPresetItem,
   IconCheckIssue,
-  IconCreatorDraftFile,
-  IconCreatorProjectFile,
-  IconCreatorProjectArtboard,
   IconifySearchResponse,
   IconifySearchState,
   InternalClipboard,
@@ -489,7 +482,6 @@ import type {
   PreviewBackgroundMode,
   PreviewItem,
   RightPanelTab,
-  ProjectLoadOptions,
   SnapshotOptions,
   SegmentEndpointAttachment,
   SpacePanStart,
@@ -505,12 +497,14 @@ import { isTransparentCanvasBg, normalizeCanvasBg, normalizeKeylineMargin, norma
 import { ensureOptimizedSVGRoot, stripFabricSVGNoise, svgEscapeText, trimSVGWhitespace } from './exportUtils'
 import { buildIconCheckIssues as buildIconCheckIssuesFromContext } from './iconChecks'
 import { commitNumericInput, commitPositiveNumericInput, formatNumericInputValue, normalizeInputValue } from './inputUtils'
-import { normalizeProjectCanvasSettings, parseProjectFileText, stringifyProjectFile } from './projectFile'
+import { parseProjectFileText } from './projectFile'
 import { isBooleanCandidate, fabricObjectToPathKitWithApi, fabricStrokeToPathKitWithApi, type FabricBooleanStyleSnapshot } from './geometry/fabricToPathKit'
 import { applyBooleanOperation, computeBooleanResult } from './geometry/booleanOps'
 import type { BooleanOperation, SubtractDirection } from './geometry/booleanOps'
 import { pathKitToEditablePathObject, pathKitToFabricPath } from './geometry/pathKitToFabric'
 import { getPathKit, peekPathKit } from './geometry/pathkit'
+import { useHomeArtboards } from './composables/useHomeArtboards'
+import { useHomeDocument } from './composables/useHomeDocument'
 import {
   editablePointToLocalObjectPoint,
   getArrowRenderMode,
@@ -572,14 +566,7 @@ let restoreActiveObjectAfterSelectionClear = false
 let pointModeSwitchPending = false
 let internalClipboard: InternalClipboard | null = null
 let spacePanStart: SpacePanStart | null = null
-let draftSaveTimer: ReturnType<typeof window.setTimeout> | null = null
-let draftDirty = false
-let restoringDraftPromptShown = false
-let artboardIdSeed = 0
-
-const artboards = ref<IconCreatorProjectArtboard[]>([])
-const activeArtboardId = ref<string>('')
-const showArtboardList = ref(false)
+const artboardIdSeed = ref(0)
 
 const leftTab = ref<LeftPanelTab>('shape')
 const activeRightTab = ref<RightPanelTab>('properties')
@@ -834,16 +821,6 @@ function resetPointGestureState() {
 }
 
 // 撤销重做
-interface HistorySnapshot {
-  json: string
-  description: string
-  timestamp: number
-}
-const undoStack: HistorySnapshot[] = []
-const redoStack: HistorySnapshot[] = []
-const historyIndex = ref(0) // 当前所在的历史位置
-const canUndo = ref(false)
-const canRedo = ref(false)
 let skipSnapshot = false
 function withSnapshotSuppressed<T>(callback: () => T) {
   const previous = skipSnapshot
@@ -934,6 +911,122 @@ function showToast(message: string, type: 'success' | 'error' | 'info' | 'warnin
   toast.duration = duration
   toast.key = Date.now() // 强制重新渲染
 }
+
+const snapshotGate = {
+  get: () => skipSnapshot,
+  set: (value: boolean) => {
+    skipSnapshot = value
+  }
+}
+const canvasState = {
+  canvasWidth,
+  canvasHeight,
+  canvasBg,
+  lastOpaqueCanvasBg,
+  showPixelGrid,
+  snapToPixelGrid,
+  pixelGridSize,
+  keylineTemplate,
+  keylineMargin
+}
+let snapshotFromDocument: ((options?: SnapshotOptions) => void) | null = null
+const homeArtboards = useHomeArtboards({
+  artboardIdSeed,
+  getFabricCanvas: () => fabricCanvas,
+  serializeFabricCanvas,
+  snapshotGate,
+  snapshot: (options) => {
+    snapshotFromDocument?.(options)
+  },
+  canvasState,
+  showToast,
+  isBooleanPreviewObject,
+  ensureEditorObjectId,
+  isTransparentCanvasBg,
+  clearBooleanPreview,
+  clearPointEditing,
+  syncPixelGridSizeInput,
+  syncKeylineMarginInput,
+  syncCanvasSizeInputs,
+  syncCanvasInteractionMode,
+  applyCanvasBgToFabric,
+  syncActiveObject,
+  syncAllKaleidoscopes,
+  ensureCanvasObjectMetadata,
+  applyProjectLayerOrder,
+  rehydrateCanvasGradientFills,
+  syncAllEndpointAttachments,
+  applyCanvasTheme,
+  refreshLayers,
+  fitCanvasInView,
+  markSmallPreviewsDirty
+})
+const {
+  artboards,
+  activeArtboardId,
+  showArtboardList,
+  captureCurrentArtboard,
+  loadArtboardContent,
+  switchArtboard,
+  addArtboard,
+  duplicateArtboard,
+  renameArtboard,
+  deleteArtboard
+} = homeArtboards
+const homeDocument = useHomeDocument({
+  getFabricCanvas: () => fabricCanvas,
+  serializeFabricCanvas,
+  snapshotGate,
+  canvasState,
+  artboardState: {
+    artboards,
+    activeArtboardId,
+    showArtboardList
+  },
+  captureCurrentArtboard,
+  loadArtboardContent,
+  showToast,
+  clearBooleanPreview,
+  clearPointEditing,
+  syncPixelGridSizeInput,
+  syncKeylineMarginInput,
+  syncCanvasSizeInputs,
+  syncCanvasInteractionMode,
+  applyCanvasBgToFabric,
+  syncCanvasBgFromFabric,
+  syncActiveObject,
+  syncAllKaleidoscopes,
+  ensureCanvasObjectMetadata,
+  applyProjectLayerOrder,
+  rehydrateCanvasGradientFills,
+  syncAllEndpointAttachments,
+  applyCanvasTheme,
+  refreshLayers,
+  fitCanvasInView,
+  markSmallPreviewsDirty,
+  isBooleanPreviewObject,
+  ensureEditorObjectId,
+  isTransparentCanvasBg
+})
+snapshotFromDocument = homeDocument.snapshot
+const {
+  undoStack,
+  historyIndex,
+  canUndo,
+  canRedo,
+  snapshot,
+  createProjectFile,
+  resetHistoryToCurrentCanvas,
+  loadProjectFile,
+  scheduleDraftSave,
+  clearStoredDraft,
+  promptRestoreDraft,
+  flushDraftBeforeDispose,
+  saveProject,
+  undo,
+  redo,
+  jumpToHistory
+} = homeDocument
 
 const keylineTemplateOptions: Array<{ value: KeylineTemplate; label: string }> = [
   { value: 'none', label: '无参考线' },
@@ -4468,29 +4561,9 @@ const filteredLayers = computed(() => {
   return items
 })
 
-// ── 快照（撤销重做） ──
-// 序列化当前 Fabric 画布，统一保留项目需要的自定义对象元数据。
 function serializeFabricCanvas() {
   ensureCanvasObjectMetadata()
   return (fabricCanvas as any).toObject(SERIALIZED_OBJECT_PROPS as unknown as string[]) as Record<string, unknown>
-}
-
-// 记录一次可撤销快照，并在真实编辑后触发草稿自动保存和小尺寸预览刷新。
-function snapshot(options: SnapshotOptions = {}) {
-  if (skipSnapshot || !fabricCanvas) return
-  const description = options.description || '编辑操作'
-  undoStack.push({
-    json: JSON.stringify(serializeFabricCanvas()),
-    description,
-    timestamp: Date.now()
-  })
-  if (undoStack.length > 60) undoStack.shift()
-  redoStack.length = 0
-  historyIndex.value = undoStack.length - 1
-  canUndo.value = undoStack.length > 1
-  canRedo.value = false
-  markSmallPreviewsDirty()
-  if (options.autoSave !== false) scheduleDraftSave()
 }
 
 function applyCanvasBgToFabric(value: string) {
@@ -4510,243 +4583,6 @@ function syncCanvasBgFromFabric() {
   lastOpaqueCanvasBg.value = next
 }
 
-// ── 画板管理 ──
-function generateArtboardId(): string {
-  return `artboard-${++artboardIdSeed}-${Date.now()}`
-}
-
-function captureCurrentArtboard(): IconCreatorProjectArtboard {
-  if (!fabricCanvas) throw new Error('画布尚未初始化')
-  const layerOrder = fabricCanvas.getObjects()
-    .filter((obj) => !isBooleanPreviewObject(obj))
-    .map((obj) => ensureEditorObjectId(obj))
-  return {
-    id: activeArtboardId.value || generateArtboardId(),
-    name: `画板 ${artboards.value.length + 1}`,
-    canvas: {
-      width: canvasWidth.value,
-      height: canvasHeight.value,
-      background: canvasBg.value,
-      gridSize: pixelGridSize.value,
-      showPixelGrid: showPixelGrid.value,
-      snapToPixelGrid: snapToPixelGrid.value,
-      keylineTemplate: keylineTemplate.value,
-      keylineMargin: keylineMargin.value
-    },
-    fabric: serializeFabricCanvas(),
-    layerOrder,
-    thumbnail: generateArtboardThumbnail()
-  }
-}
-
-function generateArtboardThumbnail(): string {
-  if (!fabricCanvas) return ''
-  try {
-    return fabricCanvas.toDataURL({ format: 'png', multiplier: 64 / Math.max(canvasWidth.value, canvasHeight.value) })
-  } catch {
-    return ''
-  }
-}
-
-async function switchArtboard(artboardId: string) {
-  if (!fabricCanvas || artboardId === activeArtboardId.value) return
-  const target = artboards.value.find(a => a.id === artboardId)
-  if (!target) return
-
-  // 保存当前画板状态
-  if (activeArtboardId.value) {
-    const currentIndex = artboards.value.findIndex(a => a.id === activeArtboardId.value)
-    if (currentIndex >= 0) {
-      artboards.value[currentIndex] = captureCurrentArtboard()
-    }
-  }
-
-  // 切换到目标画板
-  activeArtboardId.value = artboardId
-  await loadArtboardContent(target)
-  snapshot({ description: `切换到画板: ${target.name}`, autoSave: true })
-}
-
-async function loadArtboardContent(artboard: IconCreatorProjectArtboard) {
-  if (!fabricCanvas) return
-  clearBooleanPreview()
-  clearPointEditing()
-
-  const settings = normalizeProjectCanvasSettings(artboard.canvas)
-  canvasWidth.value = settings.width
-  canvasHeight.value = settings.height
-  canvasBg.value = settings.background
-  pixelGridSize.value = normalizePixelGridSize(settings.gridSize)
-  showPixelGrid.value = settings.showPixelGrid === true
-  snapToPixelGrid.value = settings.snapToPixelGrid === true
-  keylineTemplate.value = normalizeKeylineTemplate(settings.keylineTemplate)
-  keylineMargin.value = normalizeKeylineMargin(settings.keylineMargin)
-
-  syncPixelGridSizeInput()
-  syncKeylineMarginInput()
-  syncCanvasInteractionMode()
-  if (!isTransparentCanvasBg(settings.background)) lastOpaqueCanvasBg.value = settings.background
-  syncCanvasSizeInputs()
-
-  skipSnapshot = true
-  try {
-    fabricCanvas.clear()
-    fabricCanvas.setDimensions({ width: canvasWidth.value, height: canvasHeight.value })
-    await fabricCanvas.loadFromJSON(artboard.fabric)
-    applyCanvasBgToFabric(canvasBg.value)
-    await syncAllKaleidoscopes()
-    ensureCanvasObjectMetadata()
-    applyProjectLayerOrder(artboard.layerOrder)
-    rehydrateCanvasGradientFills()
-    syncAllEndpointAttachments()
-    applyCanvasTheme()
-    syncCanvasInteractionMode()
-    fabricCanvas.discardActiveObject()
-    syncActiveObject(null)
-    fabricCanvas.requestRenderAll()
-    refreshLayers()
-    fitCanvasInView()
-    markSmallPreviewsDirty()
-  } finally {
-    skipSnapshot = false
-  }
-}
-
-function addArtboard() {
-  const newArtboard: IconCreatorProjectArtboard = {
-    id: generateArtboardId(),
-    name: `画板 ${artboards.value.length + 1}`,
-    canvas: {
-      width: 512,
-      height: 512,
-      background: '#ffffff',
-      gridSize: DEFAULT_PIXEL_GRID_SIZE,
-      showPixelGrid: false,
-      snapToPixelGrid: false,
-      keylineTemplate: DEFAULT_KEYLINE_TEMPLATE,
-      keylineMargin: DEFAULT_KEYLINE_MARGIN
-    },
-    fabric: { version: '6.0.0', objects: [] },
-    layerOrder: []
-  }
-
-  // 保存当前画板
-  if (activeArtboardId.value && fabricCanvas) {
-    const currentIndex = artboards.value.findIndex(a => a.id === activeArtboardId.value)
-    if (currentIndex >= 0) {
-      artboards.value[currentIndex] = captureCurrentArtboard()
-    }
-  }
-
-  artboards.value.push(newArtboard)
-  activeArtboardId.value = newArtboard.id
-  loadArtboardContent(newArtboard)
-  showToast('新建画板成功', 'success')
-  snapshot({ description: '新建画板', autoSave: true })
-}
-
-function duplicateArtboard(artboardId: string) {
-  const source = artboards.value.find(a => a.id === artboardId)
-  if (!source) return
-
-  const duplicate: IconCreatorProjectArtboard = {
-    ...source,
-    id: generateArtboardId(),
-    name: `${source.name} 副本`,
-    canvas: { ...source.canvas },
-    fabric: JSON.parse(JSON.stringify(source.fabric)),
-    layerOrder: [...source.layerOrder]
-  }
-
-  artboards.value.push(duplicate)
-  showToast('复制画板成功', 'success')
-}
-
-function renameArtboard(artboardId: string) {
-  const artboard = artboards.value.find(a => a.id === artboardId)
-  if (!artboard) return
-
-  const newName = window.prompt('请输入新名称:', artboard.name)
-  if (newName && newName.trim()) {
-    artboard.name = newName.trim()
-    showToast('重命名成功', 'success')
-  }
-}
-
-function deleteArtboard(artboardId: string) {
-  if (artboards.value.length <= 1) {
-    showToast('至少保留一个画板', 'warning')
-    return
-  }
-
-  if (!window.confirm('确定删除该画板吗?')) return
-
-  const index = artboards.value.findIndex(a => a.id === artboardId)
-  if (index < 0) return
-
-  artboards.value.splice(index, 1)
-
-  // 如果删除的是当前画板，切换到第一个
-  if (artboardId === activeArtboardId.value && artboards.value.length > 0) {
-    switchArtboard(artboards.value[0].id)
-  }
-
-  showToast('删除画板成功', 'success')
-}
-
-// 基于当前编辑器状态生成工程文件数据，供手动保存与自动草稿复用同一份 schema。
-function createProjectFile(): IconCreatorProjectFile {
-  if (!fabricCanvas) throw new Error('画布尚未初始化')
-  const now = new Date().toISOString()
-  const layerOrder = fabricCanvas.getObjects()
-    .filter((obj) => !isBooleanPreviewObject(obj))
-    .map((obj) => ensureEditorObjectId(obj))
-
-  const projectFile: IconCreatorProjectFile = {
-    app: 'icon-creator',
-    schemaVersion: PROJECT_SCHEMA_VERSION,
-    createdAt: now,
-    updatedAt: now,
-    canvas: {
-      width: canvasWidth.value,
-      height: canvasHeight.value,
-      background: canvasBg.value,
-      gridSize: pixelGridSize.value,
-      showPixelGrid: showPixelGrid.value,
-      snapToPixelGrid: snapToPixelGrid.value,
-      keylineTemplate: keylineTemplate.value,
-      keylineMargin: keylineMargin.value
-    },
-    fabric: serializeFabricCanvas(),
-    layerOrder
-  }
-
-  // 如果有多个画板，保存所有画板数据
-  if (artboards.value.length > 0) {
-    // 更新当前画板
-    if (activeArtboardId.value) {
-      const currentIndex = artboards.value.findIndex(a => a.id === activeArtboardId.value)
-      if (currentIndex >= 0) {
-        artboards.value[currentIndex] = captureCurrentArtboard()
-      }
-    }
-    projectFile.artboards = artboards.value.map(ab => ({ ...ab }))
-    projectFile.activeArtboardId = activeArtboardId.value
-  }
-
-  return projectFile
-}
-
-// 重置撤销重做栈，并把当前画布状态作为打开工程后的初始快照。
-function resetHistoryToCurrentCanvas() {
-  undoStack.length = 0
-  redoStack.length = 0
-  canUndo.value = false
-  canRedo.value = false
-  snapshot({ autoSave: false })
-}
-
-// 根据工程中记录的 editorObjectId 顺序恢复图层，缺失或新增对象保留当前相对顺序追加。
 function applyProjectLayerOrder(layerOrder: string[]) {
   if (!fabricCanvas || !layerOrder.length) return
   const orderMap = new Map(layerOrder.map((id, index) => [id, index]))
@@ -4761,237 +4597,6 @@ function applyProjectLayerOrder(layerOrder: string[]) {
     return (fallbackIndexMap.get(a) ?? 0) - (fallbackIndexMap.get(b) ?? 0)
   })
   sorted.forEach((obj, index) => fabricCanvas!.moveObjectTo(obj as AnyFabricObject, index))
-}
-
-// 将工程数据恢复到 Fabric 画布，并同步尺寸、背景、图层、自定义元数据和小尺寸预览状态。
-async function loadProjectFile(project: IconCreatorProjectFile, options: ProjectLoadOptions = {}) {
-  if (!fabricCanvas) return
-
-  // 如果有多画板数据，加载所有画板
-  if (project.artboards && project.artboards.length > 0) {
-    artboards.value = project.artboards.map(ab => ({ ...ab }))
-    activeArtboardId.value = project.activeArtboardId || artboards.value[0].id
-    showArtboardList.value = true
-
-    const activeArtboard = artboards.value.find(ab => ab.id === activeArtboardId.value) || artboards.value[0]
-    await loadArtboardContent(activeArtboard)
-  } else {
-    // 单画板模式
-    artboards.value = []
-    activeArtboardId.value = ''
-    showArtboardList.value = false
-
-    clearBooleanPreview()
-    clearPointEditing()
-    const settings = normalizeProjectCanvasSettings(project.canvas)
-    canvasWidth.value = settings.width
-    canvasHeight.value = settings.height
-    canvasBg.value = settings.background
-    pixelGridSize.value = normalizePixelGridSize(settings.gridSize)
-    showPixelGrid.value = settings.showPixelGrid === true
-    snapToPixelGrid.value = settings.snapToPixelGrid === true
-    keylineTemplate.value = normalizeKeylineTemplate(settings.keylineTemplate)
-    keylineMargin.value = normalizeKeylineMargin(settings.keylineMargin)
-    syncPixelGridSizeInput()
-    syncKeylineMarginInput()
-    syncCanvasInteractionMode()
-    if (!isTransparentCanvasBg(settings.background)) lastOpaqueCanvasBg.value = settings.background
-    syncCanvasSizeInputs()
-    skipSnapshot = true
-    try {
-      fabricCanvas.clear()
-      fabricCanvas.setDimensions({ width: canvasWidth.value, height: canvasHeight.value })
-      await fabricCanvas.loadFromJSON(project.fabric)
-      applyCanvasBgToFabric(canvasBg.value)
-      await syncAllKaleidoscopes()
-      ensureCanvasObjectMetadata()
-      applyProjectLayerOrder(project.layerOrder)
-      rehydrateCanvasGradientFills()
-      syncAllEndpointAttachments()
-      applyCanvasTheme()
-      syncCanvasInteractionMode()
-      fabricCanvas.discardActiveObject()
-      syncActiveObject(null)
-      fabricCanvas.requestRenderAll()
-      refreshLayers()
-      fitCanvasInView()
-      markSmallPreviewsDirty()
-    } finally {
-      skipSnapshot = false
-    }
-  }
-
-  if (options.resetHistory !== false) resetHistoryToCurrentCanvas()
-  if (!options.keepDraft) clearStoredDraft()
-}
-
-// 延迟写入自动草稿，避免拖拽或连续属性调整时频繁访问 localStorage。
-function scheduleDraftSave() {
-  if (!fabricCanvas || typeof window === 'undefined') return
-  draftDirty = true
-  if (draftSaveTimer != null) window.clearTimeout(draftSaveTimer)
-  draftSaveTimer = window.setTimeout(() => {
-    draftSaveTimer = null
-    saveDraftNow()
-  }, DRAFT_SAVE_DELAY)
-}
-
-// 立即把当前工程状态写入本地草稿；失败时静默保留编辑流程不中断。
-function saveDraftNow() {
-  if (!fabricCanvas || typeof window === 'undefined') return
-  try {
-    const project = createProjectFile()
-    const draft: IconCreatorDraftFile = {
-      app: 'icon-creator',
-      schemaVersion: PROJECT_SCHEMA_VERSION,
-      updatedAt: new Date().toISOString(),
-      project
-    }
-    window.localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft))
-    draftDirty = false
-  } catch (error) {
-    console.warn('保存自动草稿失败', error)
-  }
-}
-
-// 清理本地草稿和等待中的写入计时器，用于新建、打开、显式保存后的草稿状态重置。
-function clearStoredDraft() {
-  if (draftSaveTimer != null) {
-    window.clearTimeout(draftSaveTimer)
-    draftSaveTimer = null
-  }
-  draftDirty = false
-  try {
-    window.localStorage.removeItem(DRAFT_STORAGE_KEY)
-  } catch (error) {
-    console.warn('清理自动草稿失败', error)
-  }
-}
-
-// 组件卸载前只取消计时器；若有未落盘编辑，先同步保存最后一版草稿。
-function flushDraftBeforeDispose() {
-  if (draftSaveTimer != null) {
-    window.clearTimeout(draftSaveTimer)
-    draftSaveTimer = null
-  }
-  if (draftDirty) saveDraftNow()
-}
-
-// 启动时读取本地草稿，解析失败会丢弃，避免坏数据反复打断初始化。
-function readStoredDraft() {
-  try {
-    const raw = window.localStorage.getItem(DRAFT_STORAGE_KEY)
-    if (!raw) return null
-    return parseProjectFileText(raw).project
-  } catch (error) {
-    console.warn('读取自动草稿失败', error)
-    clearStoredDraft()
-    return null
-  }
-}
-
-// 首次进入编辑器时询问是否恢复草稿；拒绝恢复则清理旧草稿，形成明确的新建策略。
-async function promptRestoreDraft() {
-  if (restoringDraftPromptShown) return
-  restoringDraftPromptShown = true
-  const draft = readStoredDraft()
-  if (!draft) return
-  const shouldRestore = window.confirm('检测到上次未保存的自动草稿，是否恢复？')
-  if (shouldRestore) {
-    await loadProjectFile(draft, { keepDraft: true })
-    saveDraftNow()
-  } else {
-    clearStoredDraft()
-  }
-}
-
-// 回退到上一份画布快照，恢复后同步图层、背景和小尺寸预览状态。
-function undo() {
-  if (undoStack.length <= 1 || !fabricCanvas) return
-  clearPointEditing()
-  redoStack.push(undoStack.pop()!)
-  canRedo.value = true
-  skipSnapshot = true
-  historyIndex.value = undoStack.length - 1
-  fabricCanvas.loadFromJSON(undoStack[undoStack.length - 1].json).then(async () => {
-    await syncAllKaleidoscopes()
-    ensureCanvasObjectMetadata()
-    rehydrateCanvasGradientFills()
-    syncAllEndpointAttachments()
-    fabricCanvas!.discardActiveObject()
-    syncActiveObject(null)
-    syncCanvasBgFromFabric()
-    fabricCanvas!.requestRenderAll()
-    skipSnapshot = false
-    refreshLayers()
-    markSmallPreviewsDirty()
-    canUndo.value = undoStack.length > 1
-  })
-}
-
-// 重新应用被撤销的画布快照，恢复后同步图层、背景和小尺寸预览状态。
-function redo() {
-  if (!redoStack.length || !fabricCanvas) return
-  clearPointEditing()
-  const snapshot = redoStack.pop()!
-  undoStack.push(snapshot)
-  skipSnapshot = true
-  historyIndex.value = undoStack.length - 1
-  fabricCanvas.loadFromJSON(snapshot.json).then(async () => {
-    await syncAllKaleidoscopes()
-    ensureCanvasObjectMetadata()
-    rehydrateCanvasGradientFills()
-    syncAllEndpointAttachments()
-    fabricCanvas!.discardActiveObject()
-    syncActiveObject(null)
-    syncCanvasBgFromFabric()
-    fabricCanvas!.requestRenderAll()
-    skipSnapshot = false
-    refreshLayers()
-    markSmallPreviewsDirty()
-    canUndo.value = undoStack.length > 1
-    canRedo.value = redoStack.length > 0
-  })
-}
-
-// 跳转到指定的历史记录
-function jumpToHistory(index: number) {
-  if (!fabricCanvas || index < 0 || index >= undoStack.length) return
-  if (index === historyIndex.value) return
-
-  clearPointEditing()
-
-  // 将当前到目标之间的快照移动到 redo 或 undo 栈
-  if (index < historyIndex.value) {
-    // 向后跳转：将中间的快照移到 redoStack
-    while (historyIndex.value > index) {
-      redoStack.push(undoStack.pop()!)
-      historyIndex.value--
-    }
-  } else {
-    // 向前跳转：从 redoStack 恢复
-    while (historyIndex.value < index && redoStack.length > 0) {
-      undoStack.push(redoStack.pop()!)
-      historyIndex.value++
-    }
-  }
-
-  skipSnapshot = true
-  fabricCanvas.loadFromJSON(undoStack[undoStack.length - 1].json).then(async () => {
-    await syncAllKaleidoscopes()
-    ensureCanvasObjectMetadata()
-    rehydrateCanvasGradientFills()
-    syncAllEndpointAttachments()
-    fabricCanvas!.discardActiveObject()
-    syncActiveObject(null)
-    syncCanvasBgFromFabric()
-    fabricCanvas!.requestRenderAll()
-    skipSnapshot = false
-    refreshLayers()
-    markSmallPreviewsDirty()
-    canUndo.value = undoStack.length > 1
-    canRedo.value = redoStack.length > 0
-  })
 }
 
 // ── 对象样式辅助 ──
@@ -7168,19 +6773,6 @@ async function handleWindowPaste(e: ClipboardEvent) {
 }
 
 // ── 导出 ──
-// 手动保存当前工程文件，成功后清理自动草稿，表示当前编辑状态已有明确落盘版本。
-function saveProject() {
-  if (!fabricCanvas) return
-  clearBooleanPreview()
-  try {
-    const filePath = window.services?.writeTextFile?.(stringifyProjectFile(createProjectFile()), PROJECT_FILE_EXTENSION)
-    clearStoredDraft()
-    if (filePath) showToast(`工程已保存：${filePath}`, 'success')
-  } catch (error) {
-    showToast(error instanceof Error ? error.message : '保存工程失败', 'error')
-  }
-}
-
 // 规范导出文件名前缀，避免空值或非法文件名字符影响下载目录写入。
 function getExportFilePrefix() {
   const normalized = exportDialog.filePrefix.trim().replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
