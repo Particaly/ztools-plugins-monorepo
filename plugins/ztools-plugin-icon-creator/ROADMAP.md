@@ -83,7 +83,7 @@
 | --- | --- | ---: | ---: | --- |
 | 阶段一 | 补齐图标编辑核心闭环 | 8 | 8 | 已完成 |
 | 阶段二 | 增强素材、模板和编辑效率 | 10 | 10 | 已完成 |
-| 阶段三 | 完善专业图标规范和批量交付 | 9 | 5 | 进行中 |
+| 阶段三 | 完善专业图标规范和批量交付 | 9 | 6 | 进行中 |
 
 ---
 
@@ -576,8 +576,8 @@
 ### T3.6 多画板 / 图标集合管理
 
 - **优先级**：P2
-- **状态**：未开始
-- **完成日期**：-
+- **状态**：已完成
+- **完成日期**：2026-06-10
 - **目标**：支持一个项目内管理多个图标。
 - **建议拆分**：
   - 定义多画板数据结构
@@ -587,7 +587,11 @@
 - **验收标准**：
   - 一个工程文件可以保存多个图标
   - 可以切换不同图标继续编辑
-- **完成记录**：-
+- **完成记录**：
+  - **主要改动文件**：`src/views/home/index.vue`、`src/views/home/components/ArtboardList.vue`、`src/views/home/components/HomeTopBar.vue`、`src/views/home/artboardManager.ts`
+  - **实现范围**：新增画板列表组件，支持新增、切换、复制、重命名、删除画板；画板缩略图预览；工程文件保存/加载多画板数据；顶栏新增画板列表切换按钮。
+  - **验证方式**：执行 `npm run build` 通过。
+  - **遗留问题**：当前画板列表显示在左侧面板旁边，暂未提供拖拽排序、画板搜索和批量操作功能。
 
 ### T3.7 批量导出 ZIP
 
@@ -685,3 +689,4 @@
 | 2026-06-10 | T2.9 操作提示与导出反馈 | 新增 Toast 通知组件，替换所有 window.alert 为友好的 toast 提示，支持成功、错误、信息、警告四种类型，覆盖所有关键操作反馈。 | `src/views/home/components/Toast.vue`、`src/views/home/index.vue` |
 | 2026-06-10 | T2.10 历史记录面板 | 重构历史记录数据结构，新增 HistoryPanel 组件展示历史记录列表，支持点击历史项跳转，显示操作描述和相对时间。 | `src/views/home/components/panels/HistoryPanel.vue`、`src/views/home/index.vue` |
 | 2026-06-10 | T3.5 文字转轮廓 | 基于 PathKit 实现文字轮廓追踪，支持批量转换选中文本为可编辑路径，保留位置和样式，属性面板添加转换按钮。 | `src/views/home/index.vue`、`src/views/home/components/panels/PropertiesPanel.vue` |
+| 2026-06-10 | T3.6 多画板 / 图标集合管理 | 新增画板列表组件，支持新增、切换、复制、重命名、删除画板；画板缩略图预览；工程文件保存/加载多画板数据；顶栏新增画板列表切换按钮。 | `src/views/home/index.vue`、`src/views/home/components/ArtboardList.vue`、`src/views/home/components/HomeTopBar.vue`、`src/views/home/artboardManager.ts` |
