@@ -8,7 +8,57 @@ export function normalizeInputValue(value: string | number) {
   return String(value).trim()
 }
 
+// 解析数值表达式，支持相对调整（+10、-5）、倍率调整（*2、/2）和简单数学运算。
+export function evaluateExpression(currentValue: number, input: string): number | null {
+  const normalized = normalizeInputValue(input)
+  if (normalized === '') return null
+
+  // 直接数字
+  const directNumber = Number(normalized)
+  if (Number.isFinite(directNumber)) {
+    return directNumber
+  }
+
+  // 相对调整：+10、-5
+  if (/^[+\-]\d+(\.\d+)?$/.test(normalized)) {
+    const delta = Number(normalized)
+    if (Number.isFinite(delta)) {
+      return currentValue + delta
+    }
+  }
+
+  // 倍率调整：*2、/2
+  if (/^[*/]\d+(\.\d+)?$/.test(normalized)) {
+    const operator = normalized[0]
+    const operand = Number(normalized.slice(1))
+    if (Number.isFinite(operand)) {
+      if (operator === '*') {
+        return currentValue * operand
+      } else if (operator === '/' && operand !== 0) {
+        return currentValue / operand
+      }
+    }
+  }
+
+  // 简单数学表达式：支持四则运算
+  try {
+    // 安全地计算表达式，只允许数字和基本运算符
+    if (/^[\d+\-*/.() ]+$/.test(normalized)) {
+      // 使用 Function 构造器安全地计算表达式
+      const result = new Function(`return ${normalized}`)()
+      if (Number.isFinite(result)) {
+        return result
+      }
+    }
+  } catch (e) {
+    // 表达式无效，返回 null
+  }
+
+  return null
+}
+
 // 提交普通数值输入，空值或非法数值会回退到当前值，并先反映到输入框再应用业务更新。
+// 支持表达式：+10（相对）、*2（倍率）、100+50（计算）。
 export function commitNumericInput(
   value: string | number,
   fallback: number,
@@ -16,13 +66,14 @@ export function commitNumericInput(
   reflect: (next: string) => void
 ) {
   const normalized = normalizeInputValue(value)
-  const parsed = Number(normalized)
-  const next = normalized === '' || !Number.isFinite(parsed) ? fallback : parsed
+  const evaluated = evaluateExpression(fallback, normalized)
+  const next = evaluated !== null ? evaluated : fallback
   reflect(String(next))
   apply(next)
 }
 
 // 仅接受正数输入，适用于宽高等不能为 0 或负数的字段，非法内容统一回退到当前有效值。
+// 支持表达式：+10（相对）、*2（倍率）、100+50（计算）。
 export function commitPositiveNumericInput(
   value: string | number,
   fallback: number,
@@ -30,8 +81,8 @@ export function commitPositiveNumericInput(
   reflect: (next: string) => void
 ) {
   const normalized = normalizeInputValue(value)
-  const parsed = Number(normalized)
-  const next = normalized === '' || !Number.isFinite(parsed) || parsed <= 0 ? fallback : parsed
+  const evaluated = evaluateExpression(fallback, normalized)
+  const next = evaluated !== null && evaluated > 0 ? evaluated : fallback
   reflect(formatNumericInputValue(next))
   apply(next)
 }
