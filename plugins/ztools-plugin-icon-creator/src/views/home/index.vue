@@ -70,6 +70,8 @@
           class="canvas-area"
           ref="canvasAreaRef"
           @pointerdown.capture="handleCanvasAreaPointerDown"
+          @dragover.prevent="handleCanvasDragOver"
+          @drop.prevent="handleCanvasDrop"
         >
           <div class="canvas-wrapper" ref="canvasWrapperRef" :class="{ 'transparent-bg': isCanvasBgTransparent }">
             <div
@@ -6733,28 +6735,102 @@ async function confirmPasteSVGImport() {
   }
 }
 
+// 监听画布区域拖入文件，支持 SVG 和位图导入。
+function handleCanvasDragOver(e: DragEvent) {
+  e.preventDefault()
+  if (e.dataTransfer) {
+    e.dataTransfer.dropEffect = 'copy'
+  }
+}
+
+// 处理文件拖放导入，按类型分发到 SVG 或位图导入流程。
+async function handleCanvasDrop(e: DragEvent) {
+  e.preventDefault()
+  const files = Array.from(e.dataTransfer?.files ?? [])
+  if (!files.length) return
+  for (const file of files) {
+    if (isSVGFile(file)) {
+      try {
+        await importSVGFile(file)
+      } catch (error) {
+        window.alert(error instanceof Error ? error.message : '导入 SVG 失败')
+      }
+    } else if (file.type.startsWith('image/')) {
+      try {
+        await importImageFile(file)
+      } catch (error) {
+        window.alert(error instanceof Error ? error.message : '导入图片失败')
+      }
+    }
+  }
+}
+
+// 把本地图片文件导入为 Fabric Image，并补齐编辑器元数据后放到画布中心附近。
+async function importImageFile(file: File) {
+  if (!fabricCanvas) return
+  const url = URL.createObjectURL(file)
+  try {
+    const img = await FabricImage.fromURL(url)
+    applyDefaultKaleidoscopeMetadata(img)
+    applyDefaultEndpointSnapMargin(img)
+    img.set({
+      left: canvasWidth.value / 2 - (img.width || 60) / 2,
+      top: canvasHeight.value / 2 - (img.height || 60) / 2,
+      name: nextName(file.name)
+    })
+    ensureEditorObjectId(img)
+    img.setCoords()
+    fabricCanvas.add(img)
+    refreshLayers()
+    fabricCanvas.setActiveObject(img)
+    syncActiveObjectPreservingPointMode(img)
+    fabricCanvas.requestRenderAll()
+    snapshot()
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}
+
 // 把本地图片文件导入为 Fabric Image，并补齐编辑器元数据后放到画布中心附近。
 async function onImageFileChosen(e: Event) {
   const file = (e.target as HTMLInputElement).files?.[0]
-  if (!file || !fabricCanvas) return
-  const url = URL.createObjectURL(file)
-  const img = await FabricImage.fromURL(url)
-  applyDefaultKaleidoscopeMetadata(img)
-  applyDefaultEndpointSnapMargin(img)
-  img.set({
-    left: canvasWidth.value / 2 - (img.width || 60) / 2,
-    top: canvasHeight.value / 2 - (img.height || 60) / 2,
-    name: nextName(file.name)
-  })
-  ensureEditorObjectId(img)
-  img.setCoords()
-  fabricCanvas.add(img)
-  refreshLayers()
-  fabricCanvas.setActiveObject(img)
-  syncActiveObjectPreservingPointMode(img)
-  fabricCanvas.requestRenderAll()
-  URL.revokeObjectURL(url)
-  ;(e.target as HTMLInputElement).value = ''
+  if (!file) return
+  try {
+    await importImageFile(file)
+  } catch (error) {
+    window.alert(error instanceof Error ? error.message : '导入图片失败')
+  } finally {
+    ;(e.target as HTMLInputElement).value = ''
+  }
+}
+
+// 监听全局粘贴事件，支持从剪贴板导入 SVG 文本或位图。
+async function handleWindowPaste(e: ClipboardEvent) {
+  if (!fabricCanvas) return
+  const activeElement = document.activeElement
+  if (activeElement && (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA')) return
+  const items = Array.from(e.clipboardData?.items ?? [])
+  for (const item of items) {
+    if (item.type.startsWith('image/')) {
+      const file = item.getAsFile()
+      if (!file) continue
+      try {
+        await importImageFile(file)
+        return
+      } catch (error) {
+        console.error('粘贴图片失败:', error)
+      }
+    }
+  }
+  const text = e.clipboardData?.getData('text/plain')?.trim()
+  if (!text) return
+  if (/<svg[\s>]/i.test(text) || /<path[\s>]/i.test(text)) {
+    try {
+      await importSVGText(normalizePastedSVGText(text), '粘贴 SVG')
+    } catch (error) {
+      console.error('粘贴 SVG 失败:', error)
+    }
+  }
 }
 
 // ── 导出 ──
@@ -7968,6 +8044,7 @@ onMounted(() => {
   window.addEventListener('keydown', handleKeydown)
   window.addEventListener('keyup', handleKeyup)
   window.addEventListener('blur', handleWindowBlur)
+  window.addEventListener('paste', handleWindowPaste)
 })
 
 watch(
@@ -7983,6 +8060,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleKeydown)
   window.removeEventListener('keyup', handleKeyup)
   window.removeEventListener('blur', handleWindowBlur)
+  window.removeEventListener('paste', handleWindowPaste)
   endSpacePan()
   clearBooleanPreview()
   clearPointEditing()
