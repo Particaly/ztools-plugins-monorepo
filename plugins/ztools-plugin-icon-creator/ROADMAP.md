@@ -82,7 +82,7 @@
 | 阶段 | 目标 | 任务数 | 已完成 | 状态 |
 | --- | --- | ---: | ---: | --- |
 | 阶段一 | 补齐图标编辑核心闭环 | 8 | 8 | 已完成 |
-| 阶段二 | 增强素材、模板和编辑效率 | 10 | 6 | 进行中 |
+| 阶段二 | 增强素材、模板和编辑效率 | 10 | 7 | 进行中 |
 | 阶段三 | 完善专业图标规范和批量交付 | 9 | 4 | 进行中 |
 
 ---
@@ -393,8 +393,8 @@
 ### T2.7 复制为 SVG / PNG
 
 - **优先级**：P1
-- **状态**：未开始
-- **完成日期**：-
+- **状态**：已完成
+- **完成日期**：2026-06-10
 - **目标**：支持把当前画布或选中对象直接复制到剪贴板。
 - **建议拆分**：
   - 复制整张画布为 SVG
@@ -404,7 +404,11 @@
 - **验收标准**：
   - 可直接粘贴到浏览器、设计工具或聊天窗口
   - 选中对象复制时边界正确
-- **完成记录**：-
+- **完成记录**：
+  - **主要改动文件**：`src/views/home/index.vue`、`src/views/home/components/HomeTopBar.vue`
+  - **实现范围**：新增顶部"复制 SVG"和"复制 PNG"按钮；新增 `copyAsSVG` 和 `copyAsPNG` 函数；支持复制整张画布或选中对象到剪贴板；选中对象时创建临时画布计算联合包围盒并裁剪边界；SVG 复制使用 `navigator.clipboard.writeText` 写入文本，PNG 复制使用 `navigator.clipboard.write` 和 `ClipboardItem` 写入图片数据；复制成功/失败通过控制台日志和弹窗反馈。
+  - **验证方式**：执行 `npm run build` 通过。
+  - **遗留问题**：复制反馈暂用 `console.log` 和 `window.alert`，后续 T2.9 可接入统一 toast 提示；剪贴板 API 需要 HTTPS 或 localhost 环境且可能需要用户授权。
 
 ### T2.8 属性输入表达式
 
@@ -660,3 +664,4 @@
 | 2026-06-09 | T2.4 色板与渐变预设 | 新增内置色板和渐变预设，支持应用到填充 / 描边，并保存个人颜色与渐变预设到本地。 | `src/views/home/editorCatalog.ts`、`src/views/home/index.vue`、`src/views/home/components/panels/PropertiesPanel.vue` |
 | 2026-06-09 | T2.5 多对象对齐与分布 | 新增多选对齐和水平 / 垂直等距分布工具，以当前选区包围盒为参考整理对象并支持撤销。 | `src/views/home/index.vue`、`src/views/home/components/panels/PropertiesPanel.vue` |
 | 2026-06-09 | T2.6 拖拽导入与剪贴板导入 | 画布区域支持拖拽导入 SVG 和位图；全局粘贴事件支持从剪贴板导入图片或 SVG 文本，导入后自动居中并生成撤销快照。 | `src/views/home/index.vue` |
+| 2026-06-10 | T2.7 复制为 SVG / PNG | 新增"复制 SVG"和"复制 PNG"按钮，支持复制整张画布或选中对象到剪贴板，选中对象时裁剪边界并使用 Clipboard API 写入。 | `src/views/home/index.vue`、`src/views/home/components/HomeTopBar.vue` |

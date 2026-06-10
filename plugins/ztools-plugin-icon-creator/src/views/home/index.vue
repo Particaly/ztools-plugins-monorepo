@@ -24,6 +24,8 @@
       @import-svg="importSVG"
       @open-paste-svg="openPasteSVGDialog"
       @import-image="importImage"
+      @copy-as-svg="copyAsSVG"
+      @copy-as-png="copyAsPNG"
       @open-export="openExportDialog"
       @undo="undo"
       @redo="redo"
@@ -7027,6 +7029,107 @@ function exportPNG(size = canvasWidth.value, fileName?: string, transparentBackg
   const normalizedSize = normalizeExportPngSize(size) ?? canvasWidth.value
   const dataUrl = renderPNGDataUrl(normalizedSize, transparentBackground)
   return dataUrl ? window.services?.writeImageFile?.(dataUrl, fileName) || '' : ''
+}
+
+// 创建仅包含选中对象的临时画布，用于复制为 SVG/PNG 时生成裁剪后的内容。
+function createSelectionCanvas(objects: FabricObject[]) {
+  if (!objects.length) return null
+  const bounds = getObjectsCombinedBounds(objects)
+  if (!bounds) return null
+  const tempCanvas = new fabric.Canvas(null as unknown as HTMLCanvasElement, {
+    width: bounds.width,
+    height: bounds.height,
+    backgroundColor: ''
+  })
+  objects.forEach((obj) => {
+    const clone = fabric.util.object.clone(obj)
+    clone.set({
+      left: (clone.left ?? 0) - bounds.left,
+      top: (clone.top ?? 0) - bounds.top
+    })
+    tempCanvas.add(clone)
+  })
+  tempCanvas.requestRenderAll()
+  return tempCanvas
+}
+
+// 复制当前画布或选中对象为 SVG 到剪贴板。
+async function copyAsSVG() {
+  if (!fabricCanvas) return
+  clearBooleanPreview()
+  const selectedObjects = fabricCanvas.getActiveObjects()
+  let svgContent = ''
+  if (selectedObjects.length > 0) {
+    const tempCanvas = createSelectionCanvas(selectedObjects)
+    if (!tempCanvas) {
+      window.alert('无法复制选中对象：边界无效')
+      return
+    }
+    try {
+      const rawSvg = tempCanvas.toSVG({
+        suppressPreamble: true,
+        viewBox: { x: 0, y: 0, width: tempCanvas.width!, height: tempCanvas.height! },
+        width: String(tempCanvas.width),
+        height: String(tempCanvas.height)
+      })
+      svgContent = trimSVGWhitespace(ensureOptimizedSVGRoot(
+        stripFabricSVGNoise(rawSvg),
+        tempCanvas.width!,
+        tempCanvas.height!,
+        ''
+      ))
+    } finally {
+      tempCanvas.dispose()
+    }
+  } else {
+    svgContent = createOptimizedSVG(false)
+  }
+  if (!svgContent) {
+    window.alert('生成 SVG 失败')
+    return
+  }
+  try {
+    await navigator.clipboard.writeText(svgContent)
+    console.log('已复制 SVG 到剪贴板')
+  } catch (error) {
+    window.alert('复制到剪贴板失败：' + (error instanceof Error ? error.message : '未知错误'))
+  }
+}
+
+// 复制当前画布或选中对象为 PNG 到剪贴板。
+async function copyAsPNG() {
+  if (!fabricCanvas) return
+  clearBooleanPreview()
+  const selectedObjects = fabricCanvas.getActiveObjects()
+  let dataUrl = ''
+  if (selectedObjects.length > 0) {
+    const tempCanvas = createSelectionCanvas(selectedObjects)
+    if (!tempCanvas) {
+      window.alert('无法复制选中对象：边界无效')
+      return
+    }
+    try {
+      dataUrl = tempCanvas.toDataURL({ format: 'png', multiplier: 1 })
+    } finally {
+      tempCanvas.dispose()
+    }
+  } else {
+    dataUrl = renderPNGDataUrl(canvasWidth.value, true)
+  }
+  if (!dataUrl) {
+    window.alert('生成 PNG 失败')
+    return
+  }
+  try {
+    const response = await fetch(dataUrl)
+    const blob = await response.blob()
+    await navigator.clipboard.write([
+      new ClipboardItem({ 'image/png': blob })
+    ])
+    console.log('已复制 PNG 到剪贴板')
+  } catch (error) {
+    window.alert('复制到剪贴板失败：' + (error instanceof Error ? error.message : '未知错误'))
+  }
 }
 
 // 按导出面板配置批量输出 SVG 和多尺寸 PNG，并在面板内展示保存路径或错误信息。

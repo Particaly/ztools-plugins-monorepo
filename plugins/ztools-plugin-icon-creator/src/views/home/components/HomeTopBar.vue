@@ -10,6 +10,8 @@
       <ZButton size="small" class="top-bar-btn" title="导入 SVG" @click="$emit('import-svg')">导入 SVG</ZButton>
       <ZButton size="small" class="top-bar-btn" title="粘贴 SVG 或 Path" @click="$emit('open-paste-svg')">粘贴 SVG</ZButton>
       <ZButton size="small" class="top-bar-btn" title="导入图片" @click="$emit('import-image')">导入图片</ZButton>
+      <ZButton size="small" class="top-bar-btn" title="复制为 SVG" @click="$emit('copy-as-svg')">复制 SVG</ZButton>
+      <ZButton size="small" class="top-bar-btn" title="复制为 PNG" @click="$emit('copy-as-png')">复制 PNG</ZButton>
       <ZButton size="small" class="top-bar-btn" title="导出面板" @click="$emit('open-export')">导出</ZButton>
       <span class="tb-sep"></span>
       <ZButton size="small" class="top-bar-btn" :disabled="!canUndo" title="撤销" @click="$emit('undo')">撤销</ZButton>
@@ -64,6 +66,8 @@ defineEmits<{
   (event: 'import-svg'): void
   (event: 'open-paste-svg'): void
   (event: 'import-image'): void
+  (event: 'copy-as-svg'): void
+  (event: 'copy-as-png'): void
   (event: 'open-export'): void
   (event: 'undo'): void
   (event: 'redo'): void
