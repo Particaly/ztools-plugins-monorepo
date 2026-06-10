@@ -18,6 +18,7 @@
       :selection-mode="selectionMode"
       :has-editable-points="hasEditablePoints"
       :zoom="zoom"
+      :show-artboard-list="showArtboardList"
       @new-doc="newDoc"
       @open-project="openProject"
       @save-project="saveProject"
@@ -27,6 +28,7 @@
       @copy-as-svg="copyAsSVG"
       @copy-as-png="copyAsPNG"
       @open-export="openExportDialog"
+      @toggle-artboard-list="showArtboardList = !showArtboardList"
       @undo="undo"
       @redo="redo"
       @toggle-ruler="toggleRuler"
@@ -64,6 +66,18 @@
         @search-iconify-icons="searchIconifyIcons"
         @update:iconify-collection-filter="iconifySearch.collectionFilter = $event"
         @insert-iconify-icon="insertIconifyIcon"
+      />
+
+      <!-- 画板列表 -->
+      <ArtboardList
+        v-if="showArtboardList && artboards.length > 0"
+        :artboards="artboards"
+        :active-artboard-id="activeArtboardId"
+        @add-artboard="addArtboard"
+        @switch-artboard="switchArtboard"
+        @duplicate-artboard="duplicateArtboard"
+        @rename-artboard="renameArtboard"
+        @delete-artboard="deleteArtboard"
       />
 
       <!-- 中间画布区 -->
@@ -402,6 +416,7 @@ import {
 } from './shortcuts'
 import HomeTopBar from './components/HomeTopBar.vue'
 import LeftPanel from './components/LeftPanel.vue'
+import ArtboardList from './components/ArtboardList.vue'
 import Ruler from './components/Ruler.vue'
 import ShortcutDrawer from './components/ShortcutDrawer.vue'
 import Toast from './components/Toast.vue'
@@ -454,6 +469,7 @@ import type {
   IconCheckIssue,
   IconCreatorDraftFile,
   IconCreatorProjectFile,
+  IconCreatorProjectArtboard,
   IconifySearchResponse,
   IconifySearchState,
   InternalClipboard,
@@ -555,6 +571,10 @@ let draftSaveTimer: ReturnType<typeof window.setTimeout> | null = null
 let draftDirty = false
 let restoringDraftPromptShown = false
 let artboardIdSeed = 0
+
+const artboards = ref<IconCreatorProjectArtboard[]>([])
+const activeArtboardId = ref<string>('')
+const showArtboardList = ref(false)
 
 const leftTab = ref<LeftPanelTab>('shape')
 const activeRightTab = ref<RightPanelTab>('properties')
@@ -4483,6 +4503,190 @@ function syncCanvasBgFromFabric() {
   lastOpaqueCanvasBg.value = next
 }
 
+// ── 画板管理 ──
+function generateArtboardId(): string {
+  return `artboard-${++artboardIdSeed}-${Date.now()}`
+}
+
+function captureCurrentArtboard(): IconCreatorProjectArtboard {
+  if (!fabricCanvas) throw new Error('画布尚未初始化')
+  const layerOrder = fabricCanvas.getObjects()
+    .filter((obj) => !isBooleanPreviewObject(obj))
+    .map((obj) => ensureEditorObjectId(obj))
+  return {
+    id: activeArtboardId.value || generateArtboardId(),
+    name: `画板 ${artboards.value.length + 1}`,
+    canvas: {
+      width: canvasWidth.value,
+      height: canvasHeight.value,
+      background: canvasBg.value,
+      gridSize: pixelGridSize.value,
+      showPixelGrid: showPixelGrid.value,
+      snapToPixelGrid: snapToPixelGrid.value,
+      keylineTemplate: keylineTemplate.value,
+      keylineMargin: keylineMargin.value
+    },
+    fabric: serializeFabricCanvas(),
+    layerOrder,
+    thumbnail: generateArtboardThumbnail()
+  }
+}
+
+function generateArtboardThumbnail(): string {
+  if (!fabricCanvas) return ''
+  try {
+    return fabricCanvas.toDataURL({ format: 'png', multiplier: 64 / Math.max(canvasWidth.value, canvasHeight.value) })
+  } catch {
+    return ''
+  }
+}
+
+async function switchArtboard(artboardId: string) {
+  if (!fabricCanvas || artboardId === activeArtboardId.value) return
+  const target = artboards.value.find(a => a.id === artboardId)
+  if (!target) return
+
+  // 保存当前画板状态
+  if (activeArtboardId.value) {
+    const currentIndex = artboards.value.findIndex(a => a.id === activeArtboardId.value)
+    if (currentIndex >= 0) {
+      artboards.value[currentIndex] = captureCurrentArtboard()
+    }
+  }
+
+  // 切换到目标画板
+  activeArtboardId.value = artboardId
+  await loadArtboardContent(target)
+  snapshot({ description: `切换到画板: ${target.name}`, autoSave: true })
+}
+
+async function loadArtboardContent(artboard: IconCreatorProjectArtboard) {
+  if (!fabricCanvas) return
+  clearBooleanPreview()
+  clearPointEditing()
+
+  const settings = normalizeProjectCanvasSettings(artboard.canvas)
+  canvasWidth.value = settings.width
+  canvasHeight.value = settings.height
+  canvasBg.value = settings.background
+  pixelGridSize.value = normalizePixelGridSize(settings.gridSize)
+  showPixelGrid.value = settings.showPixelGrid === true
+  snapToPixelGrid.value = settings.snapToPixelGrid === true
+  keylineTemplate.value = normalizeKeylineTemplate(settings.keylineTemplate)
+  keylineMargin.value = normalizeKeylineMargin(settings.keylineMargin)
+
+  syncPixelGridSizeInput()
+  syncKeylineMarginInput()
+  syncCanvasInteractionMode()
+  if (!isTransparentCanvasBg(settings.background)) lastOpaqueCanvasBg.value = settings.background
+  syncCanvasSizeInputs()
+
+  skipSnapshot = true
+  try {
+    fabricCanvas.clear()
+    fabricCanvas.setDimensions({ width: canvasWidth.value, height: canvasHeight.value })
+    await fabricCanvas.loadFromJSON(artboard.fabric)
+    applyCanvasBgToFabric(canvasBg.value)
+    await syncAllKaleidoscopes()
+    ensureCanvasObjectMetadata()
+    applyProjectLayerOrder(artboard.layerOrder)
+    rehydrateCanvasGradientFills()
+    syncAllEndpointAttachments()
+    applyCanvasTheme()
+    syncCanvasInteractionMode()
+    fabricCanvas.discardActiveObject()
+    syncActiveObject(null)
+    fabricCanvas.requestRenderAll()
+    refreshLayers()
+    fitCanvasInView()
+    markSmallPreviewsDirty()
+  } finally {
+    skipSnapshot = false
+  }
+}
+
+function addArtboard() {
+  const newArtboard: IconCreatorProjectArtboard = {
+    id: generateArtboardId(),
+    name: `画板 ${artboards.value.length + 1}`,
+    canvas: {
+      width: 512,
+      height: 512,
+      background: '#ffffff',
+      gridSize: DEFAULT_PIXEL_GRID_SIZE,
+      showPixelGrid: false,
+      snapToPixelGrid: false,
+      keylineTemplate: DEFAULT_KEYLINE_TEMPLATE,
+      keylineMargin: DEFAULT_KEYLINE_MARGIN
+    },
+    fabric: { version: '6.0.0', objects: [] },
+    layerOrder: []
+  }
+
+  // 保存当前画板
+  if (activeArtboardId.value && fabricCanvas) {
+    const currentIndex = artboards.value.findIndex(a => a.id === activeArtboardId.value)
+    if (currentIndex >= 0) {
+      artboards.value[currentIndex] = captureCurrentArtboard()
+    }
+  }
+
+  artboards.value.push(newArtboard)
+  activeArtboardId.value = newArtboard.id
+  loadArtboardContent(newArtboard)
+  showToast('新建画板成功', 'success')
+  snapshot({ description: '新建画板', autoSave: true })
+}
+
+function duplicateArtboard(artboardId: string) {
+  const source = artboards.value.find(a => a.id === artboardId)
+  if (!source) return
+
+  const duplicate: IconCreatorProjectArtboard = {
+    ...source,
+    id: generateArtboardId(),
+    name: `${source.name} 副本`,
+    canvas: { ...source.canvas },
+    fabric: JSON.parse(JSON.stringify(source.fabric)),
+    layerOrder: [...source.layerOrder]
+  }
+
+  artboards.value.push(duplicate)
+  showToast('复制画板成功', 'success')
+}
+
+function renameArtboard(artboardId: string) {
+  const artboard = artboards.value.find(a => a.id === artboardId)
+  if (!artboard) return
+
+  const newName = window.prompt('请输入新名称:', artboard.name)
+  if (newName && newName.trim()) {
+    artboard.name = newName.trim()
+    showToast('重命名成功', 'success')
+  }
+}
+
+function deleteArtboard(artboardId: string) {
+  if (artboards.value.length <= 1) {
+    showToast('至少保留一个画板', 'warning')
+    return
+  }
+
+  if (!window.confirm('确定删除该画板吗?')) return
+
+  const index = artboards.value.findIndex(a => a.id === artboardId)
+  if (index < 0) return
+
+  artboards.value.splice(index, 1)
+
+  // 如果删除的是当前画板，切换到第一个
+  if (artboardId === activeArtboardId.value && artboards.value.length > 0) {
+    switchArtboard(artboards.value[0].id)
+  }
+
+  showToast('删除画板成功', 'success')
+}
+
 // 基于当前编辑器状态生成工程文件数据，供手动保存与自动草稿复用同一份 schema。
 function createProjectFile(): IconCreatorProjectFile {
   if (!fabricCanvas) throw new Error('画布尚未初始化')
@@ -4490,7 +4694,8 @@ function createProjectFile(): IconCreatorProjectFile {
   const layerOrder = fabricCanvas.getObjects()
     .filter((obj) => !isBooleanPreviewObject(obj))
     .map((obj) => ensureEditorObjectId(obj))
-  return {
+
+  const projectFile: IconCreatorProjectFile = {
     app: 'icon-creator',
     schemaVersion: PROJECT_SCHEMA_VERSION,
     createdAt: now,
@@ -4508,6 +4713,21 @@ function createProjectFile(): IconCreatorProjectFile {
     fabric: serializeFabricCanvas(),
     layerOrder
   }
+
+  // 如果有多个画板，保存所有画板数据
+  if (artboards.value.length > 0) {
+    // 更新当前画板
+    if (activeArtboardId.value) {
+      const currentIndex = artboards.value.findIndex(a => a.id === activeArtboardId.value)
+      if (currentIndex >= 0) {
+        artboards.value[currentIndex] = captureCurrentArtboard()
+      }
+    }
+    projectFile.artboards = artboards.value.map(ab => ({ ...ab }))
+    projectFile.activeArtboardId = activeArtboardId.value
+  }
+
+  return projectFile
 }
 
 // 重置撤销重做栈，并把当前画布状态作为打开工程后的初始快照。
@@ -4539,44 +4759,61 @@ function applyProjectLayerOrder(layerOrder: string[]) {
 // 将工程数据恢复到 Fabric 画布，并同步尺寸、背景、图层、自定义元数据和小尺寸预览状态。
 async function loadProjectFile(project: IconCreatorProjectFile, options: ProjectLoadOptions = {}) {
   if (!fabricCanvas) return
-  clearBooleanPreview()
-  clearPointEditing()
-  const settings = normalizeProjectCanvasSettings(project.canvas)
-  canvasWidth.value = settings.width
-  canvasHeight.value = settings.height
-  canvasBg.value = settings.background
-  pixelGridSize.value = normalizePixelGridSize(settings.gridSize)
-  showPixelGrid.value = settings.showPixelGrid === true
-  snapToPixelGrid.value = settings.snapToPixelGrid === true
-  keylineTemplate.value = normalizeKeylineTemplate(settings.keylineTemplate)
-  keylineMargin.value = normalizeKeylineMargin(settings.keylineMargin)
-  syncPixelGridSizeInput()
-  syncKeylineMarginInput()
-  syncCanvasInteractionMode()
-  if (!isTransparentCanvasBg(settings.background)) lastOpaqueCanvasBg.value = settings.background
-  syncCanvasSizeInputs()
-  skipSnapshot = true
-  try {
-    fabricCanvas.clear()
-    fabricCanvas.setDimensions({ width: canvasWidth.value, height: canvasHeight.value })
-    await fabricCanvas.loadFromJSON(project.fabric)
-    applyCanvasBgToFabric(canvasBg.value)
-    await syncAllKaleidoscopes()
-    ensureCanvasObjectMetadata()
-    applyProjectLayerOrder(project.layerOrder)
-    rehydrateCanvasGradientFills()
-    syncAllEndpointAttachments()
-    applyCanvasTheme()
+
+  // 如果有多画板数据，加载所有画板
+  if (project.artboards && project.artboards.length > 0) {
+    artboards.value = project.artboards.map(ab => ({ ...ab }))
+    activeArtboardId.value = project.activeArtboardId || artboards.value[0].id
+    showArtboardList.value = true
+
+    const activeArtboard = artboards.value.find(ab => ab.id === activeArtboardId.value) || artboards.value[0]
+    await loadArtboardContent(activeArtboard)
+  } else {
+    // 单画板模式
+    artboards.value = []
+    activeArtboardId.value = ''
+    showArtboardList.value = false
+
+    clearBooleanPreview()
+    clearPointEditing()
+    const settings = normalizeProjectCanvasSettings(project.canvas)
+    canvasWidth.value = settings.width
+    canvasHeight.value = settings.height
+    canvasBg.value = settings.background
+    pixelGridSize.value = normalizePixelGridSize(settings.gridSize)
+    showPixelGrid.value = settings.showPixelGrid === true
+    snapToPixelGrid.value = settings.snapToPixelGrid === true
+    keylineTemplate.value = normalizeKeylineTemplate(settings.keylineTemplate)
+    keylineMargin.value = normalizeKeylineMargin(settings.keylineMargin)
+    syncPixelGridSizeInput()
+    syncKeylineMarginInput()
     syncCanvasInteractionMode()
-    fabricCanvas.discardActiveObject()
-    syncActiveObject(null)
-    fabricCanvas.requestRenderAll()
-    refreshLayers()
-    fitCanvasInView()
-    markSmallPreviewsDirty()
-  } finally {
-    skipSnapshot = false
+    if (!isTransparentCanvasBg(settings.background)) lastOpaqueCanvasBg.value = settings.background
+    syncCanvasSizeInputs()
+    skipSnapshot = true
+    try {
+      fabricCanvas.clear()
+      fabricCanvas.setDimensions({ width: canvasWidth.value, height: canvasHeight.value })
+      await fabricCanvas.loadFromJSON(project.fabric)
+      applyCanvasBgToFabric(canvasBg.value)
+      await syncAllKaleidoscopes()
+      ensureCanvasObjectMetadata()
+      applyProjectLayerOrder(project.layerOrder)
+      rehydrateCanvasGradientFills()
+      syncAllEndpointAttachments()
+      applyCanvasTheme()
+      syncCanvasInteractionMode()
+      fabricCanvas.discardActiveObject()
+      syncActiveObject(null)
+      fabricCanvas.requestRenderAll()
+      refreshLayers()
+      fitCanvasInView()
+      markSmallPreviewsDirty()
+    } finally {
+      skipSnapshot = false
+    }
   }
+
   if (options.resetHistory !== false) resetHistoryToCurrentCanvas()
   if (!options.keepDraft) clearStoredDraft()
 }
@@ -7120,23 +7357,23 @@ function exportPNG(size = canvasWidth.value, fileName?: string, transparentBackg
 }
 
 // 创建仅包含选中对象的临时画布，用于复制为 SVG/PNG 时生成裁剪后的内容。
-function createSelectionCanvas(objects: FabricObject[]) {
+async function createSelectionCanvas(objects: FabricObject[]) {
   if (!objects.length) return null
   const bounds = getObjectsCombinedBounds(objects)
   if (!bounds) return null
-  const tempCanvas = new fabric.Canvas(null as unknown as HTMLCanvasElement, {
+  const tempCanvas = new Canvas(null as unknown as HTMLCanvasElement, {
     width: bounds.width,
     height: bounds.height,
     backgroundColor: ''
   })
-  objects.forEach((obj) => {
-    const clone = fabric.util.object.clone(obj)
+  for (const obj of objects) {
+    const clone = await obj.clone()
     clone.set({
       left: (clone.left ?? 0) - bounds.left,
       top: (clone.top ?? 0) - bounds.top
     })
     tempCanvas.add(clone)
-  })
+  }
   tempCanvas.requestRenderAll()
   return tempCanvas
 }
@@ -7148,7 +7385,7 @@ async function copyAsSVG() {
   const selectedObjects = fabricCanvas.getActiveObjects()
   let svgContent = ''
   if (selectedObjects.length > 0) {
-    const tempCanvas = createSelectionCanvas(selectedObjects)
+    const tempCanvas = await createSelectionCanvas(selectedObjects)
     if (!tempCanvas) {
       showToast('无法复制选中对象：边界无效', 'error')
       return
@@ -7191,7 +7428,7 @@ async function copyAsPNG() {
   const selectedObjects = fabricCanvas.getActiveObjects()
   let dataUrl = ''
   if (selectedObjects.length > 0) {
-    const tempCanvas = createSelectionCanvas(selectedObjects)
+    const tempCanvas = await createSelectionCanvas(selectedObjects)
     if (!tempCanvas) {
       showToast('无法复制选中对象：边界无效', 'error')
       return

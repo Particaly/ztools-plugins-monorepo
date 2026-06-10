@@ -14,6 +14,8 @@
       <ZButton size="small" class="top-bar-btn" title="复制为 PNG" @click="$emit('copy-as-png')">复制 PNG</ZButton>
       <ZButton size="small" class="top-bar-btn" title="导出面板" @click="$emit('open-export')">导出</ZButton>
       <span class="tb-sep"></span>
+      <ZButton size="small" class="top-bar-btn" :class="{ 'is-active': showArtboardList }" title="画板列表" @click="$emit('toggle-artboard-list')">画板</ZButton>
+      <span class="tb-sep"></span>
       <ZButton size="small" class="top-bar-btn" :disabled="!canUndo" title="撤销" @click="$emit('undo')">撤销</ZButton>
       <ZButton size="small" class="top-bar-btn" :disabled="!canRedo" title="重做" @click="$emit('redo')">重做</ZButton>
       <span class="tb-sep"></span>
@@ -57,6 +59,7 @@ defineProps<{
   selectionMode: 'shape' | 'point' | 'segment'
   hasEditablePoints: boolean
   zoom: number
+  showArtboardList: boolean
 }>()
 
 defineEmits<{
@@ -69,6 +72,7 @@ defineEmits<{
   (event: 'copy-as-svg'): void
   (event: 'copy-as-png'): void
   (event: 'open-export'): void
+  (event: 'toggle-artboard-list'): void
   (event: 'undo'): void
   (event: 'redo'): void
   (event: 'toggle-ruler'): void
