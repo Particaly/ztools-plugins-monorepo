@@ -6,7 +6,7 @@ import type { FillGradientStop, FillGradientType } from './fabric/objectMetadata
 export type FabricControls = Record<string, Control>
 
 export type LeftPanelTab = 'shape' | 'text' | 'templates' | 'assets' | 'iconify'
-export type RightPanelTab = 'properties' | 'preview' | 'checks' | 'layers'
+export type RightPanelTab = 'properties' | 'preview' | 'checks' | 'layers' | 'history'
 
 export type BooleanPreviewHiddenObject = {
   object: FabricObject
@@ -137,6 +137,7 @@ export type ProjectLoadOptions = {
 
 export type SnapshotOptions = {
   autoSave?: boolean
+  description?: string
 }
 
 export type SpacePanStart = {

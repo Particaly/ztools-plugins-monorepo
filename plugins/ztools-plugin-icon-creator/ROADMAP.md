@@ -82,7 +82,7 @@
 | 阶段 | 目标 | 任务数 | 已完成 | 状态 |
 | --- | --- | ---: | ---: | --- |
 | 阶段一 | 补齐图标编辑核心闭环 | 8 | 8 | 已完成 |
-| 阶段二 | 增强素材、模板和编辑效率 | 10 | 9 | 进行中 |
+| 阶段二 | 增强素材、模板和编辑效率 | 10 | 10 | 已完成 |
 | 阶段三 | 完善专业图标规范和批量交付 | 9 | 4 | 进行中 |
 
 ---
@@ -452,8 +452,8 @@
 ### T2.10 历史记录面板
 
 - **优先级**：P1
-- **状态**：未开始
-- **完成日期**：-
+- **状态**：已完成
+- **完成日期**：2026-06-10
 - **目标**：可视化撤销重做历史，辅助复杂编辑。
 - **建议拆分**：
   - 快照增加操作描述
@@ -462,7 +462,11 @@
 - **验收标准**：
   - 用户能看见最近操作记录
   - 点击历史项后画布恢复正确
-- **完成记录**：-
+- **完成记录**：
+  - **主要改动文件**：`src/views/home/index.vue`、`src/views/home/types.ts`、`src/views/home/components/panels/HistoryPanel.vue`、`src/views/home/components/panels/RightPanel.vue`
+  - **实现范围**：重构历史记录数据结构，从简单字符串改为包含 json、description、timestamp 的对象；为 snapshot 函数添加 description 参数支持；新增 historyIndex 追踪当前历史位置；新增 jumpToHistory 函数支持点击历史项跳转；创建 HistoryPanel 组件展示历史记录列表；在右侧面板添加"历史"标签页；历史列表倒序显示（最新在上）；当前状态高亮显示；显示相对时间（刚刚、N分钟前）。
+  - **验证方式**：执行 `npx vite build` 通过。
+  - **遗留问题**：暂未为各个操作添加具体的描述文本（如"添加矩形"、"修改颜色"），当前统一显示"编辑操作"；可在后续为每个 snapshot 调用添加具体描述；历史记录最多保存 60 条，超出后自动删除最早的记录。
 
 ---
 
@@ -675,3 +679,4 @@
 | 2026-06-10 | T2.7 复制为 SVG / PNG | 新增"复制 SVG"和"复制 PNG"按钮，支持复制整张画布或选中对象到剪贴板，选中对象时裁剪边界并使用 Clipboard API 写入。 | `src/views/home/index.vue`、`src/views/home/components/HomeTopBar.vue` |
 | 2026-06-10 | T2.8 属性输入表达式 | 新增表达式解析函数，支持相对调整（+10）、倍率调整（*2）和数学表达式（100+50），所有数值输入字段自动支持表达式。 | `src/views/home/inputUtils.ts` |
 | 2026-06-10 | T2.9 操作提示与导出反馈 | 新增 Toast 通知组件，替换所有 window.alert 为友好的 toast 提示，支持成功、错误、信息、警告四种类型，覆盖所有关键操作反馈。 | `src/views/home/components/Toast.vue`、`src/views/home/index.vue` |
+| 2026-06-10 | T2.10 历史记录面板 | 重构历史记录数据结构，新增 HistoryPanel 组件展示历史记录列表，支持点击历史项跳转，显示操作描述和相对时间。 | `src/views/home/components/panels/HistoryPanel.vue`、`src/views/home/index.vue` |

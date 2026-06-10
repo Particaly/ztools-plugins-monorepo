@@ -26,6 +26,9 @@
       <ZTabPane name="layers" tab="图层" display-directive="show">
         <slot name="layers"></slot>
       </ZTabPane>
+      <ZTabPane name="history" tab="历史" display-directive="show">
+        <slot name="history"></slot>
+      </ZTabPane>
     </ZTabs>
   </aside>
 </template>

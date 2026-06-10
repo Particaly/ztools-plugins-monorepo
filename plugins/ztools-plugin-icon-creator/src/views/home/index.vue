@@ -279,6 +279,13 @@
             @context-menu-select="handleLayerContextMenuSelect"
           />
         </template>
+        <template #history>
+          <HistoryPanel
+            :undo-stack="undoStack"
+            :current-index="historyIndex"
+            @jump-to="jumpToHistory"
+          />
+        </template>
       </RightPanel>
     </div>
 
@@ -403,6 +410,7 @@ import LayerRenameModal from './components/modals/LayerRenameModal.vue'
 import PasteSvgModal from './components/modals/PasteSvgModal.vue'
 import UserAssetModal from './components/modals/UserAssetModal.vue'
 import IconChecksPanel from './components/panels/IconChecksPanel.vue'
+import HistoryPanel from './components/panels/HistoryPanel.vue'
 import LayersPanel from './components/panels/LayersPanel.vue'
 import PreviewPanel from './components/panels/PreviewPanel.vue'
 import PropertiesPanel from './components/panels/PropertiesPanel.vue'
@@ -801,8 +809,14 @@ function resetPointGestureState() {
 }
 
 // 撤销重做
-const undoStack: string[] = []
-const redoStack: string[] = []
+interface HistorySnapshot {
+  json: string
+  description: string
+  timestamp: number
+}
+const undoStack: HistorySnapshot[] = []
+const redoStack: HistorySnapshot[] = []
+const historyIndex = ref(0) // 当前所在的历史位置
 const canUndo = ref(false)
 const canRedo = ref(false)
 let skipSnapshot = false
@@ -4437,9 +4451,15 @@ function serializeFabricCanvas() {
 // 记录一次可撤销快照，并在真实编辑后触发草稿自动保存和小尺寸预览刷新。
 function snapshot(options: SnapshotOptions = {}) {
   if (skipSnapshot || !fabricCanvas) return
-  undoStack.push(JSON.stringify(serializeFabricCanvas()))
+  const description = options.description || '编辑操作'
+  undoStack.push({
+    json: JSON.stringify(serializeFabricCanvas()),
+    description,
+    timestamp: Date.now()
+  })
   if (undoStack.length > 60) undoStack.shift()
   redoStack.length = 0
+  historyIndex.value = undoStack.length - 1
   canUndo.value = undoStack.length > 1
   canRedo.value = false
   markSmallPreviewsDirty()
@@ -4648,7 +4668,8 @@ function undo() {
   redoStack.push(undoStack.pop()!)
   canRedo.value = true
   skipSnapshot = true
-  fabricCanvas.loadFromJSON(undoStack[undoStack.length - 1]).then(async () => {
+  historyIndex.value = undoStack.length - 1
+  fabricCanvas.loadFromJSON(undoStack[undoStack.length - 1].json).then(async () => {
     await syncAllKaleidoscopes()
     ensureCanvasObjectMetadata()
     rehydrateCanvasGradientFills()
@@ -4668,10 +4689,51 @@ function undo() {
 function redo() {
   if (!redoStack.length || !fabricCanvas) return
   clearPointEditing()
-  const json = redoStack.pop()!
-  undoStack.push(json)
+  const snapshot = redoStack.pop()!
+  undoStack.push(snapshot)
   skipSnapshot = true
-  fabricCanvas.loadFromJSON(json).then(async () => {
+  historyIndex.value = undoStack.length - 1
+  fabricCanvas.loadFromJSON(snapshot.json).then(async () => {
+    await syncAllKaleidoscopes()
+    ensureCanvasObjectMetadata()
+    rehydrateCanvasGradientFills()
+    syncAllEndpointAttachments()
+    fabricCanvas!.discardActiveObject()
+    syncActiveObject(null)
+    syncCanvasBgFromFabric()
+    fabricCanvas!.requestRenderAll()
+    skipSnapshot = false
+    refreshLayers()
+    markSmallPreviewsDirty()
+    canUndo.value = undoStack.length > 1
+    canRedo.value = redoStack.length > 0
+  })
+}
+
+// 跳转到指定的历史记录
+function jumpToHistory(index: number) {
+  if (!fabricCanvas || index < 0 || index >= undoStack.length) return
+  if (index === historyIndex.value) return
+
+  clearPointEditing()
+
+  // 将当前到目标之间的快照移动到 redo 或 undo 栈
+  if (index < historyIndex.value) {
+    // 向后跳转：将中间的快照移到 redoStack
+    while (historyIndex.value > index) {
+      redoStack.push(undoStack.pop()!)
+      historyIndex.value--
+    }
+  } else {
+    // 向前跳转：从 redoStack 恢复
+    while (historyIndex.value < index && redoStack.length > 0) {
+      undoStack.push(redoStack.pop()!)
+      historyIndex.value++
+    }
+  }
+
+  skipSnapshot = true
+  fabricCanvas.loadFromJSON(undoStack[undoStack.length - 1].json).then(async () => {
     await syncAllKaleidoscopes()
     ensureCanvasObjectMetadata()
     rehydrateCanvasGradientFills()
