@@ -290,6 +290,7 @@ export type ExportDialogState = {
   customSizeInput: string
   transparentBg: boolean
   filePrefix: string
+  exportAllArtboards: boolean
   status: string
   loading: boolean
 }

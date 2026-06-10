@@ -14,6 +14,14 @@
         <div class="export-dialog-desc">选择导出格式、SVG 背景、PNG 尺寸、透明背景和文件名前缀。</div>
       </div>
       <div class="export-dialog-content">
+        <div v-if="artboards.length > 1" class="export-section">
+          <div class="export-section-title">画板选择</div>
+          <label class="export-check-option">
+            <input type="checkbox" :checked="exportAllArtboards" @change="$emit('update:export-all-artboards', getChecked($event))" />
+            <span>导出所有画板（打包为 ZIP）</span>
+          </label>
+          <div v-if="!exportAllArtboards" class="export-artboard-hint">仅导出当前画板</div>
+        </div>
         <div class="export-section">
           <div class="export-section-title">格式</div>
           <label class="export-check-option">
@@ -80,7 +88,7 @@
 
 <script setup lang="ts">
 import { ZButton, ZInput, ZModal } from 'ztools-ui'
-import type { ExportDialogState, ExportFormat } from '../../types'
+import type { ExportDialogState, ExportFormat, IconCreatorProjectArtboard } from '../../types'
 
 defineProps<{
   show: boolean
@@ -88,6 +96,8 @@ defineProps<{
   sizeOptions: number[]
   selectedPngSizes: number[]
   canExport: boolean
+  artboards: IconCreatorProjectArtboard[]
+  exportAllArtboards: boolean
 }>()
 
 defineEmits<{
@@ -98,6 +108,7 @@ defineEmits<{
   (event: 'update:custom-size-input', value: string): void
   (event: 'update:transparent-bg', value: boolean): void
   (event: 'update:file-prefix', value: string): void
+  (event: 'update:export-all-artboards', value: boolean): void
   (event: 'export'): void
 }>()
 
@@ -186,6 +197,11 @@ function getChecked(event: Event) {
 .export-transparent-option,
 .export-bg-option {
   margin-top: 2px;
+}
+.export-artboard-hint {
+  font-size: 12px;
+  color: #999;
+  padding-left: 24px;
 }
 .export-status {
   margin: 8px 0 0;

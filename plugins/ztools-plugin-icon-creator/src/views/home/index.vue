@@ -332,6 +332,8 @@
       :size-options="EXPORT_PNG_SIZE_OPTIONS"
       :selected-png-sizes="exportDialog.pngSizes"
       :can-export="exportDialogCanExport"
+      :artboards="artboards"
+      :export-all-artboards="exportDialog.exportAllArtboards"
       @update:show="handleExportDialogShowChange"
       @set-format-enabled="setExportFormatEnabled"
       @update:svg-include-bg="exportDialog.svgIncludeBg = $event"
@@ -339,6 +341,7 @@
       @update:custom-size-input="exportDialog.customSizeInput = $event"
       @update:transparent-bg="exportDialog.transparentBg = $event"
       @update:file-prefix="exportDialog.filePrefix = $event"
+      @update:export-all-artboards="exportDialog.exportAllArtboards = $event"
       @export="runExportDialogExport"
     />
 
@@ -903,6 +906,7 @@ const exportDialog = reactive<ExportDialogState>({
   customSizeInput: '',
   transparentBg: false,
   filePrefix: 'icon',
+  exportAllArtboards: false,
   status: '',
   loading: false
 })
