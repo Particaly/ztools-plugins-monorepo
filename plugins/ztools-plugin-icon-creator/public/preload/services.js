@@ -50,5 +50,14 @@ window.services = {
     const filePath = createUniqueDownloadPath(targetName)
     fs.writeFileSync(filePath, base64Url.substring(matchs[0].length), { encoding: 'base64' })
     return filePath
+  },
+  // ZIP 写入到下载目录，接收渲染进程生成的 Blob，用于多画板批量导出压缩包。
+  async writeZipFile(zipBlob, fileName) {
+    const safeFileName = sanitizeDownloadFileName(fileName, Date.now().toString() + '.zip')
+    const targetName = safeFileName.endsWith('.zip') ? safeFileName : safeFileName + '.zip'
+    const filePath = createUniqueDownloadPath(targetName)
+    const arrayBuffer = await zipBlob.arrayBuffer()
+    fs.writeFileSync(filePath, Buffer.from(arrayBuffer))
+    return filePath
   }
 }

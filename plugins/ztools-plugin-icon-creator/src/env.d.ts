@@ -13,6 +13,7 @@ interface Services {
   writeTextFile: (text: string, ext?: string) => string
   writeSvgFile: (svgText: string, fileName?: string) => string
   writeImageFile: (base64Url: string, fileName?: string) => string | undefined
+  writeZipFile: (zipBlob: Blob, fileName?: string) => Promise<string>
 }
 
 declare global {

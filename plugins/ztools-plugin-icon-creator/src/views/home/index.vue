@@ -375,6 +375,7 @@
 
 <script setup lang="ts">
 import { ref, shallowRef, triggerRef, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import JSZip from 'jszip'
 import { useZtoolsTheme } from 'ztools-ui'
 import { Canvas, Control, FabricObject, Gradient, Textbox, Group, ActiveSelection, FabricImage, Path, Point, Rect, Circle, Triangle, Polygon, Line, StaticCanvas, util, loadSVGFromString } from 'fabric'
 import { basicShapes, textPresets, canvasPresets, shapePreviewPaths, iconTemplates, colorPaletteGroups, gradientPresets } from './editorCatalog'
@@ -467,6 +468,7 @@ import type {
   FillModeOption,
   GradientPresetItem,
   IconCheckIssue,
+  IconCreatorProjectArtboard,
   IconifySearchResponse,
   IconifySearchState,
   InternalClipboard,
@@ -974,7 +976,8 @@ const {
   undo
 } = homeWorkspace.controller.commands
 const {
-  createProjectFile
+  createProjectFile,
+  loadArtboardContent
 } = homeWorkspace.controller.helpers
 
 const keylineTemplateOptions: Array<{ value: KeylineTemplate; label: string }> = [
@@ -3526,6 +3529,42 @@ function selectIconCheckIssue(issue: IconCheckIssue) {
   if (!issue.target || !fabricCanvas) return
   activeRightTab.value = 'properties'
   applyActiveObjectsSelection([issue.target])
+}
+
+// 生成适合目录或文件名使用的画板名称，避免多画板 ZIP 内出现路径分隔符和空名称。
+function sanitizeExportEntryName(value: string, fallback: string) {
+  const normalized = value.trim().replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').replace(/\s+/g, '-')
+  return normalized || fallback
+}
+
+// 为 ZIP 条目路径追加序号，确保同名画板或重复尺寸不会在压缩包内互相覆盖。
+function createUniqueZipEntryName(name: string, usedNames: Set<string>) {
+  const normalized = name.replace(/\\/g, '/')
+  if (!usedNames.has(normalized)) {
+    usedNames.add(normalized)
+    return normalized
+  }
+  const slashIndex = normalized.lastIndexOf('/')
+  const directory = slashIndex >= 0 ? normalized.slice(0, slashIndex + 1) : ''
+  const fileName = slashIndex >= 0 ? normalized.slice(slashIndex + 1) : normalized
+  const dotIndex = fileName.lastIndexOf('.')
+  const base = dotIndex > 0 ? fileName.slice(0, dotIndex) : fileName
+  const ext = dotIndex > 0 ? fileName.slice(dotIndex) : ''
+  let index = 1
+  let candidate = `${directory}${base}-${index}${ext}`
+  while (usedNames.has(candidate)) {
+    index += 1
+    candidate = `${directory}${base}-${index}${ext}`
+  }
+  usedNames.add(candidate)
+  return candidate
+}
+
+// 将 dataURL 转为 ZIP 可直接写入的 base64 内容，过滤异常渲染结果以便导出流程报错。
+function getBase64PayloadFromDataUrl(dataUrl: string) {
+  const match = /^data:[^;]+;base64,(.*)$/i.exec(dataUrl)
+  if (!match) throw new Error('PNG 渲染结果无效')
+  return match[1]
 }
 
 async function executeShortcutAction(actionId: ShortcutActionId) {
@@ -6874,6 +6913,78 @@ function createOptimizedSVG(includeBackground = false) {
   }
 }
 
+// 把指定画板临时加载到当前 Fabric 画布后执行导出任务，结束后由调用方负责恢复原画板内容。
+async function withLoadedArtboardForExport<T>(artboard: IconCreatorProjectArtboard, callback: () => T | Promise<T>) {
+  await loadArtboardContent(artboard)
+  return callback()
+}
+
+// 收集多画板导出的对象列表；导出所有画板时先捕获当前画板，确保 ZIP 使用最新编辑状态。
+function getExportTargetArtboards() {
+  if (!exportDialog.exportAllArtboards || artboards.value.length <= 1) return []
+  if (activeArtboardId.value) {
+    const currentIndex = artboards.value.findIndex((artboard) => artboard.id === activeArtboardId.value)
+    if (currentIndex >= 0) artboards.value[currentIndex] = homeWorkspace.controller.helpers.captureCurrentArtboard()
+  }
+  return artboards.value.map((artboard) => ({
+    ...artboard,
+    canvas: { ...artboard.canvas },
+    fabric: JSON.parse(JSON.stringify(artboard.fabric)) as Record<string, unknown>,
+    layerOrder: [...artboard.layerOrder]
+  }))
+}
+
+// 为单个画板向 ZIP 写入 SVG 与多尺寸 PNG，按画板目录分组以保证图标集合结构清晰。
+async function addArtboardExportEntriesToZip(
+  zip: JSZip,
+  artboard: IconCreatorProjectArtboard,
+  index: number,
+  prefix: string,
+  pngSizes: number[],
+  usedNames: Set<string>
+) {
+  const artboardName = sanitizeExportEntryName(artboard.name, `artboard-${index + 1}`)
+  const folderName = `${String(index + 1).padStart(2, '0')}-${artboardName}`
+  await withLoadedArtboardForExport(artboard, () => {
+    if (exportDialog.svgEnabled) {
+      zip.file(
+        createUniqueZipEntryName(`${folderName}/${prefix}.svg`, usedNames),
+        createOptimizedSVG(exportDialog.svgIncludeBg)
+      )
+    }
+    if (exportDialog.pngEnabled) {
+      pngSizes.forEach((size) => {
+        zip.file(
+          createUniqueZipEntryName(`${folderName}/${prefix}-${size}.png`, usedNames),
+          getBase64PayloadFromDataUrl(renderPNGDataUrl(size, exportDialog.transparentBg)),
+          { base64: true }
+        )
+      })
+    }
+  })
+}
+
+// 将全部画板按当前导出配置打包为 ZIP，并恢复用户原来正在编辑的画板，避免批量导出破坏工作现场。
+async function exportAllArtboardsZip(prefix: string, pngSizes: number[]) {
+  if (!fabricCanvas) return ''
+  const originalProject = createProjectFile()
+  const targets = getExportTargetArtboards()
+  if (!targets.length) return ''
+  const zip = new JSZip()
+  const usedNames = new Set<string>()
+
+  try {
+    for (const [index, artboard] of targets.entries()) {
+      await addArtboardExportEntriesToZip(zip, artboard, index, prefix, pngSizes, usedNames)
+    }
+  } finally {
+    await loadProjectFile(originalProject, { keepDraft: true, resetHistory: false })
+  }
+
+  const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } })
+  return window.services?.writeZipFile?.(blob, `${prefix}-artboards.zip`) || ''
+}
+
 // 切换预设 PNG 尺寸并保持尺寸列表升序，便于导出状态和文件名稳定可读。
 function toggleExportPngSize(size: number) {
   const normalized = normalizeExportPngSize(size)
@@ -7059,15 +7170,20 @@ async function runExportDialogExport() {
   try {
     const prefix = getExportFilePrefix()
     const paths: string[] = []
-    if (exportDialog.svgEnabled) {
-      const path = exportSVG(`${prefix}.svg`, exportDialog.svgIncludeBg)
+    if (exportDialog.exportAllArtboards && artboards.value.length > 1) {
+      const path = await exportAllArtboardsZip(prefix, pngSizes)
       if (path) paths.push(path)
-    }
-    if (exportDialog.pngEnabled) {
-      pngSizes.forEach((size) => {
-        const path = exportPNG(size, `${prefix}-${size}.png`, exportDialog.transparentBg)
+    } else {
+      if (exportDialog.svgEnabled) {
+        const path = exportSVG(`${prefix}.svg`, exportDialog.svgIncludeBg)
         if (path) paths.push(path)
-      })
+      }
+      if (exportDialog.pngEnabled) {
+        pngSizes.forEach((size) => {
+          const path = exportPNG(size, `${prefix}-${size}.png`, exportDialog.transparentBg)
+          if (path) paths.push(path)
+        })
+      }
     }
     exportDialog.status = paths.length
       ? `导出成功：\n${paths.join('\n')}`

@@ -83,7 +83,7 @@
 | --- | --- | ---: | ---: | --- |
 | 阶段一 | 补齐图标编辑核心闭环 | 8 | 8 | 已完成 |
 | 阶段二 | 增强素材、模板和编辑效率 | 10 | 10 | 已完成 |
-| 阶段三 | 完善专业图标规范和批量交付 | 9 | 8 | 已完成 |
+| 阶段三 | 完善专业图标规范和批量交付 | 9 | 9 | 已完成 |
 
 ---
 
@@ -596,8 +596,8 @@
 ### T3.7 批量导出 ZIP
 
 - **优先级**：P2
-- **状态**：未开始
-- **完成日期**：-
+- **状态**：已完成
+- **完成日期**：2026-06-11
 - **依赖**：T1.6、T3.6
 - **目标**：一次导出多个图标、多种尺寸和格式。
 - **建议拆分**：
@@ -609,10 +609,10 @@
   - 可以导出整个图标集合
   - zip 内文件名和目录结构清晰
 - **完成记录**：
-  - **主要改动文件**：`src/views/home/components/modals/ExportModal.vue`、`src/views/home/types.ts`、`src/views/home/index.vue`、`package.json`
-  - **实现范围**：导出模态框添加画板选择选项；支持导出所有画板选项；更新导出对话框类型定义；安装 jszip 依赖。
+  - **主要改动文件**：`src/views/home/index.vue`、`public/preload/services.js`、`src/env.d.ts`、`src/views/home/projectFile.ts`
+  - **实现范围**：补齐导出所有画板时的 ZIP 打包逻辑；导出前捕获当前画板最新状态，逐个临时加载画板并生成 SVG 与多尺寸 PNG；ZIP 内按 `序号-画板名/文件名前缀-尺寸` 分组并自动处理重名条目；Preload 新增 `writeZipFile` 将渲染进程生成的 Blob 写入下载目录；工程解析恢复多画板字段，确保旧工程 / 草稿中的画板可参与集合导出。
   - **验证方式**：执行 `npm run build` 通过。
-  - **遗留问题**：仅添加UI和数据结构，ZIP打包逻辑待完善。
+  - **遗留问题**：当前为前端内存打包，超大画板集合或 1024px 多尺寸导出可能占用较多内存；暂未提供自定义 ZIP 内目录模板。
 
 ### T3.8 Favicon / App Icon 套装导出
 
@@ -697,5 +697,6 @@
 | 2026-06-10 | T2.10 历史记录面板 | 重构历史记录数据结构，新增 HistoryPanel 组件展示历史记录列表，支持点击历史项跳转，显示操作描述和相对时间。 | `src/views/home/components/panels/HistoryPanel.vue`、`src/views/home/index.vue` |
 | 2026-06-10 | T3.5 文字转轮廓 | 基于 PathKit 实现文字轮廓追踪，支持批量转换选中文本为可编辑路径，保留位置和样式，属性面板添加转换按钮。 | `src/views/home/index.vue`、`src/views/home/components/panels/PropertiesPanel.vue` |
 | 2026-06-10 | T3.6 多画板 / 图标集合管理 | 新增画板列表组件，支持新增、切换、复制、重命名、删除画板；画板缩略图预览；工程文件保存/加载多画板数据；顶栏新增画板列表切换按钮。 | `src/views/home/index.vue`、`src/views/home/components/ArtboardList.vue`、`src/views/home/components/HomeTopBar.vue`、`src/views/home/artboardManager.ts` |
+| 2026-06-11 | T3.7 批量导出 ZIP | 补齐导出所有画板的 ZIP 打包逻辑，按画板目录输出 SVG 和多尺寸 PNG，并通过 Preload 写入下载目录。 | `src/views/home/index.vue`、`public/preload/services.js`、`src/env.d.ts`、`src/views/home/projectFile.ts` |
 | 2026-06-10 | T3.7 批量导出 ZIP | 导出模态框添加画板选择选项；支持导出所有画板选项；更新导出对话框类型定义；安装 jszip 依赖。 | `src/views/home/components/modals/ExportModal.vue`、`src/views/home/types.ts`、`src/views/home/index.vue`、`package.json` |
 | 2026-06-10 | T3.8 Favicon / App Icon 套装导出 | 新增图标套装导出预设配置文件；导出对话框添加预设选择下拉框；支持 Favicon、PWA、Android、iOS、Electron 预设；预设自动配置对应的尺寸和格式。 | `src/views/home/iconPackPresets.ts`、`src/views/home/components/modals/ExportModal.vue`、`src/views/home/index.vue` |

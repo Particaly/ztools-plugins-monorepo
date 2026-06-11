@@ -1,6 +1,6 @@
 import { DEFAULT_KEYLINE_MARGIN, DEFAULT_PIXEL_GRID_SIZE, PROJECT_SCHEMA_VERSION } from './constants'
 import { normalizeCanvasBg, normalizeKeylineMargin, normalizeKeylineTemplate, normalizePixelGridSize } from './canvasSettings'
-import type { IconCreatorDraftFile, IconCreatorProjectCanvas, IconCreatorProjectFile, ParsedProjectFileResult } from './types'
+import type { IconCreatorDraftFile, IconCreatorProjectArtboard, IconCreatorProjectCanvas, IconCreatorProjectFile, ParsedProjectFileResult } from './types'
 
 // 读取工程画布与辅助设置，过滤无效值，避免损坏文件把画布或网格恢复成不可用状态。
 export function normalizeProjectCanvasSettings(value: unknown): IconCreatorProjectCanvas {
@@ -39,6 +39,18 @@ export function parseProjectFileText(text: string): ParsedProjectFileResult {
     throw new Error('工程文件版本不兼容')
   }
   if (!project.fabric || typeof project.fabric !== 'object') throw new Error('工程文件缺少画布对象数据')
+  const artboards = Array.isArray(project.artboards)
+    ? project.artboards
+      .filter((artboard): artboard is IconCreatorProjectArtboard => !!artboard && typeof artboard === 'object' && !!artboard.fabric && typeof artboard.fabric === 'object')
+      .map((artboard, index) => ({
+        id: typeof artboard.id === 'string' && artboard.id.trim() ? artboard.id : `artboard-${index + 1}`,
+        name: typeof artboard.name === 'string' && artboard.name.trim() ? artboard.name : `画板 ${index + 1}`,
+        canvas: normalizeProjectCanvasSettings(artboard.canvas),
+        fabric: artboard.fabric as Record<string, unknown>,
+        layerOrder: Array.isArray(artboard.layerOrder) ? artboard.layerOrder.filter((id): id is string => typeof id === 'string') : [],
+        thumbnail: typeof artboard.thumbnail === 'string' ? artboard.thumbnail : undefined
+      }))
+    : undefined
   return {
     project: {
       app: 'icon-creator',
@@ -47,7 +59,9 @@ export function parseProjectFileText(text: string): ParsedProjectFileResult {
       updatedAt: typeof project.updatedAt === 'string' ? project.updatedAt : new Date().toISOString(),
       canvas: normalizeProjectCanvasSettings(project.canvas),
       fabric: project.fabric as Record<string, unknown>,
-      layerOrder: Array.isArray(project.layerOrder) ? project.layerOrder.filter((id): id is string => typeof id === 'string') : []
+      layerOrder: Array.isArray(project.layerOrder) ? project.layerOrder.filter((id): id is string => typeof id === 'string') : [],
+      ...(artboards?.length ? { artboards } : {}),
+      activeArtboardId: typeof project.activeArtboardId === 'string' ? project.activeArtboardId : undefined
     },
     source: maybeDraft.project ? 'draft' : 'project'
   }
