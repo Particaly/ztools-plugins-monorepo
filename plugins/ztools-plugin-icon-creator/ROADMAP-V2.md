@@ -239,7 +239,7 @@ src/views/home/
 | --- | --- | --- | --- | --- | --- |
 | T4.1 | 建立 EditorRuntime 与模块生命周期骨架 | P0 | 已完成 | - | runtime、module contract、统一 mount/dispose |
 | T4.2 | 收敛共享状态、命令与选择器边界 | P0 | 已完成 | T4.1 | editor store、commands、selectors |
-| T4.3 | 拆出 Canvas Kernel 模块 | P0 | 未开始 | T4.1、T4.2 | canvas 初始化、事件绑定、主题、缩放、自适应 |
+| T4.3 | 拆出 Canvas Kernel 模块 | P0 | 已完成 | T4.1、T4.2 | canvas 初始化、事件绑定、主题、缩放、自适应 |
 | T4.4 | 重组 Workspace 模块 | P0 | 未开始 | T4.2、T4.3 | document / artboard / history / draft 统一归口 |
 | T4.5 | 拆出 Selection / Inspector / Layers 投影模块 | P1 | 未开始 | T4.2、T4.3 | active object、属性投影、图层同步 |
 | T4.6 | 拆出 Direct Edit 交互模块 | P1 | 未开始 | T4.3、T4.5 | 点编辑、线段编辑、端点吸附、万花筒编辑 |
@@ -306,8 +306,8 @@ src/views/home/
 ### T4.3 拆出 Canvas Kernel 模块
 
 - **优先级**：P0
-- **状态**：未开始
-- **完成日期**：-
+- **状态**：已完成
+- **完成日期**：2026-06-11
 - **依赖**：T4.1、T4.2
 - **目标**：抽离 Fabric canvas 相关基础设施，让“画布本身”成为独立模块，而不是页面私有实现细节。
 - **建议拆分**：
@@ -321,6 +321,12 @@ src/views/home/
   - 缩放、自适应、主题、网格、安全区行为保持可用
 - **计划产出**：
   - `editor/modules/canvas/*`
+- **完成记录**：
+  - 主要改动文件：`src/views/home/editor/modules/canvas/createHomeCanvasKernelModule.ts`、`src/views/home/index.vue`。
+  - 状态边界调整：新增 `homeCanvasKernel` 控制器，统一承接 Fabric Canvas 的创建、销毁、背景同步、主题刷新、缩放适配、交互模式和对齐辅助线初始化；`index.vue` 改为通过控制器复用这些基础能力。
+  - 新增接口：`createHomeCanvasKernelModule`、`HomeCanvasKernelController`、`CreateHomeCanvasKernelModuleOptions`。
+  - 验证：已执行 `npm run build`，类型检查与生产构建通过。
+  - 遗留问题：T4.4 继续把文档、画板、历史和草稿恢复对 Canvas 的回调拼装收敛到 Workspace 模块。
 
 ### T4.4 重组 Workspace 模块
 

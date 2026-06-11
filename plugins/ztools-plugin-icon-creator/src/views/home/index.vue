@@ -377,7 +377,6 @@
 import { ref, shallowRef, triggerRef, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { useZtoolsTheme } from 'ztools-ui'
 import { Canvas, Control, FabricObject, Gradient, Textbox, Group, ActiveSelection, FabricImage, Path, Point, Rect, Circle, Triangle, Polygon, Line, StaticCanvas, util, loadSVGFromString } from 'fabric'
-import { AligningGuidelines } from '../../fabric-aligning-guidelines'
 import { basicShapes, textPresets, canvasPresets, shapePreviewPaths, iconTemplates, colorPaletteGroups, gradientPresets } from './editorCatalog'
 import type { ShapeLibraryItem, TextLibraryItem, IconTemplateItem } from './editorCatalog'
 import {
@@ -505,6 +504,7 @@ import { pathKitToEditablePathObject, pathKitToFabricPath } from './geometry/pat
 import { getPathKit, peekPathKit } from './geometry/pathkit'
 import { useHomeArtboards } from './composables/useHomeArtboards'
 import { useHomeDocument } from './composables/useHomeDocument'
+import { createHomeCanvasKernelModule } from './editor/modules/canvas/createHomeCanvasKernelModule'
 import { createEditorRuntime } from './editor/runtime/createEditorRuntime'
 import { createEditorServices } from './editor/runtime/editorServices'
 import type { EditorModule, EditorRuntime } from './editor/runtime/editorTypes'
@@ -567,7 +567,6 @@ const projectInputRef = ref<HTMLInputElement | null>(null)
 
 // ── 状态 ──
 let fabricCanvas: Canvas | null = null
-let aligningGuidelines: AligningGuidelines | null = null
 let editorRuntime: EditorRuntime | null = null
 let restoreActiveObjectAfterSelectionClear = false
 let pointModeSwitchPending = false
@@ -793,30 +792,35 @@ function getCanvasAssistColors() {
   }
 }
 
-function applyCanvasThemeToObject(obj: FabricObject | null | undefined) {
-  if (!obj) return
-  const colors = getCanvasAssistColors()
-  obj.set({
-    borderColor: colors.primaryStrong,
-    cornerColor: colors.primary,
-    cornerStrokeColor: colors.primary,
-    transparentCorners: true,
-    cornerStyle: 'rect'
-  })
-  obj.setCoords()
-}
+const homeCanvasKernel = createHomeCanvasKernelModule({
+  getCanvas: () => fabricCanvas,
+  setCanvas: (canvas) => { fabricCanvas = canvas },
+  canvasElRef,
+  canvasAreaRef,
+  canvasWidth,
+  canvasHeight,
+  canvasBg,
+  lastOpaqueCanvasBg,
+  zoom,
+  sizeRatioLocked,
+  selectionMode,
+  snapToPixelGrid,
+  isTransparentCanvasBg,
+  getCanvasAssistColors,
+  getAligningObjectsByTarget,
+  ensureCanvasObjectMetadata,
+  setupCanvasEvents
+})
 
-function applyCanvasTheme() {
-  if (!fabricCanvas) return
-  const colors = getCanvasAssistColors()
-  fabricCanvas.selectionColor = colors.primaryOverlay
-  fabricCanvas.selectionBorderColor = colors.primaryStrong
-  fabricCanvas.selectionLineWidth = 1
-
-  fabricCanvas.forEachObject((obj) => {
-    applyCanvasThemeToObject(obj)
-  })
-}
+const {
+  applyBackground: applyCanvasBgToFabric,
+  applyTheme: applyCanvasTheme,
+  applyThemeToObject: applyCanvasThemeToObject,
+  fitInView: fitCanvasInView,
+  setZoom: applyCanvasZoom,
+  syncBackgroundFromCanvas: syncCanvasBgFromFabric,
+  syncInteractionMode: syncCanvasInteractionMode
+} = homeCanvasKernel.controller
 
 
 function bumpPointGestureRender() {
@@ -4630,23 +4634,6 @@ function serializeFabricCanvas() {
   return (fabricCanvas as any).toObject(SERIALIZED_OBJECT_PROPS as unknown as string[]) as Record<string, unknown>
 }
 
-function applyCanvasBgToFabric(value: string) {
-  if (!fabricCanvas) return
-  fabricCanvas.backgroundColor = isTransparentCanvasBg(value) ? '' : value
-}
-
-function syncCanvasBgFromFabric() {
-  if (!fabricCanvas) return
-  const bg = fabricCanvas.backgroundColor
-  if (isTransparentCanvasBg(bg)) {
-    canvasBg.value = 'transparent'
-    return
-  }
-  const next = String(bg)
-  canvasBg.value = next
-  lastOpaqueCanvasBg.value = next
-}
-
 function applyProjectLayerOrder(layerOrder: string[]) {
   if (!fabricCanvas || !layerOrder.length) return
   const orderMap = new Map(layerOrder.map((id, index) => [id, index]))
@@ -5058,17 +5045,6 @@ function getAligningObjectsByTarget(target: FabricObject) {
   return objects
 }
 
-function initAligningGuidelines() {
-  if (!fabricCanvas) return
-  aligningGuidelines?.dispose()
-  aligningGuidelines = new AligningGuidelines(fabricCanvas, {
-    margin: 4,
-    width: 1,
-    color: () => getCanvasAssistColors().primaryStrong,
-    getObjectsByTarget: getAligningObjectsByTarget
-  })
-}
-
 function scaleObjectToDisplaySize(obj: FabricObject, width: number, height: number) {
   const currentWidth = obj.getScaledWidth()
   const currentHeight = obj.getScaledHeight()
@@ -5081,21 +5057,10 @@ function toggleSizeRatioLock() {
   if (sizeRatioLocked.value && activeObject.value) {
     lockedAspectRatio.value = getObjectAspectRatio(activeObject.value)
   }
-  if (fabricCanvas) {
-    fabricCanvas.uniformScaling = sizeRatioLocked.value
-  }
+  syncCanvasInteractionMode()
 }
 
 // ── 同步选中对象属性 ──
-// 同步 Fabric 的交互模式；除选择模式外，也把当前网格吸附状态映射到对象旋转角度吸附。
-function syncCanvasInteractionMode() {
-  if (!fabricCanvas) return
-  fabricCanvas.selection = selectionMode.value === 'shape'
-  fabricCanvas.getObjects().forEach((obj) => {
-    obj.snapAngle = snapToPixelGrid.value ? 15 : undefined
-  })
-}
-
 function setSelectionMode(mode: 'shape' | 'point' | 'segment') {
   const editable = activeEditablePathObject.value
   const nextMode = mode === 'segment' && editable && getArrowRenderMode(editable) === 'hollow-shaft'
@@ -6306,25 +6271,6 @@ function applyCanvasPreset(val: string) {
 }
 
 // ── 缩放 ──
-function applyCanvasZoom(value: number) {
-  if (!fabricCanvas) return
-  zoom.value = Math.round(Math.max(0.1, Math.min(5, value)) * 100) / 100
-  fabricCanvas.setZoom(zoom.value)
-  fabricCanvas.setDimensions({
-    width: canvasWidth.value * zoom.value,
-    height: canvasHeight.value * zoom.value
-  })
-  fabricCanvas.requestRenderAll()
-}
-
-function fitCanvasInView() {
-  if (!fabricCanvas || !canvasAreaRef.value) return
-  const area = canvasAreaRef.value
-  const scaleX = (area.clientWidth - 40) / canvasWidth.value
-  const scaleY = (area.clientHeight - 40) / canvasHeight.value
-  applyCanvasZoom(Math.min(scaleX, scaleY, 1))
-}
-
 function setZoom(value: number) {
   applyCanvasZoom(value)
 }
@@ -8122,38 +8068,9 @@ function setupCanvasEvents() {
 }
 
 // ── 初始化 ──
-// 创建画布生命周期模块，负责把 Fabric Canvas 实例接入运行时上下文并在销毁时释放底层资源。
+// Canvas Kernel 模块负责 Fabric Canvas 生命周期与基础视口行为；页面仅保留业务回调和运行时注册。
 function createHomeCanvasLifecycleModule(): EditorModule {
-  return {
-    name: 'home-canvas',
-    onMount(context) {
-      if (!canvasElRef.value) return
-      fabricCanvas = new Canvas(canvasElRef.value, {
-        width: canvasWidth.value,
-        height: canvasHeight.value,
-        backgroundColor: isTransparentCanvasBg(canvasBg.value) ? '' : canvasBg.value,
-        preserveObjectStacking: true,
-        selection: true,
-        selectionKey: ['shiftKey', 'ctrlKey'],
-        uniformScaling: sizeRatioLocked.value
-      })
-      context.setCanvas(fabricCanvas)
-    },
-    onCanvasReady() {
-      ensureCanvasObjectMetadata()
-      applyCanvasTheme()
-      syncCanvasInteractionMode()
-      initAligningGuidelines()
-      setupCanvasEvents()
-    },
-    onDispose(context) {
-      aligningGuidelines?.dispose()
-      aligningGuidelines = null
-      fabricCanvas?.dispose()
-      fabricCanvas = null
-      context.setCanvas(null)
-    }
-  }
+  return homeCanvasKernel.module
 }
 
 // 创建启动数据模块，集中加载不会直接创建画布对象的编辑器基础数据。
