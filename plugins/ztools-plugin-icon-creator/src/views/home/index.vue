@@ -505,6 +505,9 @@ import { pathKitToEditablePathObject, pathKitToFabricPath } from './geometry/pat
 import { getPathKit, peekPathKit } from './geometry/pathkit'
 import { useHomeArtboards } from './composables/useHomeArtboards'
 import { useHomeDocument } from './composables/useHomeDocument'
+import { createEditorRuntime } from './editor/runtime/createEditorRuntime'
+import { createEditorServices } from './editor/runtime/editorServices'
+import type { EditorModule, EditorRuntime } from './editor/runtime/editorTypes'
 import {
   editablePointToLocalObjectPoint,
   getArrowRenderMode,
@@ -562,6 +565,7 @@ const projectInputRef = ref<HTMLInputElement | null>(null)
 // ── 状态 ──
 let fabricCanvas: Canvas | null = null
 let aligningGuidelines: AligningGuidelines | null = null
+let editorRuntime: EditorRuntime | null = null
 let restoreActiveObjectAfterSelectionClear = false
 let pointModeSwitchPending = false
 let internalClipboard: InternalClipboard | null = null
@@ -8058,41 +8062,113 @@ function setupCanvasEvents() {
 }
 
 // ── 初始化 ──
+// 创建画布生命周期模块，负责把 Fabric Canvas 实例接入运行时上下文并在销毁时释放底层资源。
+function createHomeCanvasLifecycleModule(): EditorModule {
+  return {
+    name: 'home-canvas',
+    onMount(context) {
+      if (!canvasElRef.value) return
+      fabricCanvas = new Canvas(canvasElRef.value, {
+        width: canvasWidth.value,
+        height: canvasHeight.value,
+        backgroundColor: isTransparentCanvasBg(canvasBg.value) ? '' : canvasBg.value,
+        preserveObjectStacking: true,
+        selection: true,
+        selectionKey: ['shiftKey', 'ctrlKey'],
+        uniformScaling: sizeRatioLocked.value
+      })
+      context.setCanvas(fabricCanvas)
+    },
+    onCanvasReady() {
+      ensureCanvasObjectMetadata()
+      applyCanvasTheme()
+      syncCanvasInteractionMode()
+      initAligningGuidelines()
+      setupCanvasEvents()
+    },
+    onDispose(context) {
+      aligningGuidelines?.dispose()
+      aligningGuidelines = null
+      fabricCanvas?.dispose()
+      fabricCanvas = null
+      context.setCanvas(null)
+    }
+  }
+}
+
+// 创建启动数据模块，集中加载不会直接创建画布对象的编辑器基础数据。
+function createHomeStartupDataModule(): EditorModule {
+  return {
+    name: 'home-startup-data',
+    onMount(context) {
+      if (!context.getCanvas()) return
+      void getPathKit()
+      loadShortcutBindings()
+      loadUserAssets()
+      loadUserStylePresets()
+    }
+  }
+}
+
+// 创建文档就绪模块，负责首帧适配、初始历史快照和自动草稿恢复等 document-ready 阶段工作。
+function createHomeDocumentReadyModule(): EditorModule {
+  return {
+    name: 'home-document-ready',
+    onDocumentReady(context) {
+      // 延迟 fit，确保 DOM 已完成布局
+      nextTick(() => {
+        if (context.getPhase() === 'disposed' || !context.getCanvas()) return
+        fitCanvasInView()
+        snapshot({ autoSave: false })
+        void promptRestoreDraft()
+      })
+    },
+    onDispose() {
+      endSpacePan()
+      clearBooleanPreview()
+      clearPointEditing()
+      cancelSmallPreviewsRefresh()
+      flushDraftBeforeDispose()
+    }
+  }
+}
+
+// 创建窗口事件模块，统一注册和释放编辑器级全局监听，避免页面卸载时遗漏清理。
+function createHomeWindowEventsModule(): EditorModule {
+  return {
+    name: 'home-window-events',
+    onDocumentReady(context) {
+      const targetWindow = context.services.window
+      targetWindow.addEventListener('resize', fitCanvasInView)
+      targetWindow.addEventListener('keydown', handleKeydown)
+      targetWindow.addEventListener('keyup', handleKeyup)
+      targetWindow.addEventListener('blur', handleWindowBlur)
+      targetWindow.addEventListener('paste', handleWindowPaste)
+    },
+    onDispose(context) {
+      const targetWindow = context.services.window
+      targetWindow.removeEventListener('resize', fitCanvasInView)
+      targetWindow.removeEventListener('keydown', handleKeydown)
+      targetWindow.removeEventListener('keyup', handleKeyup)
+      targetWindow.removeEventListener('blur', handleWindowBlur)
+      targetWindow.removeEventListener('paste', handleWindowPaste)
+    }
+  }
+}
+
+// 创建 Home 编辑器运行时并注册当前阶段已迁入的生命周期模块。
+function createHomeEditorRuntime(): EditorRuntime {
+  const runtime = createEditorRuntime({ services: createEditorServices() })
+  runtime.register(createHomeCanvasLifecycleModule())
+  runtime.register(createHomeStartupDataModule())
+  runtime.register(createHomeDocumentReadyModule())
+  runtime.register(createHomeWindowEventsModule())
+  return runtime
+}
+
 onMounted(() => {
-  if (!canvasElRef.value) return
-  void getPathKit()
-  fabricCanvas = new Canvas(canvasElRef.value, {
-    width: canvasWidth.value,
-    height: canvasHeight.value,
-    backgroundColor: isTransparentCanvasBg(canvasBg.value) ? '' : canvasBg.value,
-    preserveObjectStacking: true,
-    selection: true,
-    selectionKey: ['shiftKey', 'ctrlKey'],
-    uniformScaling: sizeRatioLocked.value
-  })
-
-  loadShortcutBindings()
-  loadUserAssets()
-  loadUserStylePresets()
-  ensureCanvasObjectMetadata()
-  applyCanvasTheme()
-  syncCanvasInteractionMode()
-  initAligningGuidelines()
-  setupCanvasEvents()
-
-  // 延迟 fit，确保 DOM 已完成布局
-  nextTick(() => {
-    fitCanvasInView()
-    snapshot({ autoSave: false })
-    void promptRestoreDraft()
-  })
-
-  // 窗口缩放自适应
-  window.addEventListener('resize', fitCanvasInView)
-  window.addEventListener('keydown', handleKeydown)
-  window.addEventListener('keyup', handleKeyup)
-  window.addEventListener('blur', handleWindowBlur)
-  window.addEventListener('paste', handleWindowPaste)
+  editorRuntime = createHomeEditorRuntime()
+  void editorRuntime.mount()
 })
 
 watch(
@@ -8104,19 +8180,8 @@ watch(
 )
 
 onBeforeUnmount(() => {
-  window.removeEventListener('resize', fitCanvasInView)
-  window.removeEventListener('keydown', handleKeydown)
-  window.removeEventListener('keyup', handleKeyup)
-  window.removeEventListener('blur', handleWindowBlur)
-  window.removeEventListener('paste', handleWindowPaste)
-  endSpacePan()
-  clearBooleanPreview()
-  clearPointEditing()
-  cancelSmallPreviewsRefresh()
-  flushDraftBeforeDispose()
-  aligningGuidelines?.dispose()
-  aligningGuidelines = null
-  fabricCanvas?.dispose()
+  void editorRuntime?.dispose()
+  editorRuntime = null
 })
 </script>
 

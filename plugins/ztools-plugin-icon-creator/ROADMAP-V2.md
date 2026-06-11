@@ -237,7 +237,7 @@ src/views/home/
 
 | 编号 | 任务 | 优先级 | 状态 | 依赖 | 核心产出 |
 | --- | --- | --- | --- | --- | --- |
-| T4.1 | 建立 EditorRuntime 与模块生命周期骨架 | P0 | 未开始 | - | runtime、module contract、统一 mount/dispose |
+| T4.1 | 建立 EditorRuntime 与模块生命周期骨架 | P0 | 已完成 | - | runtime、module contract、统一 mount/dispose |
 | T4.2 | 收敛共享状态、命令与选择器边界 | P0 | 未开始 | T4.1 | editor store、commands、selectors |
 | T4.3 | 拆出 Canvas Kernel 模块 | P0 | 未开始 | T4.1、T4.2 | canvas 初始化、事件绑定、主题、缩放、自适应 |
 | T4.4 | 重组 Workspace 模块 | P0 | 未开始 | T4.2、T4.3 | document / artboard / history / draft 统一归口 |
@@ -254,8 +254,8 @@ src/views/home/
 ### T4.1 建立 EditorRuntime 与模块生命周期骨架
 
 - **优先级**：P0
-- **状态**：未开始
-- **完成日期**：-
+- **状态**：已完成
+- **完成日期**：2026-06-11
 - **目标**：先把“谁负责启动与销毁编辑器”这件事从 `index.vue` 中抽离出来，建立统一运行时骨架。
 - **建议拆分**：
   - 定义 `EditorContext`、`EditorServices`、`EditorModule`、`EditorRuntime` 基础类型
@@ -269,6 +269,12 @@ src/views/home/
 - **计划产出**：
   - `editor/runtime/*`
   - 首页壳层最小化 bootstrap 接线
+- **完成记录**：
+  - 主要改动文件：`src/views/home/editor/runtime/*`、`src/views/home/index.vue`
+  - 状态边界调整：新增 `EditorContext` 保存运行时阶段与 Fabric Canvas 引用，页面只保留当前过渡期需要的本地变量。
+  - 新增接口：`EditorModule`、`EditorRuntime`、`EditorRuntimeServices`、`runEditorLifecycleHooks`。
+  - 验证：已执行 `npm run build`，类型检查与生产构建通过。
+  - 遗留问题：后续 T4.2/T4.3 继续把共享状态、命令、Canvas Kernel 逻辑迁出 Home 壳层。
 
 ### T4.2 收敛共享状态、命令与选择器边界
 
