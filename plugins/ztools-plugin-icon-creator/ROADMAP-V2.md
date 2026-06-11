@@ -240,7 +240,7 @@ src/views/home/
 | T4.1 | 建立 EditorRuntime 与模块生命周期骨架 | P0 | 已完成 | - | runtime、module contract、统一 mount/dispose |
 | T4.2 | 收敛共享状态、命令与选择器边界 | P0 | 已完成 | T4.1 | editor store、commands、selectors |
 | T4.3 | 拆出 Canvas Kernel 模块 | P0 | 已完成 | T4.1、T4.2 | canvas 初始化、事件绑定、主题、缩放、自适应 |
-| T4.4 | 重组 Workspace 模块 | P0 | 未开始 | T4.2、T4.3 | document / artboard / history / draft 统一归口 |
+| T4.4 | 重组 Workspace 模块 | P0 | 已完成 | T4.2、T4.3 | document / artboard / history / draft 统一归口 |
 | T4.5 | 拆出 Selection / Inspector / Layers 投影模块 | P1 | 未开始 | T4.2、T4.3 | active object、属性投影、图层同步 |
 | T4.6 | 拆出 Direct Edit 交互模块 | P1 | 未开始 | T4.3、T4.5 | 点编辑、线段编辑、端点吸附、万花筒编辑 |
 | T4.7 | 拆出 Assets / Import 工作流模块 | P1 | 未开始 | T4.3、T4.4 | SVG、图片、Iconify、模板、用户素材导入 |
@@ -331,8 +331,8 @@ src/views/home/
 ### T4.4 重组 Workspace 模块
 
 - **优先级**：P0
-- **状态**：未开始
-- **完成日期**：-
+- **状态**：已完成
+- **完成日期**：2026-06-11
 - **依赖**：T4.2、T4.3
 - **目标**：将现有 document / artboard / history / draft 统一收口，形成一个真正拥有工作区状态的模块。
 - **建议拆分**：
@@ -346,6 +346,12 @@ src/views/home/
   - workspace 能独立解释“当前文档状态”而不是由页面拼装
 - **计划产出**：
   - `editor/modules/workspace/*`
+- **完成记录**：
+  - 主要改动文件：`src/views/home/editor/modules/workspace/createHomeWorkspaceModule.ts`、`src/views/home/editor/modules/workspace/workspaceTypes.ts`、`src/views/home/index.vue`。
+  - 状态边界调整：新增 `homeWorkspace` 控制器，统一暴露文档、画板、历史和草稿恢复相关的 `state / commands / helpers`，`index.vue` 不再直接拼装 `useHomeDocument` 与 `useHomeArtboards`。
+  - 新增接口：`createHomeWorkspaceModule`、`HomeWorkspaceState`、`HomeWorkspaceCommands`、`HomeWorkspaceHelpers`、`HomeWorkspaceController`。
+  - 验证：已执行 `npm run build`，类型检查与生产构建通过。
+  - 遗留问题：T4.5 继续将 selection / inspector / layers 的投影和可操作性判断从页面收口到独立模块。
 
 ### T4.5 拆出 Selection / Inspector / Layers 投影模块
 

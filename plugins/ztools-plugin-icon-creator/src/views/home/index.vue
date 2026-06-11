@@ -374,7 +374,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, shallowRef, triggerRef, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
+import { ref, shallowRef, triggerRef, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useZtoolsTheme } from 'ztools-ui'
 import { Canvas, Control, FabricObject, Gradient, Textbox, Group, ActiveSelection, FabricImage, Path, Point, Rect, Circle, Triangle, Polygon, Line, StaticCanvas, util, loadSVGFromString } from 'fabric'
 import { basicShapes, textPresets, canvasPresets, shapePreviewPaths, iconTemplates, colorPaletteGroups, gradientPresets } from './editorCatalog'
@@ -481,7 +481,6 @@ import type {
   PreviewBackgroundMode,
   PreviewItem,
   RightPanelTab,
-  SnapshotOptions,
   SegmentEndpointAttachment,
   SpacePanStart,
   StrokeLineType,
@@ -496,14 +495,12 @@ import { isTransparentCanvasBg, normalizeCanvasBg, normalizeKeylineMargin, norma
 import { ensureOptimizedSVGRoot, stripFabricSVGNoise, svgEscapeText, trimSVGWhitespace } from './exportUtils'
 import { buildIconCheckIssues as buildIconCheckIssuesFromContext } from './iconChecks'
 import { commitNumericInput, commitPositiveNumericInput, formatNumericInputValue, normalizeInputValue } from './inputUtils'
-import { parseProjectFileText } from './projectFile'
 import { isBooleanCandidate, fabricObjectToPathKitWithApi, fabricStrokeToPathKitWithApi, type FabricBooleanStyleSnapshot } from './geometry/fabricToPathKit'
 import { applyBooleanOperation, computeBooleanResult } from './geometry/booleanOps'
 import type { BooleanOperation, SubtractDirection } from './geometry/booleanOps'
 import { pathKitToEditablePathObject, pathKitToFabricPath } from './geometry/pathKitToFabric'
 import { getPathKit, peekPathKit } from './geometry/pathkit'
-import { useHomeArtboards } from './composables/useHomeArtboards'
-import { useHomeDocument } from './composables/useHomeDocument'
+import { createHomeWorkspaceModule } from './editor/modules/workspace/createHomeWorkspaceModule'
 import { createHomeCanvasKernelModule } from './editor/modules/canvas/createHomeCanvasKernelModule'
 import { createEditorRuntime } from './editor/runtime/createEditorRuntime'
 import { createEditorServices } from './editor/runtime/editorServices'
@@ -940,62 +937,12 @@ const canvasState = {
   keylineTemplate,
   keylineMargin
 }
-let snapshotFromDocument: ((options?: SnapshotOptions) => void) | null = null
-const homeArtboards = useHomeArtboards({
+const homeWorkspace = createHomeWorkspaceModule({
   artboardIdSeed,
   getFabricCanvas: () => fabricCanvas,
   serializeFabricCanvas,
   snapshotGate,
-  snapshot: (options) => {
-    snapshotFromDocument?.(options)
-  },
   canvasState,
-  showToast,
-  isBooleanPreviewObject,
-  ensureEditorObjectId,
-  isTransparentCanvasBg,
-  clearBooleanPreview,
-  clearPointEditing,
-  syncPixelGridSizeInput,
-  syncKeylineMarginInput,
-  syncCanvasSizeInputs,
-  syncCanvasInteractionMode,
-  applyCanvasBgToFabric,
-  syncActiveObject,
-  syncAllKaleidoscopes,
-  ensureCanvasObjectMetadata,
-  applyProjectLayerOrder,
-  rehydrateCanvasGradientFills,
-  syncAllEndpointAttachments,
-  applyCanvasTheme,
-  refreshLayers,
-  fitCanvasInView,
-  markSmallPreviewsDirty
-})
-const {
-  artboards,
-  activeArtboardId,
-  showArtboardList,
-  captureCurrentArtboard,
-  loadArtboardContent,
-  switchArtboard,
-  addArtboard,
-  duplicateArtboard,
-  renameArtboard,
-  deleteArtboard
-} = homeArtboards
-const homeDocument = useHomeDocument({
-  getFabricCanvas: () => fabricCanvas,
-  serializeFabricCanvas,
-  snapshotGate,
-  canvasState,
-  artboardState: {
-    artboards,
-    activeArtboardId,
-    showArtboardList
-  },
-  captureCurrentArtboard,
-  loadArtboardContent,
   showToast,
   clearBooleanPreview,
   clearPointEditing,
@@ -1017,27 +964,42 @@ const homeDocument = useHomeDocument({
   markSmallPreviewsDirty,
   isBooleanPreviewObject,
   ensureEditorObjectId,
-  isTransparentCanvasBg
+  isTransparentCanvasBg,
+  endSpacePan,
+  cancelSmallPreviewsRefresh,
+  projectInputRef
 })
-snapshotFromDocument = homeDocument.snapshot
 const {
+  artboards,
+  activeArtboardId,
+  showArtboardList,
   undoStack,
   historyIndex,
   canUndo,
-  canRedo,
-  snapshot,
-  createProjectFile,
-  resetHistoryToCurrentCanvas,
-  loadProjectFile,
-  scheduleDraftSave,
+  canRedo
+} = homeWorkspace.controller.state
+const {
+  addArtboard,
   clearStoredDraft,
-  promptRestoreDraft,
-  flushDraftBeforeDispose,
-  saveProject,
-  undo,
+  deleteArtboard,
+  duplicateArtboard,
+  jumpToHistory,
+  loadProjectFile,
+  newDoc,
+  onProjectFileChosen,
+  openProject,
   redo,
-  jumpToHistory
-} = homeDocument
+  renameArtboard,
+  resetHistoryToCurrentCanvas,
+  saveProject,
+  scheduleDraftSave,
+  snapshot,
+  switchArtboard,
+  undo
+} = homeWorkspace.controller.commands
+const {
+  createProjectFile
+} = homeWorkspace.controller.helpers
 
 const keylineTemplateOptions: Array<{ value: KeylineTemplate; label: string }> = [
   { value: 'none', label: '无参考线' },
@@ -6424,26 +6386,6 @@ function importImage() {
   imgInputRef.value?.click()
 }
 
-// 打开隐藏的工程文件选择器，读取逻辑交给 onProjectFileChosen 统一处理。
-function openProject() {
-  projectInputRef.value?.click()
-}
-
-// 从文件输入读取工程 JSON，恢复失败时保留当前画布并给出错误提示。
-async function onProjectFileChosen(e: Event) {
-  const input = e.target as HTMLInputElement
-  const file = input.files?.[0]
-  if (!file) return
-  try {
-    const { project } = parseProjectFileText(await file.text())
-    await loadProjectFile(project)
-  } catch (error) {
-    showToast(error instanceof Error ? error.message : '打开工程失败', 'error')
-  } finally {
-    input.value = ''
-  }
-}
-
 // 从文件输入读取本地 SVG，导入失败时只重置输入框并保留当前画布内容。
 async function onSVGFileChosen(e: Event) {
   const input = e.target as HTMLInputElement
@@ -7118,30 +7060,6 @@ async function runExportDialogExport() {
   } finally {
     exportDialog.loading = false
   }
-}
-
-// 新建空白文档时清理当前选择、历史记录、网格辅助设置和旧草稿，避免上一份作品继续触发恢复提示。
-function newDoc() {
-  if (!fabricCanvas) return
-  clearBooleanPreview()
-  clearPointEditing()
-  clearStoredDraft()
-  skipSnapshot = true
-  fabricCanvas.clear()
-  skipSnapshot = false
-  showPixelGrid.value = false
-  snapToPixelGrid.value = false
-  pixelGridSize.value = DEFAULT_PIXEL_GRID_SIZE
-  keylineTemplate.value = DEFAULT_KEYLINE_TEMPLATE
-  keylineMargin.value = DEFAULT_KEYLINE_MARGIN
-  syncPixelGridSizeInput()
-  syncKeylineMarginInput()
-  syncCanvasInteractionMode()
-  applyCanvasBgToFabric(canvasBg.value)
-  fabricCanvas.requestRenderAll()
-  syncActiveObject(null)
-  refreshLayers()
-  resetHistoryToCurrentCanvas()
 }
 
 // ── 对象操作 ──
@@ -8087,29 +8005,6 @@ function createHomeStartupDataModule(): EditorModule {
   }
 }
 
-// 创建文档就绪模块，负责首帧适配、初始历史快照和自动草稿恢复等 document-ready 阶段工作。
-function createHomeDocumentReadyModule(): EditorModule {
-  return {
-    name: 'home-document-ready',
-    onDocumentReady(context) {
-      // 延迟 fit，确保 DOM 已完成布局
-      nextTick(() => {
-        if (context.getPhase() === 'disposed' || !context.getCanvas()) return
-        fitCanvasInView()
-        snapshot({ autoSave: false })
-        void promptRestoreDraft()
-      })
-    },
-    onDispose() {
-      endSpacePan()
-      clearBooleanPreview()
-      clearPointEditing()
-      cancelSmallPreviewsRefresh()
-      flushDraftBeforeDispose()
-    }
-  }
-}
-
 // 创建窗口事件模块，统一注册和释放编辑器级全局监听，避免页面卸载时遗漏清理。
 function createHomeWindowEventsModule(): EditorModule {
   return {
@@ -8144,8 +8039,8 @@ function createHomeEditorRuntime(): EditorRuntime {
     }
   })
   runtime.register(createHomeCanvasLifecycleModule())
+  runtime.register(homeWorkspace.module)
   runtime.register(createHomeStartupDataModule())
-  runtime.register(createHomeDocumentReadyModule())
   runtime.register(createHomeWindowEventsModule())
   return runtime
 }
