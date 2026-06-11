@@ -274,6 +274,8 @@ export type StrokeOutlineResult = {
   style: FabricBooleanStyleSnapshot
 }
 
+export type BitmapTraceMode = 'alpha' | 'luminance'
+
 export type PreviewItem = {
   size: number
   width: number

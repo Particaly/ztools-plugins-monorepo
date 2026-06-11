@@ -636,8 +636,8 @@
 ### T3.9 图片转矢量探索
 
 - **优先级**：P2
-- **状态**：暂缓
-- **完成日期**：-
+- **状态**：已完成
+- **完成日期**：2026-06-12
 - **目标**：探索将位图 logo 或草图转换为矢量路径。
 - **建议拆分**：
   - 调研 potrace / imagetracer 等方案
@@ -646,7 +646,11 @@
   - 提供阈值和简化参数
 - **验收标准**：
   - 简单黑白图可以转换为可编辑路径
-- **完成记录**：暂缓实现，需要进一步调研和评估技术方案。
+- **完成记录**：
+  - **主要改动文件**：`src/views/home/index.vue`、`src/views/home/components/panels/PropertiesPanel.vue`、`src/views/home/types.ts`、`src/views/home/constants.ts`
+  - **实现范围**：新增选中图片后的“图片追踪”设置和“图片转矢量”操作；支持透明区域追踪与黑白亮度阈值追踪两种模式，阈值输入限制在 0-255；将选中 `FabricImage` 渲染到透明离屏画布后生成像素蒙版，再基于 PathKit 合并横向像素段为可编辑填充路径，并替换源图片所在图层位置；支持批量转换多张图片并生成可撤销快照。
+  - **验证方式**：执行 `npm run build` 通过。
+  - **遗留问题**：当前是黑白 / 透明蒙版追踪探索方案，暂未实现彩色图分层、路径平滑参数和节点数量控制；复杂照片建议先外部二值化或简化后再转换。
 
 ---
 
@@ -700,3 +704,4 @@
 | 2026-06-11 | T3.7 批量导出 ZIP | 补齐导出所有画板的 ZIP 打包逻辑，按画板目录输出 SVG 和多尺寸 PNG，并通过 Preload 写入下载目录。 | `src/views/home/index.vue`、`public/preload/services.js`、`src/env.d.ts`、`src/views/home/projectFile.ts` |
 | 2026-06-10 | T3.7 批量导出 ZIP | 导出模态框添加画板选择选项；支持导出所有画板选项；更新导出对话框类型定义；安装 jszip 依赖。 | `src/views/home/components/modals/ExportModal.vue`、`src/views/home/types.ts`、`src/views/home/index.vue`、`package.json` |
 | 2026-06-10 | T3.8 Favicon / App Icon 套装导出 | 新增图标套装导出预设配置文件；导出对话框添加预设选择下拉框；支持 Favicon、PWA、Android、iOS、Electron 预设；预设自动配置对应的尺寸和格式。 | `src/views/home/iconPackPresets.ts`、`src/views/home/components/modals/ExportModal.vue`、`src/views/home/index.vue` |
+| 2026-06-12 | T3.9 图片转矢量探索 | 新增图片追踪设置和“图片转矢量”操作，支持透明 / 黑白阈值追踪，将选中位图转换为可编辑路径。 | `src/views/home/index.vue`、`src/views/home/components/panels/PropertiesPanel.vue`、`src/views/home/types.ts`、`src/views/home/constants.ts` |

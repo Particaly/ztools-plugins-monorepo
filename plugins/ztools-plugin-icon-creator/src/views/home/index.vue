@@ -167,6 +167,8 @@
             :stroke-outline-busy="strokeOutlineBusy"
             :can-convert-text-selection="canConvertTextSelection"
             :text-outline-busy="textOutlineBusy"
+            :can-vectorize-bitmap-selection="canVectorizeBitmapSelection"
+            :bitmap-trace-busy="bitmapTraceBusy"
             :canvas-preset-value="canvasPresetValue"
             :canvas-preset-options="canvasPresetOptions"
             :canvas-width-input="canvasWidthInput"
@@ -235,6 +237,9 @@
             :distribute-selection="distributeSelection"
             :convert-selection-stroke-to-outline="convertSelectionStrokeToOutline"
             :convert-selection-text-to-outline="convertSelectionTextToOutline"
+            :vectorize-selection-bitmap="vectorizeSelectionBitmap"
+            :set-bitmap-trace-mode="setBitmapTraceMode"
+            :set-bitmap-trace-threshold-from-input="setBitmapTraceThresholdFromInput"
             :lock-object="lockObject"
             :delete-object="deleteObject"
             :apply-canvas-preset="applyCanvasPreset"
@@ -436,6 +441,10 @@ import PreviewPanel from './components/panels/PreviewPanel.vue'
 import PropertiesPanel from './components/panels/PropertiesPanel.vue'
 import RightPanel from './components/panels/RightPanel.vue'
 import {
+  BITMAP_VECTOR_ALPHA_THRESHOLD,
+  BITMAP_VECTOR_DEFAULT_THRESHOLD,
+  BITMAP_VECTOR_MAX_TRACE_SIDE,
+  BITMAP_VECTOR_TRACE_MULTIPLIER,
   DEFAULT_KEYLINE_MARGIN,
   DEFAULT_KEYLINE_TEMPLATE,
   DEFAULT_PIXEL_GRID_SIZE,
@@ -452,6 +461,7 @@ import {
 } from './constants'
 import type {
   BooleanPreviewHiddenObject,
+  BitmapTraceMode,
   BoundsEndpointAttachment,
   ClipboardEntry,
   ColorSwatchItem,
@@ -649,6 +659,7 @@ const iconCheckIssues = computed<IconCheckIssue[]>(() => buildIconCheckIssues())
 const booleanBusy = ref(false)
 const strokeOutlineBusy = ref(false)
 const textOutlineBusy = ref(false)
+const bitmapTraceBusy = ref(false)
 const booleanError = ref('')
 const subtractPopoverVisible = ref(false)
 const booleanPreviewObjects = shallowRef<FabricObject[]>([])
@@ -662,6 +673,9 @@ const objProps = reactive({
   scaleX: 1, scaleY: 1, angle: 0,
   fill: '#000000', fillEnabled: true, fillMode: 'solid' as FillModeOption, fillGradientType: DEFAULT_FILL_GRADIENT_TYPE as FillGradientType, fillGradientAngle: DEFAULT_FILL_GRADIENT_ANGLE, fillGradientAngleInput: String(DEFAULT_FILL_GRADIENT_ANGLE), fillGradientStops: decorateGradientStops(cloneFillGradientStops(undefined)), fillGradientCenterX: 0.5, fillGradientCenterY: 0.5, fillGradientRadius: DEFAULT_FILL_GRADIENT_RADIUS,
   stroke: '#000000', strokeEnabled: true, strokeWidth: 0, strokeWidthInput: '0', strokeLineType: 'solid' as StrokeLineType, strokeDashLength: 6, strokeDashGap: 4, strokeDashLengthInput: '6', strokeDashGapInput: '4', opacity: 1,
+  bitmapTraceMode: 'alpha' as BitmapTraceMode,
+  bitmapTraceThreshold: BITMAP_VECTOR_DEFAULT_THRESHOLD,
+  bitmapTraceThresholdInput: String(BITMAP_VECTOR_DEFAULT_THRESHOLD),
   cornerRadius: 0,
   pointCornerRadius: 0,
   endpointSnapMargin: 0,
@@ -2523,6 +2537,12 @@ const canConvertTextSelection = computed(() => {
   return !textOutlineBusy.value
     && selectedObjects.value.length > 0
     && selectedObjects.value.every((obj) => obj instanceof Textbox)
+})
+
+const canVectorizeBitmapSelection = computed(() => {
+  return !bitmapTraceBusy.value
+    && selectedObjects.value.length > 0
+    && selectedObjects.value.every((obj) => obj instanceof FabricImage)
 })
 const canSaveUserAsset = computed(() => {
   void activeObject.value
@@ -7593,6 +7613,190 @@ async function convertSelectionTextToOutline() {
   } finally {
     skipSnapshot = false
     textOutlineBusy.value = false
+  }
+  if (!outlines.length) {
+    fabricCanvas.requestRenderAll()
+    return
+  }
+  setSelectionMode('shape')
+  applyActiveObjectsSelection(outlines)
+  refreshLayers()
+  fabricCanvas.requestRenderAll()
+  snapshot()
+}
+
+// 将图片转矢量阈值限制在 0-255，避免无效输入导致黑白追踪结果全空或全满。
+function normalizeBitmapTraceThreshold(value: unknown) {
+  const parsed = Math.round(Number(value))
+  if (!Number.isFinite(parsed)) return BITMAP_VECTOR_DEFAULT_THRESHOLD
+  return Math.max(0, Math.min(255, parsed))
+}
+
+// 切换位图追踪模式：透明模式提取非透明轮廓，黑白模式按亮度阈值提取深色区域。
+function setBitmapTraceMode(mode: BitmapTraceMode) {
+  objProps.bitmapTraceMode = mode
+}
+
+// 提交黑白位图追踪阈值输入，非法值回退到默认阈值并同步面板显示。
+function setBitmapTraceThresholdFromInput(value: string | number) {
+  const normalized = normalizeBitmapTraceThreshold(value)
+  objProps.bitmapTraceThreshold = normalized
+  objProps.bitmapTraceThresholdInput = String(normalized)
+}
+
+// 根据画布尺寸选择位图追踪倍率，控制离屏像素总量，避免大画布转换时占用过多内存。
+function getBitmapVectorTraceMultiplier() {
+  const maxSide = Math.max(canvasWidth.value, canvasHeight.value, 1)
+  return Math.max(0.25, Math.min(BITMAP_VECTOR_TRACE_MULTIPLIER, BITMAP_VECTOR_MAX_TRACE_SIDE / maxSide))
+}
+
+// 仅渲染目标图片到透明离屏画布，保留其缩放、旋转和位置后再进行像素蒙版追踪。
+function renderBitmapObjectMaskCanvas(image: FabricImage, multiplier: number) {
+  if (!fabricCanvas) return null
+  const currentZoom = fabricCanvas.getZoom()
+  const currentWidth = fabricCanvas.getWidth()
+  const currentHeight = fabricCanvas.getHeight()
+  const currentBg = fabricCanvas.backgroundColor
+  const visibility = new Map<FabricObject, boolean | undefined>()
+  fabricCanvas.getObjects().forEach((obj) => visibility.set(obj, obj.visible))
+  try {
+    fabricCanvas.discardActiveObject()
+    fabricCanvas.setZoom(1)
+    fabricCanvas.setDimensions({ width: canvasWidth.value, height: canvasHeight.value })
+    fabricCanvas.backgroundColor = ''
+    fabricCanvas.getObjects().forEach((obj) => {
+      obj.visible = obj === image
+    })
+    image.visible = true
+    fabricCanvas.requestRenderAll()
+    return (fabricCanvas as any).toCanvasElement({ multiplier, enableRetinaScaling: false }) as HTMLCanvasElement
+  } finally {
+    visibility.forEach((visible, obj) => { obj.visible = visible })
+    fabricCanvas.backgroundColor = currentBg
+    fabricCanvas.setZoom(currentZoom)
+    fabricCanvas.setDimensions({ width: currentWidth, height: currentHeight })
+    fabricCanvas.requestRenderAll()
+  }
+}
+
+// 判断位图像素是否应进入追踪蒙版；透明模式看 alpha，黑白模式额外按亮度阈值筛选深色像素。
+function shouldTraceBitmapPixel(data: Uint8ClampedArray, offset: number, mode: BitmapTraceMode, threshold: number) {
+  const alpha = data[offset + 3]
+  if (alpha <= BITMAP_VECTOR_ALPHA_THRESHOLD) return false
+  if (mode === 'alpha') return true
+  const luminance = data[offset] * 0.2126 + data[offset + 1] * 0.7152 + data[offset + 2] * 0.0722
+  return luminance <= threshold
+}
+
+// 将位图蒙版按横向连续像素段写成 PathKit 矩形路径，再简化为可编辑矢量轮廓。
+function createPathFromBitmapMask(pathKit: any, maskCanvas: HTMLCanvasElement, multiplier: number, mode: BitmapTraceMode, threshold: number) {
+  const ctx = maskCanvas.getContext('2d')
+  if (!ctx) return null
+  const { width, height } = maskCanvas
+  const data = ctx.getImageData(0, 0, width, height).data
+  const path = pathKit.NewPath()
+  let hasPixels = false
+  for (let y = 0; y < height; y += 1) {
+    let x = 0
+    while (x < width) {
+      const offset = (y * width + x) * 4
+      if (!shouldTraceBitmapPixel(data, offset, mode, threshold)) {
+        x += 1
+        continue
+      }
+      const startX = x
+      while (x < width && shouldTraceBitmapPixel(data, (y * width + x) * 4, mode, threshold)) x += 1
+      path.rect(startX / multiplier, y / multiplier, (x - startX) / multiplier, 1 / multiplier)
+      hasPixels = true
+    }
+  }
+  if (!hasPixels) {
+    path.delete()
+    return null
+  }
+  path.simplify?.()
+  return path
+}
+
+// 生成图片追踪结果的基础样式，默认以黑色填充输出，保留源图片透明度便于视觉对照。
+function createBitmapVectorStyle(image: FabricImage): FabricBooleanStyleSnapshot {
+  return {
+    fill: '#000000',
+    stroke: 'transparent',
+    strokeWidth: 0,
+    strokeDashArray: null,
+    opacity: image.opacity ?? 1,
+    strokeUniform: false,
+    fillRule: 'nonzero',
+    lastFill: '#000000',
+    lastStroke: 'transparent',
+    lastStrokeWidth: 0,
+    lastStrokeDashArray: null,
+    fillMode: 'solid'
+  }
+}
+
+// 将单个 Fabric Image 栅格化追踪成可编辑路径，并替换到源图片所在图层位置。
+async function vectorizeBitmapObject(image: FabricImage) {
+  if (!fabricCanvas) throw new Error('画布尚未初始化')
+  const sourceIndex = Math.max(0, fabricCanvas.getObjects().indexOf(image))
+  const multiplier = getBitmapVectorTraceMultiplier()
+  const maskCanvas = renderBitmapObjectMaskCanvas(image, multiplier)
+  if (!maskCanvas) throw new Error('图片追踪渲染失败')
+  const pathKit = await getPathKit()
+  const tracedPath = createPathFromBitmapMask(
+    pathKit,
+    maskCanvas,
+    multiplier,
+    objProps.bitmapTraceMode,
+    normalizeBitmapTraceThreshold(objProps.bitmapTraceThreshold)
+  )
+  if (!tracedPath) throw new Error('未识别到可转换的图片轮廓，请调整追踪模式或阈值')
+  try {
+    const outline = pathKitToFabricPath(tracedPath, {
+      name: nextName(`${getObjectDisplayName(image)} 矢量`),
+      shapeId: 'bitmap-vector',
+      style: createBitmapVectorStyle(image),
+      sourceCornerRadius: null
+    })
+    if (!outline) throw new Error('图片转矢量失败')
+    applyDefaultEndpointSnapMargin(outline)
+    ensureEditorObjectId(outline)
+    applyCanvasThemeToObject(outline)
+    removeEndpointAttachmentsReferencing(image)
+    fabricCanvas.remove(image as AnyFabricObject)
+    fabricCanvas.insertAt(Math.min(sourceIndex, fabricCanvas.getObjects().length), outline as AnyFabricObject)
+    return outline
+  } finally {
+    tracedPath.delete()
+  }
+}
+
+// 对当前选中的一张或多张图片执行位图追踪，输出可点位编辑、可导出的黑白矢量路径。
+async function vectorizeSelectionBitmap() {
+  if (!fabricCanvas || bitmapTraceBusy.value) return
+  const canvasObjects = fabricCanvas.getObjects()
+  const targets = fabricCanvas.getActiveObjects()
+    .filter((obj): obj is FabricImage => obj instanceof FabricImage && canvasObjects.includes(obj))
+    .sort((a, b) => canvasObjects.indexOf(a) - canvasObjects.indexOf(b))
+  if (!targets.length) return
+
+  bitmapTraceBusy.value = true
+  booleanError.value = ''
+  clearBooleanPreview()
+  clearPointEditing()
+  const outlines: FabricObject[] = []
+  skipSnapshot = true
+  try {
+    fabricCanvas.discardActiveObject()
+    for (const target of targets) {
+      outlines.push(await vectorizeBitmapObject(target))
+    }
+  } catch (error) {
+    booleanError.value = error instanceof Error ? error.message : '图片转矢量失败'
+  } finally {
+    skipSnapshot = false
+    bitmapTraceBusy.value = false
   }
   if (!outlines.length) {
     fabricCanvas.requestRenderAll()
