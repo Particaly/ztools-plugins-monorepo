@@ -243,7 +243,7 @@ src/views/home/
 | T4.4 | 重组 Workspace 模块 | P0 | 已完成 | T4.2、T4.3 | document / artboard / history / draft 统一归口 |
 | T4.5 | 拆出 Selection / Inspector / Layers 投影模块 | P1 | 未开始 | T4.2、T4.3 | active object、属性投影、图层同步 |
 | T4.6 | 拆出 Direct Edit 交互模块 | P1 | 未开始 | T4.3、T4.5 | 点编辑、线段编辑、端点吸附、万花筒编辑 |
-| T4.7 | 拆出 Assets / Import 工作流模块 | P1 | 未开始 | T4.3、T4.4 | SVG、图片、Iconify、模板、用户素材导入 |
+| T4.7 | 拆出 Assets / Import 工作流模块 | P1 | 已完成 | T4.3、T4.4 | SVG、图片、Iconify、模板、用户素材导入 |
 | T4.8 | 拆出 Export / Clipboard / Shortcut 工作流模块 | P1 | 未开始 | T4.4、T4.7 | 导出、复制、快捷键、弹窗编排 |
 | T4.9 | 收口 Shell 层并完成回归治理 | P0 | 未开始 | T4.1-T4.8 | `index.vue` 瘦身、死代码清理、稳定性验证 |
 
@@ -397,8 +397,8 @@ src/views/home/
 ### T4.7 拆出 Assets / Import 工作流模块
 
 - **优先级**：P1
-- **状态**：未开始
-- **完成日期**：-
+- **状态**：已完成
+- **完成日期**：2026-06-11
 - **依赖**：T4.3、T4.4
 - **目标**：把所有“把外部内容带入画布”的流程统一成资产导入模块。
 - **建议拆分**：
@@ -412,6 +412,12 @@ src/views/home/
   - 页面只负责触发命令，不负责拼装导入细节
 - **计划产出**：
   - `editor/modules/assets-import/*`
+- **完成记录**：
+  - 主要改动文件：`src/views/home/editor/modules/assets-import/createHomeAssetsImportModule.ts`、`src/views/home/editor/modules/assets-import/assetsImportTypes.ts`、`src/views/home/index.vue`。
+  - 状态边界调整：新增 `homeAssetsImport` 控制器，统一收口模板、用户素材、SVG/图片导入、Iconify 搜索插入与粘贴 SVG 弹窗状态；页面改为消费模块暴露的 `state / commands` 驱动左栏、拖拽、全局粘贴与相关弹窗。
+  - 新增接口：`createHomeAssetsImportModule`、`HomeAssetsImportState`、`HomeAssetsImportCommands`、`HomeAssetsImportController`。
+  - 验证：已执行 `npm run build`，类型检查与生产构建通过。
+  - 遗留问题：T4.8 继续将 export / clipboard / shortcut 工作流与对应弹窗状态从页面收口为独立模块。
 
 ### T4.8 拆出 Export / Clipboard / Shortcut 工作流模块
 

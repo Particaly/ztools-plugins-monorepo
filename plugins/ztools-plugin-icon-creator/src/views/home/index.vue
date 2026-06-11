@@ -48,24 +48,24 @@
         :shape-preview-paths="shapePreviewPaths"
         :text-presets="textPresets"
         :icon-templates="iconTemplates"
-        :user-assets="userAssets"
+        :user-assets="importedUserAssets"
         :can-save-user-asset="canSaveUserAsset"
-        :iconify-search="iconifySearch"
-        :filtered-iconify-results="filteredIconifyResults"
-        :iconify-collection-options="iconifyCollectionOptions"
+        :iconify-search="iconifyImportState"
+        :filtered-iconify-results="importedFilteredIconifyResults"
+        :iconify-collection-options="importedIconifyCollectionOptions"
         @update:active-tab="leftTab = $event"
         @add-shape="editorCommands.addShape"
         @add-text="editorCommands.addText"
-        @insert-template="editorCommands.insertIconTemplate"
-        @apply-template-as-document="editorCommands.applyIconTemplateAsDocument"
-        @open-create-user-asset-dialog="editorCommands.openCreateUserAssetDialog"
-        @insert-user-asset="editorCommands.insertUserAsset"
-        @rename-user-asset="editorCommands.openRenameUserAssetDialog"
-        @delete-user-asset="editorCommands.deleteUserAsset"
-        @update:iconify-query="iconifySearch.query = $event"
-        @search-iconify-icons="editorCommands.searchIconifyIcons"
-        @update:iconify-collection-filter="iconifySearch.collectionFilter = $event"
-        @insert-iconify-icon="editorCommands.insertIconifyIcon"
+        @insert-template="assetsImportCommands.insertIconTemplate"
+        @apply-template-as-document="assetsImportCommands.applyIconTemplateAsDocument"
+        @open-create-user-asset-dialog="assetsImportCommands.openCreateUserAssetDialog"
+        @insert-user-asset="assetsImportCommands.insertUserAsset"
+        @rename-user-asset="assetsImportCommands.openRenameUserAssetDialog"
+        @delete-user-asset="assetsImportCommands.deleteUserAsset"
+        @update:iconify-query="iconifyImportState.query = $event"
+        @search-iconify-icons="assetsImportCommands.searchIconifyIcons"
+        @update:iconify-collection-filter="iconifyImportState.collectionFilter = $event"
+        @insert-iconify-icon="assetsImportCommands.insertIconifyIcon"
       />
 
       <!-- 画板列表 -->
@@ -86,8 +86,8 @@
           class="canvas-area"
           ref="canvasAreaRef"
           @pointerdown.capture="handleCanvasAreaPointerDown"
-          @dragover.prevent="handleCanvasDragOver"
-          @drop.prevent="handleCanvasDrop"
+          @dragover.prevent="assetsImportCommands.handleCanvasDragOver"
+          @drop.prevent="assetsImportCommands.handleCanvasDrop"
         >
           <div class="canvas-wrapper" ref="canvasWrapperRef" :class="{ 'transparent-bg': isCanvasBgTransparent }">
             <div
@@ -317,13 +317,13 @@
     />
 
     <PasteSvgModal
-      :show="pasteSVGDialog.show"
-      v-model:value="pasteSVGDialog.value"
-      :error="pasteSVGDialog.error"
-      :loading="pasteSVGDialog.loading"
-      @update:show="handlePasteSVGDialogShowChange"
-      @read-clipboard="readClipboardIntoPasteSVGDialog"
-      @confirm="confirmPasteSVGImport"
+      :show="importedPasteSVGDialog.show"
+      v-model:value="importedPasteSVGDialog.value"
+      :error="importedPasteSVGDialog.error"
+      :loading="importedPasteSVGDialog.loading"
+      @update:show="assetsImportCommands.handlePasteSVGDialogShowChange"
+      @read-clipboard="assetsImportCommands.readClipboardIntoPasteSVGDialog"
+      @confirm="assetsImportCommands.confirmPasteSVGImport"
     />
 
     <ExportModal
@@ -355,18 +355,18 @@
     />
 
     <UserAssetModal
-      :show="userAssetDialog.show"
-      v-model:name="userAssetDialog.name"
-      :mode="userAssetDialog.mode"
-      :error="userAssetDialog.error"
-      @update:show="handleUserAssetDialogShowChange"
-      @confirm="confirmUserAssetDialog"
+      :show="importedUserAssetDialog.show"
+      v-model:name="importedUserAssetDialog.name"
+      :mode="importedUserAssetDialog.mode"
+      :error="importedUserAssetDialog.error"
+      @update:show="assetsImportCommands.handleUserAssetDialogShowChange"
+      @confirm="assetsImportCommands.confirmUserAssetDialog"
     />
 
         <!-- 隐藏的文件输入 -->
     <input ref="projectInputRef" type="file" accept=".iconcreator.json,application/json" style="display:none" @change="onProjectFileChosen" />
-    <input ref="svgInputRef" type="file" accept=".svg,image/svg+xml" style="display:none" @change="onSVGFileChosen" />
-    <input ref="imgInputRef" type="file" accept="image/*" style="display:none" @change="onImageFileChosen" />
+    <input ref="svgInputRef" type="file" accept=".svg,image/svg+xml" style="display:none" @change="assetsImportCommands.onSVGFileChosen" />
+    <input ref="imgInputRef" type="file" accept="image/*" style="display:none" @change="assetsImportCommands.onImageFileChosen" />
 
     <!-- Toast 通知 -->
     <Toast :message="toast.message" :type="toast.type" :duration="toast.duration" :key="toast.key" />
@@ -487,7 +487,6 @@ import type {
   StrokeOutlineResult,
   StyleTargetChannel,
   UiFillGradientStop,
-  UserAssetDialogState,
   UserAssetItem,
   UserStylePresets
 } from './types'
@@ -502,6 +501,7 @@ import { pathKitToEditablePathObject, pathKitToFabricPath } from './geometry/pat
 import { getPathKit, peekPathKit } from './geometry/pathkit'
 import { createHomeWorkspaceModule } from './editor/modules/workspace/createHomeWorkspaceModule'
 import { createHomeCanvasKernelModule } from './editor/modules/canvas/createHomeCanvasKernelModule'
+import { createHomeAssetsImportModule } from './editor/modules/assets-import/createHomeAssetsImportModule'
 import { createEditorRuntime } from './editor/runtime/createEditorRuntime'
 import { createEditorServices } from './editor/runtime/editorServices'
 import type { EditorModule, EditorRuntime } from './editor/runtime/editorTypes'
@@ -856,33 +856,9 @@ const layerRenameDialog = reactive<LayerRenameDialogState>({
   value: '',
   target: null
 })
-const pasteSVGDialog = reactive<PasteSVGDialogState>({
-  show: false,
-  value: '',
-  error: '',
-  loading: false
-})
-const userAssets = ref<UserAssetItem[]>([])
 const userStylePresets = reactive<UserStylePresets>({
   colors: [],
   gradients: []
-})
-const userAssetDialog = reactive<UserAssetDialogState>({
-  show: false,
-  mode: 'create',
-  name: '',
-  error: '',
-  targetId: ''
-})
-const iconifySearch = reactive<IconifySearchState>({
-  query: '',
-  lastQuery: '',
-  loading: false,
-  error: '',
-  results: [],
-  total: 0,
-  inserting: '',
-  collectionFilter: ''
 })
 const exportDialog = reactive<ExportDialogState>({
   show: false,
@@ -2551,6 +2527,59 @@ const canSaveUserAsset = computed(() => {
   return getCurrentCopyTargets().length > 0
 })
 
+const homeAssetsImport = createHomeAssetsImportModule({
+  svgInputRef,
+  imgInputRef,
+  getFabricCanvas: () => fabricCanvas,
+  canvasWidth,
+  canvasHeight,
+  canvasBg,
+  lastOpaqueCanvasBg,
+  canSaveUserAsset,
+  snapshotGate,
+  snapshot,
+  newDoc,
+  clearStoredDraft,
+  resetHistoryToCurrentCanvas,
+  createProjectFile,
+  loadProjectFile,
+  showToast,
+  clearBooleanPreview,
+  clearPointEditing,
+  refreshLayers,
+  syncActiveObjectPreservingPointMode,
+  setSelectionMode,
+  applyActiveObjectsSelection,
+  applyCanvasBgToFabric,
+  applyCanvasSize,
+  ensureEditorObjectId,
+  nextName,
+  prepareClonedObjectMetadata,
+  normalizeEndpointAttachments,
+  applyCanvasThemeToObject,
+  createKaleidoscopeSourceId,
+  canUseKaleidoscopeAsSource,
+  isKaleidoscopeSource,
+  getCurrentCopyTargets,
+  createClipboardEntry,
+  getObjectDisplayName,
+  cloneSerializedObjectData,
+  getObjectsCombinedBounds,
+  rebuildKaleidoscopeInstances
+})
+const assetsImportState = homeAssetsImport.controller.state
+const assetsImportCommands = homeAssetsImport.controller.commands
+const importedUserAssets = assetsImportState.userAssets
+const importedUserAssetDialog = assetsImportState.userAssetDialog
+const importedPasteSVGDialog = assetsImportState.pasteSVGDialog
+const iconifyImportState = assetsImportState.iconifySearch
+const importedFilteredIconifyResults = assetsImportState.filteredIconifyResults
+const importedIconifyCollectionOptions = assetsImportState.iconifyCollectionOptions
+const userAssets = importedUserAssets
+const userAssetDialog = importedUserAssetDialog
+const pasteSVGDialog = importedPasteSVGDialog
+const iconifySearch = iconifyImportState
+
 const canDirectionalSubtract = computed(() => {
   return canBoolean.value && selectedObjects.value.length === 2
 })
@@ -2660,26 +2689,26 @@ const editorSelectors = createEditorSelectors(editorStore)
 const editorCommands = createEditorCommands({
   addShape,
   addText,
-  applyIconTemplateAsDocument,
+  applyIconTemplateAsDocument: assetsImportCommands.applyIconTemplateAsDocument,
   closeShortcutDrawer,
   copyAsPNG,
   copyAsSVG,
-  deleteUserAsset,
-  importImage,
-  importSVG,
-  insertIconTemplate,
-  insertIconifyIcon,
-  insertUserAsset,
+  deleteUserAsset: assetsImportCommands.deleteUserAsset,
+  importImage: assetsImportCommands.importImage,
+  importSVG: assetsImportCommands.importSVG,
+  insertIconTemplate: assetsImportCommands.insertIconTemplate,
+  insertIconifyIcon: assetsImportCommands.insertIconifyIcon,
+  insertUserAsset: assetsImportCommands.insertUserAsset,
   newDoc,
-  openCreateUserAssetDialog,
+  openCreateUserAssetDialog: assetsImportCommands.openCreateUserAssetDialog,
   openExportDialog,
-  openPasteSVGDialog,
+  openPasteSVGDialog: assetsImportCommands.openPasteSVGDialog,
   openProject,
-  openRenameUserAssetDialog,
+  openRenameUserAssetDialog: assetsImportCommands.openRenameUserAssetDialog,
   openShortcutDrawer,
   redo,
   saveProject,
-  searchIconifyIcons,
+  searchIconifyIcons: assetsImportCommands.searchIconifyIcons,
   setSelectionMode,
   setZoom,
   toggleArtboardList,
@@ -6754,18 +6783,6 @@ const exportDialogCanExport = computed(() => (
   exportDialog.svgEnabled || (exportDialog.pngEnabled && getExportPngSizes().length > 0)
 ))
 const previewStageClass = computed(() => `preview-bg-${previewBackgroundMode.value}`)
-const iconifyCollectionOptions = computed(() => {
-  const collections = Array.from(new Set(iconifySearch.results.map((name) => name.split(':')[0]).filter(Boolean))).sort()
-  return [
-    { label: '全部图标集', value: '' },
-    ...collections.map((collection) => ({ label: collection, value: collection }))
-  ]
-})
-const filteredIconifyResults = computed(() => {
-  const collection = iconifySearch.collectionFilter
-  if (!collection) return iconifySearch.results
-  return iconifySearch.results.filter((name) => name.startsWith(`${collection}:`))
-})
 
 // 控制小尺寸预览背景，不影响真实画布背景，仅用于透明、浅色和深色环境下检查可读性。
 function setPreviewBackgroundMode(mode: PreviewBackgroundMode) {
@@ -7999,7 +8016,6 @@ function createHomeStartupDataModule(): EditorModule {
       if (!context.getCanvas()) return
       void getPathKit()
       loadShortcutBindings()
-      loadUserAssets()
       loadUserStylePresets()
     }
   }
@@ -8015,7 +8031,7 @@ function createHomeWindowEventsModule(): EditorModule {
       targetWindow.addEventListener('keydown', handleKeydown)
       targetWindow.addEventListener('keyup', handleKeyup)
       targetWindow.addEventListener('blur', handleWindowBlur)
-      targetWindow.addEventListener('paste', handleWindowPaste)
+      targetWindow.addEventListener('paste', assetsImportCommands.handleWindowPaste)
     },
     onDispose(context) {
       const targetWindow = context.services.window
@@ -8023,7 +8039,7 @@ function createHomeWindowEventsModule(): EditorModule {
       targetWindow.removeEventListener('keydown', handleKeydown)
       targetWindow.removeEventListener('keyup', handleKeyup)
       targetWindow.removeEventListener('blur', handleWindowBlur)
-      targetWindow.removeEventListener('paste', handleWindowPaste)
+      targetWindow.removeEventListener('paste', assetsImportCommands.handleWindowPaste)
     }
   }
 }
@@ -8040,6 +8056,7 @@ function createHomeEditorRuntime(): EditorRuntime {
   })
   runtime.register(createHomeCanvasLifecycleModule())
   runtime.register(homeWorkspace.module)
+  runtime.register(homeAssetsImport.module)
   runtime.register(createHomeStartupDataModule())
   runtime.register(createHomeWindowEventsModule())
   return runtime
