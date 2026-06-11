@@ -8,36 +8,36 @@
   >
     <!-- 顶栏 -->
     <HomeTopBar
-      :can-undo="canUndo"
-      :can-redo="canRedo"
-      :show-ruler="showRuler"
-      :show-pixel-grid="showPixelGrid"
-      :snap-to-pixel-grid="snapToPixelGrid"
-      :keyline-active="keylineTemplate !== 'none'"
-      :shortcut-drawer-open="shortcutDrawerOpen"
-      :selection-mode="selectionMode"
-      :has-editable-points="hasEditablePoints"
-      :zoom="zoom"
-      :show-artboard-list="showArtboardList"
-      @new-doc="newDoc"
-      @open-project="openProject"
-      @save-project="saveProject"
-      @import-svg="importSVG"
-      @open-paste-svg="openPasteSVGDialog"
-      @import-image="importImage"
-      @copy-as-svg="copyAsSVG"
-      @copy-as-png="copyAsPNG"
-      @open-export="openExportDialog"
-      @toggle-artboard-list="showArtboardList = !showArtboardList"
-      @undo="undo"
-      @redo="redo"
-      @toggle-ruler="toggleRuler"
-      @toggle-pixel-grid="togglePixelGrid"
-      @toggle-snap-to-pixel-grid="toggleSnapToPixelGrid"
-      @toggle-keyline-overlay="toggleKeylineOverlay"
-      @open-shortcut-drawer="openShortcutDrawer"
-      @set-selection-mode="setSelectionMode"
-      @set-zoom="setZoom"
+      :can-undo="editorSelectors.canUndo"
+      :can-redo="editorSelectors.canRedo"
+      :show-ruler="editorSelectors.showRuler"
+      :show-pixel-grid="editorSelectors.showPixelGrid"
+      :snap-to-pixel-grid="editorSelectors.snapToPixelGrid"
+      :keyline-active="editorSelectors.isKeylineActive"
+      :shortcut-drawer-open="editorSelectors.shortcutDrawerOpen"
+      :selection-mode="editorSelectors.selectionMode"
+      :has-editable-points="editorSelectors.hasEditablePoints"
+      :zoom="editorSelectors.zoom"
+      :show-artboard-list="editorSelectors.showArtboardList"
+      @new-doc="editorCommands.newDoc"
+      @open-project="editorCommands.openProject"
+      @save-project="editorCommands.saveProject"
+      @import-svg="editorCommands.importSVG"
+      @open-paste-svg="editorCommands.openPasteSVGDialog"
+      @import-image="editorCommands.importImage"
+      @copy-as-svg="editorCommands.copyAsSVG"
+      @copy-as-png="editorCommands.copyAsPNG"
+      @open-export="editorCommands.openExportDialog"
+      @toggle-artboard-list="editorCommands.toggleArtboardList"
+      @undo="editorCommands.undo"
+      @redo="editorCommands.redo"
+      @toggle-ruler="editorCommands.toggleRuler"
+      @toggle-pixel-grid="editorCommands.togglePixelGrid"
+      @toggle-snap-to-pixel-grid="editorCommands.toggleSnapToPixelGrid"
+      @toggle-keyline-overlay="editorCommands.toggleKeylineOverlay"
+      @open-shortcut-drawer="editorCommands.openShortcutDrawer"
+      @set-selection-mode="editorCommands.setSelectionMode"
+      @set-zoom="editorCommands.setZoom"
     />
 
     <div class="editor-body">
@@ -54,23 +54,23 @@
         :filtered-iconify-results="filteredIconifyResults"
         :iconify-collection-options="iconifyCollectionOptions"
         @update:active-tab="leftTab = $event"
-        @add-shape="addShape"
-        @add-text="addText"
-        @insert-template="insertIconTemplate"
-        @apply-template-as-document="applyIconTemplateAsDocument"
-        @open-create-user-asset-dialog="openCreateUserAssetDialog"
-        @insert-user-asset="insertUserAsset"
-        @rename-user-asset="openRenameUserAssetDialog"
-        @delete-user-asset="deleteUserAsset"
+        @add-shape="editorCommands.addShape"
+        @add-text="editorCommands.addText"
+        @insert-template="editorCommands.insertIconTemplate"
+        @apply-template-as-document="editorCommands.applyIconTemplateAsDocument"
+        @open-create-user-asset-dialog="editorCommands.openCreateUserAssetDialog"
+        @insert-user-asset="editorCommands.insertUserAsset"
+        @rename-user-asset="editorCommands.openRenameUserAssetDialog"
+        @delete-user-asset="editorCommands.deleteUserAsset"
         @update:iconify-query="iconifySearch.query = $event"
-        @search-iconify-icons="searchIconifyIcons"
+        @search-iconify-icons="editorCommands.searchIconifyIcons"
         @update:iconify-collection-filter="iconifySearch.collectionFilter = $event"
-        @insert-iconify-icon="insertIconifyIcon"
+        @insert-iconify-icon="editorCommands.insertIconifyIcon"
       />
 
       <!-- 画板列表 -->
       <ArtboardList
-        v-if="showArtboardList && artboards.length > 0"
+        v-if="editorSelectors.showArtboardList && artboards.length > 0"
         :artboards="artboards"
         :active-artboard-id="activeArtboardId"
         @add-artboard="addArtboard"
@@ -81,7 +81,7 @@
       />
 
       <!-- 中间画布区 -->
-      <div class="canvas-frame" :class="{ 'with-ruler': showRuler }">
+      <div class="canvas-frame" :class="{ 'with-ruler': editorSelectors.showRuler }">
         <main
           class="canvas-area"
           ref="canvasAreaRef"
@@ -91,7 +91,7 @@
         >
           <div class="canvas-wrapper" ref="canvasWrapperRef" :class="{ 'transparent-bg': isCanvasBgTransparent }">
             <div
-              v-if="showPixelGrid"
+              v-if="editorSelectors.showPixelGrid"
               class="pixel-grid-overlay"
               :style="pixelGridOverlayStyle"
               aria-hidden="true"
@@ -123,10 +123,10 @@
           </div>
         </main>
         <Ruler
-          v-if="showRuler"
+          v-if="editorSelectors.showRuler"
           :scroll-el="canvasAreaRef"
           :wrapper-el="canvasWrapperRef"
-          :zoom="zoom"
+          :zoom="editorSelectors.zoom"
           :coordinate-hint-active="rulerCoordinateHintActive"
         />
       </div>
@@ -138,7 +138,7 @@
       >
         <template #properties>
           <PropertiesPanel
-            :active-object="activeObject"
+            :active-object="editorSelectors.activeObject"
             :active-kaleidoscope-instance="activeKaleidoscopeInstance"
             :active-kaleidoscope-editable-source="activeKaleidoscopeEditableSource"
             :obj-props="objProps"
@@ -148,7 +148,7 @@
             :align-positions="alignPositions"
             :current-align-id="currentAlignId"
             :current-fill-style-mode="currentFillStyleMode"
-            :has-editable-points="hasEditablePoints"
+            :has-editable-points="editorSelectors.hasEditablePoints"
             :has-selected-point="hasSelectedPoint"
             :has-selected-arrow-endpoint="hasSelectedArrowEndpoint"
             :arrow-aggregated="arrowAggregated"
@@ -309,7 +309,7 @@
       :groups="filteredShortcutGroups"
       :bindings="shortcutBindings"
       :platform="shortcutPlatform"
-      @close="closeShortcutDrawer"
+      @close="editorCommands.closeShortcutDrawer"
       @reset="resetShortcutBindingsToDefault"
       @apply-binding="applyShortcutBinding"
       @add-binding="addShortcutBinding"
@@ -508,6 +508,9 @@ import { useHomeDocument } from './composables/useHomeDocument'
 import { createEditorRuntime } from './editor/runtime/createEditorRuntime'
 import { createEditorServices } from './editor/runtime/editorServices'
 import type { EditorModule, EditorRuntime } from './editor/runtime/editorTypes'
+import { createEditorCommands } from './editor/state/editorCommands'
+import { createEditorSelectors } from './editor/state/editorSelectors'
+import { createEditorStore } from './editor/state/editorStore'
 import {
   editablePointToLocalObjectPoint,
   getArrowRenderMode,
@@ -2376,6 +2379,11 @@ function closeShortcutDrawer() {
   shortcutDrawerOpen.value = false
 }
 
+// 切换画板列表显隐，作为顶栏命令入口隔离 UI 事件和底层 showArtboardList 状态写入。
+function toggleArtboardList() {
+  showArtboardList.value = !showArtboardList.value
+}
+
 function getDefaultStrokeDashArray(strokeWidth: unknown = 2): [number, number] {
   const width = Number(strokeWidth)
   const safeWidth = Number.isFinite(width) && width > 0 ? width : 2
@@ -2663,6 +2671,58 @@ const selectedArrowEndpointIndices = computed<number[]>(() => {
 })
 
 const hasSelectedArrowEndpoint = computed(() => selectedArrowEndpointIndices.value.length > 0)
+
+const editorStore = createEditorStore({
+  activeObject,
+  activeRightTab,
+  canRedo,
+  canUndo,
+  canvasBg,
+  canvasHeight,
+  canvasWidth,
+  hasEditablePoints,
+  keylineTemplate,
+  selectionMode,
+  shortcutDrawerOpen,
+  showArtboardList,
+  showPixelGrid,
+  showRuler,
+  snapToPixelGrid,
+  zoom
+})
+const editorSelectors = createEditorSelectors(editorStore)
+const editorCommands = createEditorCommands({
+  addShape,
+  addText,
+  applyIconTemplateAsDocument,
+  closeShortcutDrawer,
+  copyAsPNG,
+  copyAsSVG,
+  deleteUserAsset,
+  importImage,
+  importSVG,
+  insertIconTemplate,
+  insertIconifyIcon,
+  insertUserAsset,
+  newDoc,
+  openCreateUserAssetDialog,
+  openExportDialog,
+  openPasteSVGDialog,
+  openProject,
+  openRenameUserAssetDialog,
+  openShortcutDrawer,
+  redo,
+  saveProject,
+  searchIconifyIcons,
+  setSelectionMode,
+  setZoom,
+  toggleArtboardList,
+  toggleKeylineOverlay,
+  togglePixelGrid,
+  toggleRuler,
+  toggleSnapToPixelGrid,
+  undo
+})
 
 type ArrowAggregated = {
   enabled: boolean | null
@@ -8158,7 +8218,14 @@ function createHomeWindowEventsModule(): EditorModule {
 
 // 创建 Home 编辑器运行时并注册当前阶段已迁入的生命周期模块。
 function createHomeEditorRuntime(): EditorRuntime {
-  const runtime = createEditorRuntime({ services: createEditorServices() })
+  const runtime = createEditorRuntime({
+    services: createEditorServices(),
+    state: {
+      store: editorStore,
+      commands: editorCommands,
+      selectors: editorSelectors
+    }
+  })
   runtime.register(createHomeCanvasLifecycleModule())
   runtime.register(createHomeStartupDataModule())
   runtime.register(createHomeDocumentReadyModule())

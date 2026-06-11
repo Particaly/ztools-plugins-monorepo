@@ -238,7 +238,7 @@ src/views/home/
 | 编号 | 任务 | 优先级 | 状态 | 依赖 | 核心产出 |
 | --- | --- | --- | --- | --- | --- |
 | T4.1 | 建立 EditorRuntime 与模块生命周期骨架 | P0 | 已完成 | - | runtime、module contract、统一 mount/dispose |
-| T4.2 | 收敛共享状态、命令与选择器边界 | P0 | 未开始 | T4.1 | editor store、commands、selectors |
+| T4.2 | 收敛共享状态、命令与选择器边界 | P0 | 已完成 | T4.1 | editor store、commands、selectors |
 | T4.3 | 拆出 Canvas Kernel 模块 | P0 | 未开始 | T4.1、T4.2 | canvas 初始化、事件绑定、主题、缩放、自适应 |
 | T4.4 | 重组 Workspace 模块 | P0 | 未开始 | T4.2、T4.3 | document / artboard / history / draft 统一归口 |
 | T4.5 | 拆出 Selection / Inspector / Layers 投影模块 | P1 | 未开始 | T4.2、T4.3 | active object、属性投影、图层同步 |
@@ -279,8 +279,8 @@ src/views/home/
 ### T4.2 收敛共享状态、命令与选择器边界
 
 - **优先级**：P0
-- **状态**：未开始
-- **完成日期**：-
+- **状态**：已完成
+- **完成日期**：2026-06-11
 - **依赖**：T4.1
 - **目标**：把目前散落在页面中的共享 refs、computed、helper 调用，收拢为统一的 store / commands / selectors 边界。
 - **建议拆分**：
@@ -296,6 +296,12 @@ src/views/home/
   - `editor/state/editorStore.ts`
   - `editor/state/editorCommands.ts`
   - `editor/state/editorSelectors.ts`
+- **完成记录**：
+  - 主要改动文件：`src/views/home/editor/state/*`、`src/views/home/editor/runtime/editorTypes.ts`、`src/views/home/editor/runtime/editorContext.ts`、`src/views/home/index.vue`。
+  - 状态边界调整：新增 `EditorStore` 作为 Home 编辑器共享 refs 的集中索引，并通过 `EditorContext.state` 暴露给后续模块接入。
+  - 新增接口：`EditorCommands`、`EditorSelectors`、`EditorStore`，顶栏与左栏主入口已改为经由 commands/selectors 读取和触发。
+  - 验证：已执行 `npm run build`，类型检查与生产构建通过。
+  - 遗留问题：T4.3 继续将 Fabric Canvas 初始化、事件绑定、缩放与辅助线等基础能力迁入 Canvas Kernel 模块。
 
 ### T4.3 拆出 Canvas Kernel 模块
 

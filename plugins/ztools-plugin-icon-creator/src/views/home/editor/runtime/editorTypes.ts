@@ -1,4 +1,7 @@
 import type { Canvas } from 'fabric'
+import type { EditorCommands } from '../state/editorCommands'
+import type { EditorSelectors } from '../state/editorSelectors'
+import type { EditorStore } from '../state/editorStore'
 
 export type EditorLifecyclePhase = 'created' | 'mounted' | 'canvas-ready' | 'document-ready' | 'disposed'
 
@@ -14,8 +17,15 @@ export interface EditorRuntimeServices {
   logger: EditorRuntimeLogger
 }
 
+export interface EditorRuntimeState {
+  store?: EditorStore
+  commands?: EditorCommands
+  selectors?: EditorSelectors
+}
+
 export interface EditorContext {
   services: EditorRuntimeServices
+  state: EditorRuntimeState
   getCanvas: () => Canvas | null
   setCanvas: (canvas: Canvas | null) => void
   getPhase: () => EditorLifecyclePhase
