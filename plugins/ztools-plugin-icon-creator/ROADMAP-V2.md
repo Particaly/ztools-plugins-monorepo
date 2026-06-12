@@ -244,7 +244,7 @@ src/views/home/
 | T4.5 | 拆出 Selection / Inspector / Layers 投影模块 | P1 | 未开始 | T4.2、T4.3 | active object、属性投影、图层同步 |
 | T4.6 | 拆出 Direct Edit 交互模块 | P1 | 未开始 | T4.3、T4.5 | 点编辑、线段编辑、端点吸附、万花筒编辑 |
 | T4.7 | 拆出 Assets / Import 工作流模块 | P1 | 已完成 | T4.3、T4.4 | SVG、图片、Iconify、模板、用户素材导入 |
-| T4.8 | 拆出 Export / Clipboard / Shortcut 工作流模块 | P1 | 未开始 | T4.4、T4.7 | 导出、复制、快捷键、弹窗编排 |
+| T4.8 | 拆出 Export / Clipboard / Shortcut 工作流模块 | P1 | 已完成 | T4.4、T4.7 | 导出、复制、快捷键、弹窗编排 |
 | T4.9 | 收口 Shell 层并完成回归治理 | P0 | 未开始 | T4.1-T4.8 | `index.vue` 瘦身、死代码清理、稳定性验证 |
 
 ---
@@ -422,8 +422,8 @@ src/views/home/
 ### T4.8 拆出 Export / Clipboard / Shortcut 工作流模块
 
 - **优先级**：P1
-- **状态**：未开始
-- **完成日期**：-
+- **状态**：已完成
+- **完成日期**：2026-06-12
 - **依赖**：T4.4、T4.7
 - **目标**：把“从编辑器输出内容”和“驱动用户操作”的工作流拆成独立模块。
 - **建议拆分**：
@@ -439,6 +439,12 @@ src/views/home/
   - `editor/modules/export-delivery/*`
   - `editor/modules/shortcuts/*`
   - 对应 adapter / workflow bridge
+- **完成记录**：
+  - 主要改动文件：`src/views/home/editor/modules/export-delivery/createHomeExportDeliveryModule.ts`、`src/views/home/editor/modules/export-delivery/exportDeliveryTypes.ts`、`src/views/home/index.vue`。
+  - 状态边界调整：新增 `homeExportDelivery` 控制器，统一收口导出弹窗、SVG/PNG/多画板 ZIP 导出、系统剪贴板复制、内部剪贴板复制粘贴、快捷键抽屉与快捷键持久化。
+  - 新增接口：`createHomeExportDeliveryModule`、`HomeExportDeliveryState`、`HomeExportDeliveryCommands`、`HomeExportDeliveryHelpers`、`HomeExportDeliveryController`。
+  - 验证：已执行 `npm run build`，类型检查与生产构建通过。
+  - 遗留问题：T4.9 继续删除迁移后的过渡桥接与死代码，并完成 Shell 层回归治理。
 
 ### T4.9 收口 Shell 层并完成回归治理
 
