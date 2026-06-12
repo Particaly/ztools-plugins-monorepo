@@ -245,7 +245,7 @@ src/views/home/
 | T4.6 | 拆出 Direct Edit 交互模块 | P1 | 已完成 | T4.3、T4.5 | 点编辑、线段编辑、端点吸附、万花筒编辑 |
 | T4.7 | 拆出 Assets / Import 工作流模块 | P1 | 已完成 | T4.3、T4.4 | SVG、图片、Iconify、模板、用户素材导入 |
 | T4.8 | 拆出 Export / Clipboard / Shortcut 工作流模块 | P1 | 已完成 | T4.4、T4.7 | 导出、复制、快捷键、弹窗编排 |
-| T4.9 | 收口 Shell 层并完成回归治理 | P0 | 未开始 | T4.1-T4.8 | `index.vue` 瘦身、死代码清理、稳定性验证 |
+| T4.9 | 收口 Shell 层并完成回归治理 | P0 | 已完成 | T4.1-T4.8 | `index.vue` 瘦身、死代码清理、稳定性验证 |
 
 ---
 
@@ -461,8 +461,8 @@ src/views/home/
 ### T4.9 收口 Shell 层并完成回归治理
 
 - **优先级**：P0
-- **状态**：未开始
-- **完成日期**：-
+- **状态**：已完成
+- **完成日期**：2026-06-12
 - **依赖**：T4.1-T4.8
 - **目标**：在模块都具备明确归属后，彻底把 `index.vue` 收口成壳层，并建立稳定回归基线。
 - **建议拆分**：
@@ -477,6 +477,13 @@ src/views/home/
 - **计划产出**：
   - 壳层化后的 `index.vue`
   - 回归检查清单
+- **完成记录**：
+  - 主要改动文件：`src/views/home/index.vue`、`src/views/home/useHomeEditorRuntime.ts`、`src/views/home/editor/REGRESSION-CHECKLIST.md`、`ROADMAP-V2.md`。
+  - 状态边界调整：将页面脚本中的运行时绑定抽到 `useHomeEditorRuntime`，`index.vue` script 缩减为组件导入、常量导入和运行时选择器解构，页面继续仅承担布局与事件转发。
+  - 新增接口：`useHomeEditorRuntime`。
+  - 验证：已执行 `npm run build`，类型检查与生产构建通过；`index.vue` 总行数约 841 行、script 约 599 行，已低于目标范围。
+  - 回归治理：新增 `src/views/home/editor/REGRESSION-CHECKLIST.md`，记录新建、打开、保存、草稿恢复、导入、导出、画板切换、撤销重做、点编辑、布尔运算、轮廓转换等核心 smoke 清单。
+  - 遗留问题：后续新增功能应优先进入对应领域模块或继续把 `useHomeEditorRuntime` 中的桥接 helper 下沉到模块内部，避免再次回填到页面壳层。
 
 ---
 
