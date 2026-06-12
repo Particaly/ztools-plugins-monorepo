@@ -242,7 +242,7 @@ src/views/home/
 | T4.3 | 拆出 Canvas Kernel 模块 | P0 | 已完成 | T4.1、T4.2 | canvas 初始化、事件绑定、主题、缩放、自适应 |
 | T4.4 | 重组 Workspace 模块 | P0 | 已完成 | T4.2、T4.3 | document / artboard / history / draft 统一归口 |
 | T4.5 | 拆出 Selection / Inspector / Layers 投影模块 | P1 | 已完成 | T4.2、T4.3 | active object、属性投影、图层同步 |
-| T4.6 | 拆出 Direct Edit 交互模块 | P1 | 未开始 | T4.3、T4.5 | 点编辑、线段编辑、端点吸附、万花筒编辑 |
+| T4.6 | 拆出 Direct Edit 交互模块 | P1 | 已完成 | T4.3、T4.5 | 点编辑、线段编辑、端点吸附、万花筒编辑 |
 | T4.7 | 拆出 Assets / Import 工作流模块 | P1 | 已完成 | T4.3、T4.4 | SVG、图片、Iconify、模板、用户素材导入 |
 | T4.8 | 拆出 Export / Clipboard / Shortcut 工作流模块 | P1 | 已完成 | T4.4、T4.7 | 导出、复制、快捷键、弹窗编排 |
 | T4.9 | 收口 Shell 层并完成回归治理 | P0 | 未开始 | T4.1-T4.8 | `index.vue` 瘦身、死代码清理、稳定性验证 |
@@ -384,8 +384,8 @@ src/views/home/
 ### T4.6 拆出 Direct Edit 交互模块
 
 - **优先级**：P1
-- **状态**：未开始
-- **完成日期**：-
+- **状态**：已完成
+- **完成日期**：2026-06-12
 - **依赖**：T4.3、T4.5
 - **目标**：把当前最重的直接编辑逻辑单独模块化，控制复杂度扩散。
 - **建议拆分**：
@@ -399,6 +399,12 @@ src/views/home/
   - 模块内部能独立完成 mount / sync / dispose
 - **计划产出**：
   - `editor/modules/direct-edit/*`
+- **完成记录**：
+  - 主要改动文件：`src/views/home/editor/modules/direct-edit/createHomeDirectEditModule.ts`、`src/views/home/index.vue`。
+  - 状态边界调整：新增 `homeDirectEdit` 控制器，收口点/边选择模式、点位选择集合、点编辑手势状态机、框选 marquee 渲染、临时 Fabric 控制点安装/恢复，以及 selection:cleared 保护标记；页面继续拼装具体点/边控制点和端点吸附 helper，但不再直接持有直接编辑核心状态机。
+  - 新增接口：`createHomeDirectEditModule`、`HomeDirectEditState`、`HomeDirectEditCommands`、`HomeDirectEditController`。
+  - 验证：已执行 `npm run build`，类型检查与生产构建通过。
+  - 遗留问题：T4.9 继续收口 Shell 层，删除剩余过渡桥接代码，并评估是否继续拆出端点吸附 / 万花筒同步子模块。
 
 ### T4.7 拆出 Assets / Import 工作流模块
 

@@ -492,6 +492,7 @@ import { createHomeAssetsImportModule } from './editor/modules/assets-import/cre
 import { createHomeExportDeliveryModule } from './editor/modules/export-delivery/createHomeExportDeliveryModule'
 import { createHomeSelectionModule } from './editor/modules/selection/createHomeSelectionModule'
 import { createHomeLayersModule } from './editor/modules/layers/createHomeLayersModule'
+import { createHomeDirectEditModule } from './editor/modules/direct-edit/createHomeDirectEditModule'
 import { createEditorRuntime } from './editor/runtime/createEditorRuntime'
 import { createEditorServices } from './editor/runtime/editorServices'
 import type { EditorModule, EditorRuntime } from './editor/runtime/editorTypes'
@@ -555,8 +556,6 @@ const projectInputRef = ref<HTMLInputElement | null>(null)
 // ── 状态 ──
 let fabricCanvas: Canvas | null = null
 let editorRuntime: EditorRuntime | null = null
-let restoreActiveObjectAfterSelectionClear = false
-let pointModeSwitchPending = false
 let spacePanStart: SpacePanStart | null = null
 const artboardIdSeed = ref(0)
 
@@ -673,69 +672,8 @@ const objProps = reactive({
   kaleidoscopeFollowRotation: false,
   kaleidoscopeCountInput: String(DEFAULT_KALEIDOSCOPE_COUNT)
 })
-const selectedPointIndices = ref<number[]>([])
-const editablePathMetadataVersion = ref(0)
-const selectedSegmentRef = shallowRef<EditableSegmentRef | null>(null)
-const selectionMode = ref<'shape' | 'point' | 'segment'>('shape')
-const pointControlsOwner = shallowRef<FabricObject | null>(null)
-const originalControlsMap = new WeakMap<FabricObject, FabricControls>()
-const originalHasBordersMap = new WeakMap<FabricObject, boolean | undefined>()
 const sizeRatioLocked = ref(false)
 const lockedAspectRatio = ref(1)
-
-// ── point 模式手势状态（拖拽/框选交互期使用，独立于已提交的 selectedPointIndices） ──
-// 触发框选 / 单点 / 整组拖拽的位移阈值（viewport 像素）
-const POINT_GESTURE_DRAG_THRESHOLD = 4
-type PointGestureSource = 'blank' | 'point-control'
-type PointGestureKind = 'none' | 'pending' | 'box-select' | 'single-drag' | 'group-drag'
-type PointGestureState = {
-  active: boolean
-  source: PointGestureSource
-  kind: PointGestureKind
-  modifierAtStart: boolean
-  startedFromSelectedPoint: boolean
-  startPointIndex: number | null
-  // 起始已提交点选快照，用于 box-select 加法
-  initialSelection: number[]
-  // viewport 坐标
-  startViewport: { x: number; y: number } | null
-  currentViewport: { x: number; y: number } | null
-  // scene 坐标，仅供拖拽 helper 使用
-  startScene: { x: number; y: number } | null
-  currentScene: { x: number; y: number } | null
-  // 框选预览中的命中点（不含 initialSelection）
-  previewHitIndices: number[]
-  // 是否已越过拖拽阈值
-  thresholdExceeded: boolean
-  // 多选状态下点击已选点，但尚未确定是 collapse 还是 group-drag
-  pendingCollapseIndex: number | null
-  // 单点拖拽时记录拖拽前的选择，供 mouseup 决议
-  preDragSelection: number[] | null
-  // 整组拖拽期间是否已经由我们自己派发过 setSelectedEditablePoints
-  // 用于判断 mouseup 时是否需要补一次 snapshot（实际由 actionHandler 即时调用 helper）
-}
-function createInitialPointGestureState(): PointGestureState {
-  return {
-    active: false,
-    source: 'blank',
-    kind: 'none',
-    modifierAtStart: false,
-    startedFromSelectedPoint: false,
-    startPointIndex: null,
-    initialSelection: [],
-    startViewport: null,
-    currentViewport: null,
-    startScene: null,
-    currentScene: null,
-    previewHitIndices: [],
-    thresholdExceeded: false,
-    pendingCollapseIndex: null,
-    preDragSelection: null
-  }
-}
-const pointGestureState = createInitialPointGestureState()
-// 用于触发 marquee 重新渲染的版本号（修改 viewport / preview 命中后递增）
-const pointGestureRenderTick = ref(0)
 
 const { isDark, primaryColor, customColor } = useZtoolsTheme()
 
@@ -777,6 +715,64 @@ function getCanvasAssistColors() {
     textOnPrimary,
   }
 }
+
+const homeDirectEdit = createHomeDirectEditModule({
+  activeObject,
+  getArrowRenderMode,
+  getCanvasAssistColors,
+  getFabricCanvas: () => fabricCanvas,
+  getSelectableEditablePoints,
+  getViewportPointForEditablePoint,
+  isEditablePathObject,
+  isKaleidoscopeInstance,
+  resolveEditableSegmentRef,
+  syncCanvasInteractionMode: () => syncCanvasInteractionMode(),
+  syncObjProps,
+  updateCurveControls
+})
+const directEditState = homeDirectEdit.controller.state
+const directEditCommands = homeDirectEdit.controller.commands
+const {
+  activeEditablePathObject,
+  editablePathMetadataVersion,
+  hasEditablePoints,
+  hasSelectedPoint,
+  selectedEditableSegment,
+  selectedPointIndex,
+  selectedPointIndices,
+  selectedSegmentRef,
+  selectionMode
+} = directEditState
+const {
+  beginBlankPointGesture,
+  beginPointControlGesture,
+  clearEditableAssistSelection,
+  clearPointEditing,
+  clearSelectedPoint,
+  clearSelectedSegment,
+  cloneCurrentControls,
+  consumePointModeSwitchPending,
+  consumeRestoreActiveObjectAfterSelectionClear,
+  drawPointGestureMarquee,
+  finishPointGesture,
+  getLiveEditableSegmentRef,
+  getPointGestureState,
+  handlePointGestureCanvasMove,
+  installTemporaryControls,
+  isMultiSelectModifierPressed,
+  isPointModeSwitchPending,
+  normalizeSelectedPointIndices,
+  refreshEditablePathMetadata,
+  renderPointControl,
+  restorePointControls,
+  setPointModeSwitchPending,
+  setRestoreActiveObjectAfterSelectionClear,
+  setSelectedEditablePoints,
+  setSelectedEditableSegment,
+  setSelectionMode,
+  shouldProtectPointGestureSelection
+} = directEditCommands
+const pointGestureState = getPointGestureState()
 
 const homeCanvasKernel = createHomeCanvasKernelModule({
   getCanvas: () => fabricCanvas,
@@ -898,14 +894,6 @@ const {
   toggleVisible
 } = layersCommands
 
-
-function bumpPointGestureRender() {
-  pointGestureRenderTick.value = (pointGestureRenderTick.value + 1) | 0
-}
-function resetPointGestureState() {
-  const next = createInitialPointGestureState()
-  Object.assign(pointGestureState, next)
-}
 
 // 撤销重做
 let skipSnapshot = false
@@ -1059,10 +1047,6 @@ const visibleColorPaletteGroups = computed(() => {
 const visibleGradientPresets = computed(() => [...gradientPresets, ...userStylePresets.gradients])
 function refreshLayers() {
   selectionCommands.refreshLayers()
-}
-
-function refreshEditablePathMetadata() {
-  editablePathMetadataVersion.value += 1
 }
 
 function createEditorObjectId() {
@@ -2520,40 +2504,6 @@ const activeKaleidoscopeInstanceSource = computed(() => {
 
 const activeKaleidoscopePanelSource = computed(() => activeKaleidoscopeEditableSource.value ?? activeKaleidoscopeInstanceSource.value)
 
-const activeEditablePathObject = computed(() => {
-  const obj = activeObject.value
-  return obj && !isKaleidoscopeInstance(obj) && isEditablePathObject(obj) ? obj : null
-})
-
-const hasEditablePoints = computed(() => {
-  const obj = activeEditablePathObject.value
-  return !!obj && getSelectableEditablePoints(obj).length > 0
-})
-
-const selectedPointIndex = computed(() => (
-  selectedPointIndices.value.length === 1 ? selectedPointIndices.value[0] : null
-))
-
-const hasSelectedPoint = computed(() => selectedPointIndices.value.length > 0)
-
-function getLiveEditableSegmentRef(segmentRef: EditableSegmentRef | null) {
-  const obj = activeEditablePathObject.value
-  if (!obj) return null
-  return resolveEditableSegmentRef(obj, segmentRef)
-}
-
-function resolveSelectedEditableSegment() {
-  const obj = activeEditablePathObject.value
-  if (!obj) return null
-  if (selectionMode.value === 'segment') {
-    return getLiveEditableSegmentRef(selectedSegmentRef.value)
-  }
-  // point 模式不再把两个相邻点自动推导为 segment 选择，保持 point-only 语义
-  return null
-}
-
-const selectedEditableSegment = computed(() => resolveSelectedEditableSegment())
-
 const activeArrowRenderMode = computed<ArrowRenderMode>(() => {
   const obj = activeEditablePathObject.value
   return obj ? getArrowRenderMode(obj) : 'standard'
@@ -3607,18 +3557,14 @@ function createKaleidoscopeCenterControl(source: FabricObject) {
 function attachKaleidoscopeCenterControl(obj: FabricObject | null) {
   restorePointControls()
   if (!obj || selectionMode.value !== 'shape') return
-  const controlsOwner = obj
-  originalControlsMap.set(controlsOwner, controlsOwner.controls as FabricControls)
-  const controls: FabricControls = { ...(controlsOwner.controls as FabricControls) }
+  const controls: FabricControls = cloneCurrentControls(obj)
   if (isKaleidoscopeSource(obj)) {
     controls[KALEIDOSCOPE_CENTER_CONTROL_KEY] = createKaleidoscopeCenterControl(obj)
   }
   if (activeObject.value === obj && objProps.fillEnabled && objProps.fillMode === 'gradient' && objProps.fillGradientType === 'radial') {
     controls[RADIAL_GRADIENT_CENTER_CONTROL_KEY] = createRadialGradientCenterControl(obj)
   }
-  obj.controls = controls
-  pointControlsOwner.value = obj
-  obj.setCoords()
+  installTemporaryControls(obj, controls)
 }
 
 function setKaleidoscopeCenterValue(axis: 'x' | 'y', value: number) {
@@ -3743,266 +3689,6 @@ function getLocalPointFromCanvas(obj: EditablePathObject, x: number, y: number) 
   return getPixelGridAdjustedScenePoint(new Point(x, y))
     .transform(util.invertTransform(obj.calcOwnMatrix()))
     .add(obj.pathOffset)
-}
-
-function restorePointControls() {
-  const owner = pointControlsOwner.value
-  if (!owner) return
-  const original = originalControlsMap.get(owner)
-  if (original) {
-    owner.controls = original
-    originalControlsMap.delete(owner)
-  }
-  if (originalHasBordersMap.has(owner)) {
-    owner.set('hasBorders', originalHasBordersMap.get(owner) ?? true)
-    originalHasBordersMap.delete(owner)
-  }
-  owner.setCoords()
-  pointControlsOwner.value = null
-}
-
-function isMultiSelectModifierPressed(
-  event?: Partial<Pick<MouseEvent, 'ctrlKey' | 'shiftKey' | 'metaKey'>> | null
-) {
-  return !!event && !!(event.ctrlKey || event.shiftKey || event.metaKey)
-}
-
-function normalizeSelectedPointIndices(obj: EditablePathObject, indices: number[]) {
-  const selectable = new Set(getSelectableEditablePoints(obj).map(({ index }) => index))
-  return Array.from(new Set(indices))
-    .filter((index) => selectable.has(index))
-    .sort((a, b) => a - b)
-}
-
-function clearSelectedPoint() {
-  selectedPointIndices.value = []
-}
-
-function clearSelectedSegment() {
-  selectedSegmentRef.value = null
-}
-
-function clearEditableAssistSelection() {
-  clearSelectedPoint()
-  clearSelectedSegment()
-}
-
-function clearPointEditing() {
-  clearEditableAssistSelection()
-  resetPointGestureState()
-  bumpPointGestureRender()
-  restorePointControls()
-}
-
-function setSelectedEditablePoints(obj: EditablePathObject, indices: number[]) {
-  selectedSegmentRef.value = null
-  selectedPointIndices.value = normalizeSelectedPointIndices(obj, indices)
-  syncObjProps()
-  obj.canvas?.requestRenderAll()
-}
-
-function setSelectedEditableSegment(obj: EditablePathObject, segmentRef: EditableSegmentRef | null) {
-  clearSelectedPoint()
-  selectedSegmentRef.value = resolveEditableSegmentRef(obj, segmentRef)
-  updateCurveControls()
-  syncObjProps()
-  obj.canvas?.requestRenderAll()
-}
-
-function selectEditablePoint(obj: EditablePathObject, pointIndex: number, multi = false) {
-  if (!multi) {
-    setSelectedEditablePoints(obj, [pointIndex])
-    return
-  }
-  const next = selectedPointIndices.value.includes(pointIndex)
-    ? selectedPointIndices.value.filter((index) => index !== pointIndex)
-    : [...selectedPointIndices.value, pointIndex]
-  setSelectedEditablePoints(obj, next)
-}
-
-// ── point 模式手势工具 ──
-function getPointerViewportFromEvent(event: MouseEvent | TouchEvent | null | undefined) {
-  if (!fabricCanvas || !event) return { x: 0, y: 0 }
-  const point = fabricCanvas.getViewportPoint(event as MouseEvent)
-  return { x: point.x, y: point.y }
-}
-
-function getPointerSceneFromEvent(event: MouseEvent | TouchEvent | null | undefined) {
-  if (!fabricCanvas || !event) return { x: 0, y: 0 }
-  const point = fabricCanvas.getScenePoint(event as MouseEvent)
-  return { x: point.x, y: point.y }
-}
-
-function exceededViewportThreshold(start: { x: number; y: number }, current: { x: number; y: number }) {
-  const dx = current.x - start.x
-  const dy = current.y - start.y
-  return Math.hypot(dx, dy) >= POINT_GESTURE_DRAG_THRESHOLD
-}
-
-function beginPointControlGesture(
-  editable: EditablePathObject,
-  pointIndex: number,
-  event: MouseEvent | TouchEvent | null | undefined
-) {
-  // 由 fabric control mouseDownHandler 调用：拖拽过程之前的状态已被 selectedPointIndices 记录
-  resetPointGestureState()
-  const modifier = isMultiSelectModifierPressed(event as MouseEvent | undefined)
-  const initialSelection = [...selectedPointIndices.value]
-  const startedFromSelectedPoint = initialSelection.includes(pointIndex)
-  const viewport = getPointerViewportFromEvent(event ?? null)
-  const scene = getPointerSceneFromEvent(event ?? null)
-  pointGestureState.active = true
-  pointGestureState.source = 'point-control'
-  pointGestureState.kind = 'pending'
-  pointGestureState.modifierAtStart = modifier
-  pointGestureState.startedFromSelectedPoint = startedFromSelectedPoint
-  pointGestureState.startPointIndex = pointIndex
-  pointGestureState.initialSelection = initialSelection
-  pointGestureState.startViewport = viewport
-  pointGestureState.currentViewport = viewport
-  pointGestureState.startScene = scene
-  pointGestureState.currentScene = scene
-  pointGestureState.previewHitIndices = []
-  pointGestureState.thresholdExceeded = false
-  pointGestureState.pendingCollapseIndex = null
-  pointGestureState.preDragSelection = initialSelection
-
-  if (modifier) {
-    // 修饰键 + 点击点位：mousedown 阶段先按 toggle 应用一次（与现有 click 行为一致），
-    // 若后续拖拽超过阈值则在 mouse:move 中切换为 box-select 并恢复 initialSelection
-    selectEditablePoint(editable, pointIndex, true)
-    // pendingCollapse 不适用
-    return
-  }
-
-  if (startedFromSelectedPoint && initialSelection.length > 1) {
-    // 多选状态下普通点击一个已选点：暂不 collapse，先标记 pending，等 mouseup 决议
-    pointGestureState.pendingCollapseIndex = pointIndex
-    // 不修改 selectedPointIndices
-    return
-  }
-
-  // 单选 / 普通点击未选中点：直接走原 collapse 行为
-  selectEditablePoint(editable, pointIndex, false)
-}
-
-function updatePointGestureFromCanvasCoord(_x: number, _y: number) {
-  // 备用：actionHandler 触发时手动同步重绘（当前不再使用，由 mouse:move 主动触发）
-  bumpPointGestureRender()
-  fabricCanvas?.requestRenderAll()
-}
-
-function beginBlankPointGesture(event: MouseEvent | TouchEvent | null | undefined) {
-  resetPointGestureState()
-  const modifier = isMultiSelectModifierPressed(event as MouseEvent | undefined)
-  const initialSelection = [...selectedPointIndices.value]
-  const viewport = getPointerViewportFromEvent(event ?? null)
-  const scene = getPointerSceneFromEvent(event ?? null)
-  pointGestureState.active = true
-  pointGestureState.source = 'blank'
-  pointGestureState.kind = 'pending'
-  pointGestureState.modifierAtStart = modifier
-  pointGestureState.startedFromSelectedPoint = false
-  pointGestureState.startPointIndex = null
-  pointGestureState.initialSelection = initialSelection
-  pointGestureState.startViewport = viewport
-  pointGestureState.currentViewport = viewport
-  pointGestureState.startScene = scene
-  pointGestureState.currentScene = scene
-  pointGestureState.previewHitIndices = []
-  pointGestureState.thresholdExceeded = false
-  pointGestureState.pendingCollapseIndex = null
-  pointGestureState.preDragSelection = null
-}
-
-function getMarqueeViewportBounds() {
-  const start = pointGestureState.startViewport
-  const current = pointGestureState.currentViewport
-  if (!start || !current) return null
-  const x1 = Math.min(start.x, current.x)
-  const y1 = Math.min(start.y, current.y)
-  const x2 = Math.max(start.x, current.x)
-  const y2 = Math.max(start.y, current.y)
-  return { x1, y1, x2, y2 }
-}
-
-function computeBoxSelectPreviewHits(): number[] {
-  const editable = activeEditablePathObject.value
-  if (!editable) return []
-  const bounds = getMarqueeViewportBounds()
-  if (!bounds) return []
-  const hits: number[] = []
-  for (const { index } of getSelectableEditablePoints(editable)) {
-    const vp = getViewportPointForEditablePoint(editable, index)
-    if (vp.x >= bounds.x1 && vp.x <= bounds.x2 && vp.y >= bounds.y1 && vp.y <= bounds.y2) {
-      hits.push(index)
-    }
-  }
-  return hits
-}
-
-function unionBoxSelectFinalIndices(): number[] {
-  const set = new Set<number>(pointGestureState.initialSelection)
-  for (const i of pointGestureState.previewHitIndices) set.add(i)
-  return Array.from(set).sort((a, b) => a - b)
-}
-
-function drawPointGestureMarquee() {
-  if (!fabricCanvas) return
-  if (selectionMode.value !== 'point') return
-  if (pointGestureState.kind !== 'box-select') return
-  const bounds = getMarqueeViewportBounds()
-  if (!bounds) return
-  const ctx = (fabricCanvas as any).getTopContext?.() ?? fabricCanvas.contextTop
-  if (!ctx) return
-  const x = bounds.x1
-  const y = bounds.y1
-  const w = bounds.x2 - bounds.x1
-  const h = bounds.y2 - bounds.y1
-  if (w <= 0 || h <= 0) return
-  const colors = getCanvasAssistColors()
-  ctx.save()
-  ctx.fillStyle = colors.primaryOverlay
-  ctx.strokeStyle = colors.primaryStrong
-  ctx.lineWidth = 1
-  ctx.fillRect(x, y, w, h)
-  ctx.strokeRect(x + 0.5, y + 0.5, Math.max(0, w - 1), Math.max(0, h - 1))
-  ctx.restore()
-}
-
-function renderPointControl(ctx: CanvasRenderingContext2D, left: number, top: number) {
-  const key = (this as Control & { pointIndex?: number }).pointIndex
-  const committed = key != null && selectedPointIndices.value.includes(key)
-  const previewAdded = !committed
-    && pointGestureState.kind === 'box-select'
-    && key != null
-    && pointGestureState.previewHitIndices.includes(key)
-  // 强引用一下渲染版本号，让 fabric 在 marquee 改变时也重绘点控件
-  // （after:render 会显式 requestRenderAll，这里只是保持响应式依赖）
-  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-  pointGestureRenderTick.value
-  const colors = getCanvasAssistColors()
-  ctx.save()
-  ctx.beginPath()
-  if (previewAdded) {
-    ctx.arc(left, top, 5, 0, Math.PI * 2)
-    ctx.fillStyle = colors.primarySoft
-    ctx.strokeStyle = colors.primary
-    ctx.lineWidth = 2
-  } else if (committed) {
-    ctx.arc(left, top, 5, 0, Math.PI * 2)
-    ctx.fillStyle = colors.primary
-    ctx.strokeStyle = colors.primary
-    ctx.lineWidth = 2
-  } else {
-    ctx.arc(left, top, 4, 0, Math.PI * 2)
-    ctx.fillStyle = colors.textOnPrimary
-    ctx.strokeStyle = colors.primary
-    ctx.lineWidth = 2
-  }
-  ctx.fill()
-  ctx.stroke()
-  ctx.restore()
 }
 
 function canEditPoints(editable: EditablePathObject) {
@@ -4197,11 +3883,9 @@ function attachPointControls(obj: FabricObject | null) {
   if (selectionMode.value === 'shape') return
   const editable = obj
   const showPointControlsInSegmentMode = selectionMode.value === 'segment' && !!getSpecialDirectEditSegment(editable)
-  originalControlsMap.set(editable, editable.controls as FabricControls)
-  const controls: FabricControls = { ...(editable.controls as FabricControls) }
-  if (shouldHideTransformControlsInEditMode(editable)) {
-    originalHasBordersMap.set(editable, editable.hasBorders)
-    editable.set('hasBorders', false)
+  const controls: FabricControls = cloneCurrentControls(editable)
+  const hideTransformControls = shouldHideTransformControlsInEditMode(editable)
+  if (hideTransformControls) {
     hideFabricTransformControls(controls)
   }
   // 边选择模式下，不展示选点的辅助点，仅展示每条边的中点辅助器，方便直接点击边来选中
@@ -4281,9 +3965,7 @@ function attachPointControls(obj: FabricObject | null) {
   }
   controls.curveCp1 = createCurveHandleControl(editable, 'cp1')
   controls.curveCp2 = createCurveHandleControl(editable, 'cp2')
-  editable.controls = controls
-  pointControlsOwner.value = editable
-  editable.setCoords()
+  installTemporaryControls(editable, controls, { hideBorders: hideTransformControls })
 }
 
 function applyBooleanPreviewStyle(preview: FabricObject, kind: 'kept' | 'removed', style: FabricBooleanStyleSnapshot) {
@@ -4621,37 +4303,6 @@ function toggleSizeRatioLock() {
 }
 
 // ── 同步选中对象属性 ──
-function setSelectionMode(mode: 'shape' | 'point' | 'segment') {
-  const editable = activeEditablePathObject.value
-  const nextMode = mode === 'segment' && editable && getArrowRenderMode(editable) === 'hollow-shaft'
-    ? 'point'
-    : mode
-  if (nextMode === 'shape' || editable) {
-    selectionMode.value = nextMode
-  } else {
-    selectionMode.value = 'shape'
-  }
-  if (mode === 'shape') {
-    clearEditableAssistSelection()
-  } else if (mode === 'point') {
-    clearSelectedSegment()
-  } else {
-    clearSelectedPoint()
-  }
-  restoreActiveObjectAfterSelectionClear = false
-  // 切换模式时也清掉任何残留的 point 模式手势状态
-  resetPointGestureState()
-  bumpPointGestureRender()
-  syncCanvasInteractionMode()
-  if (fabricCanvas && activeObject.value) {
-    fabricCanvas.setActiveObject(activeObject.value)
-  }
-  updateCurveControls()
-  if (activeObject.value) {
-    syncObjProps()
-  }
-}
-
 function getSegmentPickTolerance(obj: EditablePathObject) {
   const scaling = obj.getTotalObjectScaling()
   const maxScale = Math.max(Math.abs(scaling.x), Math.abs(scaling.y), 1)
@@ -4762,7 +4413,7 @@ function syncObjProps() {
     objProps.arrowTipAngleInput = isHollowShaftArrow.value ? formatNumericInputValue(objProps.arrowTipAngle) : '0'
     objProps.arrowSideAngleInput = isHollowShaftArrow.value ? formatNumericInputValue(objProps.arrowSideAngle) : '0'
 
-    const segmentRef = isHollowShaftArrow.value ? null : resolveSelectedEditableSegment()
+    const segmentRef = isHollowShaftArrow.value ? null : selectedEditableSegment.value
     const segment = getLiveEditableSegment(segmentRef)
     objProps.curveEnabled = !isHollowShaftArrow.value && segment?.type === 'cubic'
     if (segmentRef && segment) {
@@ -7146,7 +6797,7 @@ function setupCanvasEvents() {
 
   fabricCanvas.on('mouse:down:before', (event) => {
     // 重置上一轮残留 (例如 selection 事件没正常 fire 时)
-    pointModeSwitchPending = false
+    setPointModeSwitchPending(false)
     if (!fabricCanvas || !activeObject.value) return
     if (selectionMode.value === 'shape') return
     const scenePoint = event.scenePoint ?? fabricCanvas.getScenePoint(event.e)
@@ -7161,13 +6812,13 @@ function setupCanvasEvents() {
       }
       const handled = handleSegmentPointerDown(scenePoint.x, scenePoint.y)
       if (handled) {
-        restoreActiveObjectAfterSelectionClear = true
+        setRestoreActiveObjectAfterSelectionClear()
         fabricCanvas.discardActiveObject(event.e)
         return
       }
       const target = event.target
       if (target && target !== activeObject.value) {
-        restoreActiveObjectAfterSelectionClear = true
+        setRestoreActiveObjectAfterSelectionClear()
         fabricCanvas.discardActiveObject(event.e)
       }
       return
@@ -7187,86 +6838,26 @@ function setupCanvasEvents() {
     if (multiSelectModifier) {
       // 修饰键: 维持 box-select / 加法选点流程
       beginBlankPointGesture(nativeMouseEvent)
-      restoreActiveObjectAfterSelectionClear = true
+      setRestoreActiveObjectAfterSelectionClear()
       fabricCanvas.discardActiveObject(event.e)
       return
     }
     // 无修饰键, 点击其它图形 -> 切换到对应图形的点位模式
     if (target && target !== activeObject.value) {
-      pointModeSwitchPending = true
+      setPointModeSwitchPending()
       return
     }
     // 无修饰键, 点击当前 active 对象本体 / 空白区 -> 不做任何操作 (保持 active 与已选点)
-    restoreActiveObjectAfterSelectionClear = true
+    setRestoreActiveObjectAfterSelectionClear()
     fabricCanvas.discardActiveObject(event.e)
   })
 
   fabricCanvas.on('mouse:move', (event) => {
-    if (!fabricCanvas) return
-    if (selectionMode.value !== 'point') return
-    if (!pointGestureState.active) return
-    const viewport = event.viewportPoint ?? fabricCanvas.getViewportPoint(event.e)
-    const scene = event.scenePoint ?? fabricCanvas.getScenePoint(event.e)
-    pointGestureState.currentViewport = { x: viewport.x, y: viewport.y }
-    pointGestureState.currentScene = { x: scene.x, y: scene.y }
-    if (!pointGestureState.thresholdExceeded) {
-      const start = pointGestureState.startViewport
-      if (!start) return
-      if (!exceededViewportThreshold(start, pointGestureState.currentViewport)) return
-      pointGestureState.thresholdExceeded = true
-      // 越过阈值后决议手势类型
-      if (pointGestureState.modifierAtStart) {
-        // 修饰键起拖 -> box-select；如果初始来自点控件并已 toggle，先恢复 initialSelection
-        if (pointGestureState.source === 'point-control') {
-          const editable = activeEditablePathObject.value
-          if (editable) {
-            setSelectedEditablePoints(editable, pointGestureState.initialSelection)
-          }
-        }
-        pointGestureState.kind = 'box-select'
-        pointGestureState.pendingCollapseIndex = null
-      } else if (pointGestureState.source === 'point-control') {
-        if (pointGestureState.startedFromSelectedPoint && pointGestureState.initialSelection.length > 1) {
-          pointGestureState.kind = 'group-drag'
-        } else {
-          pointGestureState.kind = 'single-drag'
-        }
-      } else {
-        // 空白拖拽且无修饰键 -> 不进入任何拖拽，仍维持 pending（mouseup 时按"空白拖拽 = 无动作"处理）
-        pointGestureState.kind = 'pending'
-      }
-    }
-    if (pointGestureState.kind === 'box-select') {
-      pointGestureState.previewHitIndices = computeBoxSelectPreviewHits()
-      bumpPointGestureRender()
-      fabricCanvas.requestRenderAll()
-    }
+    handlePointGestureCanvasMove(event)
   })
 
   fabricCanvas.on('mouse:up', () => {
-    if (selectionMode.value !== 'point') return
-    if (!pointGestureState.active) return
-    const editable = activeEditablePathObject.value
-    try {
-      if (pointGestureState.kind === 'box-select' && editable) {
-        // 命中为空时 unionBoxSelectFinalIndices() === initialSelection，保持原选择
-        const finalIndices = unionBoxSelectFinalIndices()
-        setSelectedEditablePoints(editable, finalIndices)
-      } else if (
-        pointGestureState.source === 'point-control'
-        && !pointGestureState.thresholdExceeded
-        && !pointGestureState.modifierAtStart
-        && pointGestureState.pendingCollapseIndex != null
-        && editable
-      ) {
-        // 多选状态下点击已选点但未拖拽 -> collapse 为单点
-        setSelectedEditablePoints(editable, [pointGestureState.pendingCollapseIndex])
-      }
-    } finally {
-      resetPointGestureState()
-      bumpPointGestureRender()
-      fabricCanvas?.requestRenderAll()
-    }
+    finishPointGesture()
   })
 
   fabricCanvas.on('after:render', () => {
@@ -7275,8 +6866,7 @@ function setupCanvasEvents() {
 
   fabricCanvas.on('selection:created', () => {
     clearBooleanPreview()
-    if (pointModeSwitchPending) {
-      pointModeSwitchPending = false
+    if (consumePointModeSwitchPending()) {
       const next = fabricCanvas!.getActiveObject() ?? null
       // 切换到新对象, 然后尝试回到 point 模式 (新对象不可编辑时会自动降级为 shape)
       syncActiveObject(next)
@@ -7302,8 +6892,7 @@ function setupCanvasEvents() {
   })
   fabricCanvas.on('selection:updated', () => {
     clearBooleanPreview()
-    if (pointModeSwitchPending) {
-      pointModeSwitchPending = false
+    if (consumePointModeSwitchPending()) {
       const next = fabricCanvas!.getActiveObject() ?? null
       syncActiveObject(next)
       if (next) setSelectionMode('point')
@@ -7327,24 +6916,18 @@ function setupCanvasEvents() {
     clearBooleanPreview()
     // point 模式下点击切换到其他图形时, Fabric 会先 discardActiveObject 再 setActiveObject(target),
     // 这里跳过中间一拍, 让 selection:created/updated 完成 mode 切换
-    if (pointModeSwitchPending) {
+    if (isPointModeSwitchPending()) {
       return
     }
     // point 模式下若我们正在自定义手势中（无论 blank 还是 point-control），都要保住 active editable
-    const protectingPointGesture = (
-      selectionMode.value === 'point'
-      && pointGestureState.active
-      && !!activeObject.value
-    )
-    if ((restoreActiveObjectAfterSelectionClear || protectingPointGesture) && activeObject.value && fabricCanvas) {
-      restoreActiveObjectAfterSelectionClear = false
+    const protectingPointGesture = shouldProtectPointGestureSelection()
+    if ((consumeRestoreActiveObjectAfterSelectionClear() || protectingPointGesture) && activeObject.value && fabricCanvas) {
       fabricCanvas.setActiveObject(activeObject.value)
       updateCurveControls()
       syncObjProps()
       fabricCanvas.requestRenderAll()
       return
     }
-    restoreActiveObjectAfterSelectionClear = false
     syncActiveObject(null)
   })
   fabricCanvas.on('object:modified', (event) => {
@@ -7463,6 +7046,7 @@ function createHomeEditorRuntime(): EditorRuntime {
     }
   })
   runtime.register(createHomeCanvasLifecycleModule())
+  runtime.register(homeDirectEdit.module)
   runtime.register(homeWorkspace.module)
   runtime.register(homeAssetsImport.module)
   runtime.register(homeExportDelivery.module)
