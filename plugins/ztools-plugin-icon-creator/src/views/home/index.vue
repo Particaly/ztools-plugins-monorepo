@@ -462,14 +462,9 @@ import type {
   GradientPresetItem,
   IconCheckIssue,
   IconifySearchResponse,
-  IconifySearchState,
   KeylineSafeArea,
   KeylineTemplate,
   LeftPanelTab,
-  LayerContextMenuAction,
-  LayerContextMenuState,
-  LayerItem,
-  LayerRenameDialogState,
   PasteSVGDialogState,
   PreviewBackgroundMode,
   PreviewItem,
@@ -495,6 +490,8 @@ import { createHomeWorkspaceModule } from './editor/modules/workspace/createHome
 import { createHomeCanvasKernelModule } from './editor/modules/canvas/createHomeCanvasKernelModule'
 import { createHomeAssetsImportModule } from './editor/modules/assets-import/createHomeAssetsImportModule'
 import { createHomeExportDeliveryModule } from './editor/modules/export-delivery/createHomeExportDeliveryModule'
+import { createHomeSelectionModule } from './editor/modules/selection/createHomeSelectionModule'
+import { createHomeLayersModule } from './editor/modules/layers/createHomeLayersModule'
 import { createEditorRuntime } from './editor/runtime/createEditorRuntime'
 import { createEditorServices } from './editor/runtime/editorServices'
 import type { EditorModule, EditorRuntime } from './editor/runtime/editorTypes'
@@ -811,6 +808,96 @@ const {
   syncInteractionMode: syncCanvasInteractionMode
 } = homeCanvasKernel.controller
 
+const homeSelection = createHomeSelectionModule({
+  activeObject,
+  getCurrentCopyTargets,
+  getFabricCanvas: () => fabricCanvas,
+  getSelectedLayoutTargets,
+  getStrokeOutlineUnsupportedReason,
+  isBitmapObject: (obj) => obj instanceof FabricImage,
+  isKaleidoscopeObject,
+  isTextObject: (obj) => obj instanceof Textbox,
+  isBooleanCandidate,
+  bitmapTraceBusy,
+  booleanBusy,
+  strokeOutlineBusy,
+  textOutlineBusy
+})
+const selectionState = homeSelection.controller.state
+const selectionCommands = homeSelection.controller.commands
+const {
+  canAlignSelection,
+  canBoolean,
+  canConvertStrokeSelection,
+  canConvertTextSelection,
+  canDirectionalSubtract,
+  canDistributeSelection,
+  canGroup,
+  canSaveUserAsset,
+  canUngroup,
+  canVectorizeBitmapSelection,
+  layerVersion,
+  selectedObjects
+} = selectionState
+
+const homeLayers = createHomeLayersModule({
+  activeObject,
+  applyActiveObjectsSelection,
+  canGroup,
+  canUngroup,
+  clearBooleanPreview,
+  clearKaleidoscopeMetadata,
+  deleteObjects,
+  duplicateSelection: () => duplicateSelection(),
+  ensureEditorObjectId,
+  findKaleidoscopeSourceById,
+  getFabricCanvas: () => fabricCanvas,
+  getKaleidoscopeInstanceSourceId,
+  groupObjects,
+  isBooleanPreviewObject,
+  isKaleidoscopeInstance,
+  layerBottom,
+  layerDown,
+  layerTop,
+  layerUp,
+  layerVersion,
+  refreshActiveObject,
+  refreshLayers,
+  selectedObjects,
+  selectionMode,
+  setKaleidoscopeInstanceManagedState,
+  setSelectionMode,
+  snapshot: () => snapshot(),
+  syncObjProps,
+  triggerKaleidoscopeVisibilitySync,
+  ungroupObject,
+  withSnapshotSuppressed
+})
+const layersState = homeLayers.controller.state
+const layersCommands = homeLayers.controller.commands
+const {
+  filteredLayers,
+  isLayerDragDisabled,
+  isLayerDragging,
+  layerContextMenu,
+  layerContextMenuItems,
+  layerDragItems,
+  layerRenameDialog,
+  layerSearch
+} = layersState
+const {
+  confirmLayerRename,
+  handleLayerContextMenuSelect,
+  handleLayerMouseDown,
+  handleLayerRenameDialogShowChange,
+  isLayerActive,
+  openLayerContextMenu,
+  removeObject,
+  reorderLayers,
+  toggleLock,
+  toggleVisible
+} = layersCommands
+
 
 function bumpPointGestureRender() {
   pointGestureRenderTick.value = (pointGestureRenderTick.value + 1) | 0
@@ -833,21 +920,6 @@ function withSnapshotSuppressed<T>(callback: () => T) {
 }
 
 // 图层搜索
-const layerSearch = ref('')
-const layerVersion = ref(0)
-const layerSelectionAnchorId = ref('')
-const layerDragItems = shallowRef<LayerItem[]>([])
-const isLayerDragging = ref(false)
-const layerContextMenu = reactive<LayerContextMenuState>({
-  show: false,
-  x: 0,
-  y: 0
-})
-const layerRenameDialog = reactive<LayerRenameDialogState>({
-  show: false,
-  value: '',
-  target: null
-})
 const userStylePresets = reactive<UserStylePresets>({
   colors: [],
   gradients: []
@@ -986,7 +1058,7 @@ const visibleColorPaletteGroups = computed(() => {
 })
 const visibleGradientPresets = computed(() => [...gradientPresets, ...userStylePresets.gradients])
 function refreshLayers() {
-  layerVersion.value += 1
+  selectionCommands.refreshLayers()
 }
 
 function refreshEditablePathMetadata() {
@@ -2246,104 +2318,6 @@ function getStrokeDashPair(target?: FabricObject | null) {
 }
 
 // ── 计算属性 ──
-const selectedObjects = computed(() => {
-  void layerVersion.value
-  return fabricCanvas?.getActiveObjects() ?? []
-})
-
-const hasKaleidoscopeSelection = computed(() => selectedObjects.value.some((obj) => isKaleidoscopeObject(obj)))
-
-const canGroup = computed(() => {
-  const obj = activeObject.value
-  return obj instanceof ActiveSelection && (obj as ActiveSelection).size() > 1
-})
-
-const canUngroup = computed(() => {
-  const obj = activeObject.value
-  return obj instanceof Group && !(obj instanceof ActiveSelection)
-})
-
-const canAlignSelection = computed(() => {
-  void activeObject.value
-  void layerVersion.value
-  return getSelectedLayoutTargets().length >= 2
-})
-
-const canDistributeSelection = computed(() => {
-  void activeObject.value
-  void layerVersion.value
-  return getSelectedLayoutTargets().length >= 3
-})
-
-const isLayerDragDisabled = computed(() => !!layerSearch.value.trim())
-
-const layerContextMenuTargets = computed(() => {
-  const objects = selectedObjects.value.filter((obj) => !isBooleanPreviewObject(obj))
-  if (objects.length) return objects
-  const active = activeObject.value
-  return active && !isBooleanPreviewObject(active) ? [active] : []
-})
-
-const singleLayerContextTarget = computed(() => (
-  layerContextMenuTargets.value.length === 1 ? layerContextMenuTargets.value[0] : null
-))
-
-const layerContextMenuSourceTarget = computed(() => {
-  const target = singleLayerContextTarget.value
-  return target && isKaleidoscopeInstance(target)
-    ? findKaleidoscopeSourceById(getKaleidoscopeInstanceSourceId(target))
-    : null
-})
-
-const canLayerContextGroup = computed(() => canGroup.value)
-const canLayerContextUngroup = computed(() => canUngroup.value)
-const canLayerContextDetach = computed(() => layerContextMenuTargets.value.some((obj) => isKaleidoscopeInstance(obj)))
-const canLayerContextSelectSource = computed(() => !!layerContextMenuSourceTarget.value)
-const canLayerContextMove = computed(() => {
-  const target = singleLayerContextTarget.value
-  return !!target && !isLayerKaleidoscopeLocked(target)
-})
-
-const layerContextMenuItems = computed(() => {
-  const targets = layerContextMenuTargets.value
-  if (!targets.length) return []
-  if (targets.length === 1) {
-    const target = targets[0]
-    const visible = target.visible !== false
-    const locked = !!target.lockMovementX
-    return [
-      { key: 'rename', label: '重命名' },
-      { key: visible ? 'hide' : 'show', label: visible ? '隐藏' : '显示' },
-      { key: locked ? 'unlock' : 'lock', label: locked ? '解锁' : '锁定' },
-      { type: 'separator' as const },
-      { key: 'delete', label: '删除', danger: true },
-      { key: 'detach-source', label: '脱离源对象', disabled: !isKaleidoscopeInstance(target) },
-      { key: 'select-source', label: '选中源对象', disabled: !canLayerContextSelectSource.value },
-      { type: 'separator' as const },
-      { key: 'move-up', label: '上移一层', disabled: !canLayerContextMove.value || target === filteredLayers.value[0]?.obj },
-      { key: 'move-top', label: '上移到最顶层', disabled: !canLayerContextMove.value || target === filteredLayers.value[0]?.obj },
-      { key: 'move-down', label: '下移一层', disabled: !canLayerContextMove.value || target === filteredLayers.value[filteredLayers.value.length - 1]?.obj },
-      { key: 'move-bottom', label: '下移到最底层', disabled: !canLayerContextMove.value || target === filteredLayers.value[filteredLayers.value.length - 1]?.obj },
-      { type: 'separator' as const },
-      { key: 'duplicate', label: '复制图层' }
-    ]
-  }
-  return [
-    { key: 'group', label: '成组', disabled: !canLayerContextGroup.value },
-    { key: 'ungroup', label: '解组', disabled: !canLayerContextUngroup.value },
-    { key: 'duplicate', label: '复制' },
-    { key: 'delete', label: '删除', danger: true },
-    { type: 'separator' as const },
-    { key: 'hide', label: '隐藏', disabled: !targets.some((obj) => obj.visible !== false) },
-    { key: 'lock', label: '锁定', disabled: !targets.some((obj) => !obj.lockMovementX) },
-    { key: 'unlock', label: '解锁', disabled: !targets.some((obj) => !!obj.lockMovementX) },
-    { key: 'detach-source', label: '脱离源对象', disabled: !canLayerContextDetach.value }
-  ]
-})
-
-const canBoolean = computed(() => {
-  return !hasKaleidoscopeSelection.value && !booleanBusy.value && selectedObjects.value.length >= 2 && selectedObjects.value.every(isBooleanCandidate)
-})
 
 // 判断对象是否属于描边转轮廓的可处理类型，供按钮启用和批量转换前置校验共用。
 function isStrokeOutlineSupportedObject(obj: FabricObject) {
@@ -2365,29 +2339,6 @@ function getStrokeOutlineUnsupportedReason(obj: FabricObject): string | null {
   if (!isStrokeOutlineSupportedObject(obj)) return '该对象类型暂不支持描边转轮廓'
   return null
 }
-
-const canConvertStrokeSelection = computed(() => {
-  return !strokeOutlineBusy.value
-    && selectedObjects.value.length > 0
-    && selectedObjects.value.every((obj) => getStrokeOutlineUnsupportedReason(obj) == null)
-})
-
-const canConvertTextSelection = computed(() => {
-  return !textOutlineBusy.value
-    && selectedObjects.value.length > 0
-    && selectedObjects.value.every((obj) => obj instanceof Textbox)
-})
-
-const canVectorizeBitmapSelection = computed(() => {
-  return !bitmapTraceBusy.value
-    && selectedObjects.value.length > 0
-    && selectedObjects.value.every((obj) => obj instanceof FabricImage)
-})
-const canSaveUserAsset = computed(() => {
-  void activeObject.value
-  void layerVersion.value
-  return getCurrentCopyTargets().length > 0
-})
 
 const homeAssetsImport = createHomeAssetsImportModule({
   svgInputRef,
@@ -2546,10 +2497,6 @@ const {
   pasteInternalClipboard,
   renderPNGDataUrl
 } = exportDeliveryHelpers
-
-const canDirectionalSubtract = computed(() => {
-  return canBoolean.value && selectedObjects.value.length === 2
-})
 
 const activeKaleidoscopeInstance = computed(() => {
   const obj = activeObject.value
@@ -3772,7 +3719,17 @@ function selectKaleidoscopeSourceFromInstance() {
 function detachKaleidoscopeInstance() {
   const instance = activeKaleidoscopeInstance.value
   if (!instance || !fabricCanvas) return
-  detachLayerSources([instance])
+  clearBooleanPreview()
+  withSnapshotSuppressed(() => {
+    clearKaleidoscopeMetadata(instance)
+    setKaleidoscopeInstanceManagedState(instance, false)
+    instance.setCoords()
+  })
+  fabricCanvas.requestRenderAll()
+  refreshLayers()
+  refreshActiveObject()
+  snapshot()
+  syncObjProps()
 }
 // 将场景坐标转换为路径本地坐标，不经过网格吸附；用于命中测试等只读判断。
 function getRawLocalPointFromCanvas(obj: EditablePathObject, x: number, y: number) {
@@ -4456,28 +4413,6 @@ async function showBooleanPreview(operation: BooleanOperation, subtractDirection
   }
 }
 
-const filteredLayers = computed(() => {
-  void layerVersion.value
-  if (!fabricCanvas) return []
-  const q = layerSearch.value.toLowerCase()
-  const objects = fabricCanvas.getObjects()
-  const items: LayerItem[] = []
-  for (let i = objects.length - 1; i >= 0; i--) {
-    const obj = objects[i]
-    if (isBooleanPreviewObject(obj)) continue
-    const name = (obj as AnyFabricObject).name || obj.type || '对象'
-    if (!q || String(name).toLowerCase().includes(q)) {
-      items.push({
-        id: ensureEditorObjectId(obj),
-        canvasIndex: i,
-        name: String(name),
-        obj
-      })
-    }
-  }
-  return items
-})
-
 function serializeFabricCanvas() {
   ensureCanvasObjectMetadata()
   return (fabricCanvas as any).toObject(SERIALIZED_OBJECT_PROPS as unknown as string[]) as Record<string, unknown>
@@ -4514,234 +4449,10 @@ function getSelectedPointRadiusState(obj: EditablePathObject) {
   return { hasSelection: true, mixed, value }
 }
 
-function syncLayerDragItems() {
-  if (isLayerDragging.value) return
-  layerDragItems.value = filteredLayers.value.map((item) => ({ ...item }))
-}
-
-watch(filteredLayers, () => {
-  syncLayerDragItems()
-}, { immediate: true })
-
 // 切换到预览 Tab 时立即刷新过期缩略图，保持隐藏状态下不做额外渲染。
 watch(activeRightTab, (tab) => {
   if (tab === 'preview' && previewDirty.value) refreshSmallPreviews()
 })
-
-function ensureShapeSelectionForLayerActions() {
-  if (selectionMode.value !== 'shape') {
-    setSelectionMode('shape')
-  }
-}
-
-function getLayerRangeObjects(target: FabricObject) {
-  const anchorId = layerSelectionAnchorId.value
-  const items = filteredLayers.value
-  const targetIndex = items.findIndex((item) => item.obj === target)
-  const anchorIndex = items.findIndex((item) => item.id === anchorId)
-  if (targetIndex < 0 || anchorIndex < 0) return [target]
-  const [start, end] = anchorIndex <= targetIndex ? [anchorIndex, targetIndex] : [targetIndex, anchorIndex]
-  return items.slice(start, end + 1).map((item) => item.obj)
-}
-
-function setLayerSelectionAnchor(obj: FabricObject) {
-  layerSelectionAnchorId.value = ensureEditorObjectId(obj)
-}
-
-function getCurrentLayerContextTargets() {
-  return layerContextMenuTargets.value
-}
-
-function closeLayerContextMenu() {
-  layerContextMenu.show = false
-}
-
-function setObjectsVisible(objects: FabricObject[], visible: boolean) {
-  if (!fabricCanvas) return
-  withSnapshotSuppressed(() => {
-    objects.forEach((obj) => {
-      obj.visible = visible
-      triggerKaleidoscopeVisibilitySync(obj)
-    })
-  })
-  fabricCanvas.requestRenderAll()
-  refreshActiveObject()
-  snapshot()
-}
-
-function setObjectsLocked(objects: FabricObject[], locked: boolean) {
-  if (!fabricCanvas) return
-  withSnapshotSuppressed(() => {
-    objects.forEach((obj) => {
-      obj.set({
-        lockMovementX: locked,
-        lockMovementY: locked,
-        lockScalingX: locked,
-        lockScalingY: locked,
-        lockRotation: locked,
-        hasControls: !locked,
-        selectable: true
-      })
-    })
-  })
-  fabricCanvas.requestRenderAll()
-  refreshActiveObject()
-  snapshot()
-}
-
-// 通过页面内输入确认框重命名图层，避免浏览器原生 prompt 打断编辑流程。
-function openLayerRenameDialog(obj: FabricObject) {
-  layerRenameDialog.target = obj
-  layerRenameDialog.value = String((obj as AnyFabricObject).name || obj.type || '对象')
-  layerRenameDialog.show = true
-}
-
-// 关闭重命名弹窗时同步清空临时输入与目标对象，避免旧状态污染下一次重命名。
-function handleLayerRenameDialogShowChange(show: boolean) {
-  layerRenameDialog.show = show
-  if (show) return
-  layerRenameDialog.value = ''
-  layerRenameDialog.target = null
-}
-
-// 提交图层重命名，只在有目标对象且名称有效时落盘并生成一次快照。
-function confirmLayerRename() {
-  const obj = layerRenameDialog.target
-  if (!obj) {
-    handleLayerRenameDialogShowChange(false)
-    return
-  }
-  const currentName = String((obj as AnyFabricObject).name || obj.type || '对象')
-  const trimmed = layerRenameDialog.value.trim()
-  if (!trimmed || trimmed === currentName) {
-    handleLayerRenameDialogShowChange(false)
-    return
-  }
-  ;(obj as AnyFabricObject).name = trimmed
-  refreshLayers()
-  refreshActiveObject()
-  snapshot()
-  handleLayerRenameDialogShowChange(false)
-}
-
-function selectLayerSourceObject(obj: FabricObject) {
-  const source = isKaleidoscopeInstance(obj)
-    ? findKaleidoscopeSourceById(getKaleidoscopeInstanceSourceId(obj))
-    : null
-  if (!source) return
-  ensureShapeSelectionForLayerActions()
-  applyActiveObjectsSelection([source])
-  setLayerSelectionAnchor(source)
-}
-
-function detachLayerSources(objects: FabricObject[]) {
-  const targets = objects.filter((obj) => isKaleidoscopeInstance(obj))
-  if (!targets.length || !fabricCanvas) return
-  withSnapshotSuppressed(() => {
-    targets.forEach((instance) => {
-      clearKaleidoscopeMetadata(instance)
-      setKaleidoscopeInstanceManagedState(instance, false)
-      instance.setCoords()
-    })
-  })
-  fabricCanvas.requestRenderAll()
-  refreshLayers()
-  refreshActiveObject()
-  snapshot()
-  syncObjProps()
-}
-
-function moveObjectsToLayerOrder(items: LayerItem[]) {
-  if (!fabricCanvas) return
-  const reversed = [...items].reverse()
-  reversed.forEach((item, index) => {
-    fabricCanvas!.moveObjectTo(item.obj as AnyFabricObject, index)
-  })
-}
-
-function reorderLayers() {
-  isLayerDragging.value = false
-  if (!fabricCanvas) return
-  if (isLayerDragDisabled.value) {
-    syncLayerDragItems()
-    return
-  }
-  clearBooleanPreview()
-  withSnapshotSuppressed(() => {
-    moveObjectsToLayerOrder(layerDragItems.value)
-  })
-  fabricCanvas.requestRenderAll()
-  refreshLayers()
-  snapshot()
-}
-
-function openLayerContextMenu(obj: FabricObject, event: MouseEvent) {
-  ensureShapeSelectionForLayerActions()
-  const activeObjects = fabricCanvas?.getActiveObjects() ?? []
-  if (!activeObjects.includes(obj)) {
-    applyActiveObjectsSelection([obj], event)
-    setLayerSelectionAnchor(obj)
-  }
-  layerContextMenu.x = event.clientX
-  layerContextMenu.y = event.clientY
-  layerContextMenu.show = true
-}
-
-function handleLayerContextMenuSelect(key: string) {
-  const action = key as LayerContextMenuAction
-  const targets = getCurrentLayerContextTargets()
-  const single = singleLayerContextTarget.value
-  closeLayerContextMenu()
-  if (!targets.length) return
-  switch (action) {
-    case 'rename':
-      if (single) openLayerRenameDialog(single)
-      return
-    case 'show':
-      setObjectsVisible(targets, true)
-      return
-    case 'hide':
-      setObjectsVisible(targets, false)
-      return
-    case 'lock':
-      setObjectsLocked(targets, true)
-      return
-    case 'unlock':
-      setObjectsLocked(targets, false)
-      return
-    case 'delete':
-      deleteObjects(targets)
-      return
-    case 'detach-source':
-      detachLayerSources(targets)
-      return
-    case 'select-source':
-      if (single) selectLayerSourceObject(single)
-      return
-    case 'move-up':
-      layerUp()
-      return
-    case 'move-top':
-      layerTop()
-      return
-    case 'move-down':
-      layerDown()
-      return
-    case 'move-bottom':
-      layerBottom()
-      return
-    case 'duplicate':
-      void duplicateSelection()
-      return
-    case 'group':
-      groupObjects()
-      return
-    case 'ungroup':
-      ungroupObject()
-      return
-  }
-}
-
 
 // 保留多对象选择结果，让图层面板可以批量选中万花筒实例后执行脱离、隐藏、锁定等操作。
 function applyActiveObjectsSelection(objects: FabricObject[], event?: MouseEvent) {
@@ -7251,47 +6962,8 @@ async function vectorizeSelectionBitmap() {
 }
 
 // ── 图层 ──
-function isLayerActive(obj: FabricObject) {
-  return fabricCanvas?.getActiveObjects().includes(obj) ?? false
-}
-
-function handleLayerMouseDown(obj: FabricObject, event: MouseEvent) {
-  if (event.button !== 0) return
-  selectLayer(obj, event)
-}
-
 function isLayerKaleidoscopeLocked(obj: FabricObject) {
   return isKaleidoscopeInstance(obj)
-}
-
-function selectLayer(obj: FabricObject, event?: MouseEvent | PointerEvent) {
-  if (!fabricCanvas) return
-  ensureShapeSelectionForLayerActions()
-  clearPointEditing()
-  const selected = fabricCanvas.getActiveObjects()
-  const hasCtrlLike = !!event && !!(event.ctrlKey || event.metaKey)
-  const hasShift = !!event?.shiftKey
-  if (hasShift) {
-    const rangeObjects = getLayerRangeObjects(obj)
-    const nextSelection = hasCtrlLike
-      ? [...selected, ...rangeObjects]
-      : rangeObjects
-    applyActiveObjectsSelection(nextSelection, event as MouseEvent | undefined)
-    setLayerSelectionAnchor(obj)
-    return
-  }
-  if (hasCtrlLike) {
-    const nextSelection = selected.includes(obj)
-      ? selected.filter((item) => item !== obj)
-      : [...selected, obj]
-    applyActiveObjectsSelection(nextSelection, event as MouseEvent | undefined)
-    setLayerSelectionAnchor(obj)
-    return
-  }
-  fabricCanvas.setActiveObject(obj, event as MouseEvent | undefined)
-  syncActiveObject(fabricCanvas.getActiveObject() ?? obj)
-  fabricCanvas.requestRenderAll()
-  setLayerSelectionAnchor(obj)
 }
 
 function layerUp() {
@@ -7328,30 +7000,6 @@ function layerBottom() {
   fabricCanvas.requestRenderAll()
   refreshLayers()
   snapshot()
-}
-
-function toggleVisible(obj: FabricObject) {
-  obj.visible = !obj.visible
-  fabricCanvas?.requestRenderAll()
-  refreshActiveObject()
-  snapshot()
-}
-
-function toggleLock(obj: FabricObject) {
-  const locked = !obj.lockMovementX
-  obj.set({
-    lockMovementX: locked, lockMovementY: locked,
-    lockScalingX: locked, lockScalingY: locked,
-    lockRotation: locked, hasControls: !locked,
-    selectable: true
-  })
-  fabricCanvas?.requestRenderAll()
-  refreshActiveObject()
-  snapshot()
-}
-
-function removeObject(obj: FabricObject) {
-  deleteObjects([obj])
 }
 
 function isEditableTarget(target: EventTarget | null) {

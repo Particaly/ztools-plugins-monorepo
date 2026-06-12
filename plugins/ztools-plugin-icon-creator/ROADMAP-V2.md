@@ -241,7 +241,7 @@ src/views/home/
 | T4.2 | 收敛共享状态、命令与选择器边界 | P0 | 已完成 | T4.1 | editor store、commands、selectors |
 | T4.3 | 拆出 Canvas Kernel 模块 | P0 | 已完成 | T4.1、T4.2 | canvas 初始化、事件绑定、主题、缩放、自适应 |
 | T4.4 | 重组 Workspace 模块 | P0 | 已完成 | T4.2、T4.3 | document / artboard / history / draft 统一归口 |
-| T4.5 | 拆出 Selection / Inspector / Layers 投影模块 | P1 | 未开始 | T4.2、T4.3 | active object、属性投影、图层同步 |
+| T4.5 | 拆出 Selection / Inspector / Layers 投影模块 | P1 | 已完成 | T4.2、T4.3 | active object、属性投影、图层同步 |
 | T4.6 | 拆出 Direct Edit 交互模块 | P1 | 未开始 | T4.3、T4.5 | 点编辑、线段编辑、端点吸附、万花筒编辑 |
 | T4.7 | 拆出 Assets / Import 工作流模块 | P1 | 已完成 | T4.3、T4.4 | SVG、图片、Iconify、模板、用户素材导入 |
 | T4.8 | 拆出 Export / Clipboard / Shortcut 工作流模块 | P1 | 已完成 | T4.4、T4.7 | 导出、复制、快捷键、弹窗编排 |
@@ -356,8 +356,8 @@ src/views/home/
 ### T4.5 拆出 Selection / Inspector / Layers 投影模块
 
 - **优先级**：P1
-- **状态**：未开始
-- **完成日期**：-
+- **状态**：已完成
+- **完成日期**：2026-06-12
 - **依赖**：T4.2、T4.3
 - **目标**：把“当前选中了什么、面板应该显示什么、图层列表如何同步”从页面中拆出去。
 - **建议拆分**：
@@ -374,6 +374,12 @@ src/views/home/
   - `editor/modules/layers/*`
   - `editor/adapters/usePropertiesPanelAdapter.ts`
   - `editor/adapters/useLayersPanelAdapter.ts`
+- **完成记录**：
+  - 主要改动文件：`src/views/home/editor/modules/selection/createHomeSelectionModule.ts`、`src/views/home/editor/modules/layers/createHomeLayersModule.ts`、`src/views/home/index.vue`。
+  - 状态边界调整：新增 `homeSelection` 与 `homeLayers` 控制器，收口当前选区投影、图层刷新版本、布尔/轮廓/位图转矢量等可操作性判断，以及图层搜索、拖拽排序、右键菜单、重命名与图层交互命令。
+  - 新增接口：`createHomeSelectionModule`、`HomeSelectionState`、`HomeSelectionCommands`、`HomeSelectionController`、`createHomeLayersModule`、`HomeLayersState`、`HomeLayersCommands`、`HomeLayersController`。
+  - 验证：已执行 `npm run build`，类型检查与生产构建通过。
+  - 遗留问题：T4.6 继续将 point / segment 直接编辑状态机、控制点交互和端点吸附从页面收口为独立模块。
 
 ### T4.6 拆出 Direct Edit 交互模块
 
