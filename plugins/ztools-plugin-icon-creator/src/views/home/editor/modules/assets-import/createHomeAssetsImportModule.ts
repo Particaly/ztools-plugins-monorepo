@@ -20,6 +20,7 @@ import {
   applyDefaultEndpointSnapMargin,
   applyDefaultFillGradientMetadata,
   applyDefaultKaleidoscopeMetadata,
+  applyDefaultSizeRatioLockMetadata,
   clearKaleidoscopeMetadata,
   getKaleidoscopeMetadata,
   normalizeKaleidoscopeCount,
@@ -78,6 +79,7 @@ export interface CreateHomeAssetsImportModuleOptions {
   cloneSerializedObjectData: (value: Record<string, unknown>) => Record<string, unknown>
   getObjectsCombinedBounds: (objects: FabricObject[]) => { left: number; top: number; width: number; height: number } | null
   rebuildKaleidoscopeInstances: (obj: FabricObject) => Promise<void>
+  markObjectSizeRatioLocked: (obj: FabricObject, locked?: boolean) => void
 }
 
 export interface CreateHomeAssetsImportModuleResult {
@@ -278,6 +280,7 @@ export function createHomeAssetsImportModule(
 
   /**
    * 插入素材前为克隆对象换新内部 id、清理外部端点引用，并递归处理组内子对象元数据。
+   * 素材来自当前编辑器导出的序列化数据，需要保留已有的比例锁定标记，缺失时再补默认值。
    */
   function prepareUserAssetObjectForInsert(obj: FabricObject, assetName: string, index: number, isRoot = true) {
     options.prepareClonedObjectMetadata(obj)
@@ -285,6 +288,7 @@ export function createHomeAssetsImportModule(
     applyDefaultEndpointSnapMargin(obj)
     options.normalizeEndpointAttachments(obj)
     applyDefaultFillGradientMetadata(obj)
+    applyDefaultSizeRatioLockMetadata(obj)
     if (isRoot) {
       ;(obj as AnyFabricObject).name = options.nextName(index === 0 ? assetName : `${assetName} 元素`)
     } else if (!String((obj as AnyFabricObject).name || '').trim()) {
@@ -488,14 +492,20 @@ export function createHomeAssetsImportModule(
 
   /**
    * 为导入对象补齐编辑器自定义元数据和可读图层名，确保后续图层、草稿和属性面板都能识别。
+   * `lockSizeRatio` 用于区分模板/普通 SVG 导入与 Iconify 等需要默认等比缩放的来源。
    */
-  function prepareImportedSVGObjectMetadata(obj: FabricObject, displayName: string, isRoot = true) {
+  function prepareImportedSVGObjectMetadata(obj: FabricObject, displayName: string, optionsBySource: { isRoot?: boolean; lockSizeRatio?: boolean } = {}) {
+    const { isRoot = true, lockSizeRatio = false } = optionsBySource
     const target = obj as AnyFabricObject
     applyDefaultFillGradientMetadata(obj)
     applyDefaultKaleidoscopeMetadata(obj)
     applyDefaultEndpointSnapMargin(obj)
     options.normalizeEndpointAttachments(obj)
     options.ensureEditorObjectId(obj)
+    applyDefaultSizeRatioLockMetadata(obj)
+    if (lockSizeRatio) {
+      options.markObjectSizeRatioLocked(obj)
+    }
     if (isRoot) {
       target.name = options.nextName(displayName)
     } else if (!String(target.name || '').trim()) {
@@ -510,7 +520,7 @@ export function createHomeAssetsImportModule(
       target.lastStrokeDashArray = Array.isArray(obj.strokeDashArray) ? [...obj.strokeDashArray] : null
     }
     if (obj instanceof Group) {
-      obj.getObjects().forEach((child) => prepareImportedSVGObjectMetadata(child, displayName, false))
+      obj.getObjects().forEach((child) => prepareImportedSVGObjectMetadata(child, displayName, { isRoot: false, lockSizeRatio }))
     }
     obj.setCoords()
   }
@@ -547,8 +557,9 @@ export function createHomeAssetsImportModule(
 
   /**
    * 使用 Fabric 的 SVG 解析能力把完整 SVG 文本转换成一个可编辑对象，并加入当前画布。
+   * `lockSizeRatio` 为 true 时会给导入结果补上默认等比缩放标记，供 Iconify 等需要保持原始比例的入口复用。
    */
-  async function importSVGText(svgText: string, displayName: string) {
+  async function importSVGText(svgText: string, displayName: string, lockSizeRatio = false) {
     if (!options.getFabricCanvas()) return
     options.clearBooleanPreview()
     options.clearPointEditing()
@@ -559,7 +570,7 @@ export function createHomeAssetsImportModule(
     const svgObjects = objects.filter((obj): obj is FabricObject => !!obj)
     if (!svgObjects.length) throw new Error('SVG 中没有可导入的图形')
     const imported = util.groupSVGElements(svgObjects, svgOptions) as FabricObject
-    prepareImportedSVGObjectMetadata(imported, displayName)
+    prepareImportedSVGObjectMetadata(imported, displayName, { lockSizeRatio })
     placeImportedSVGObject(imported)
     await commitImportedObjects([imported])
   }
@@ -573,7 +584,7 @@ export function createHomeAssetsImportModule(
     if (!file) return
     try {
       if (!isSVGFile(file)) throw new Error('请选择 .svg 文件')
-      await importSVGText(await file.text(), getImportSVGDisplayName(file.name))
+      await importSVGText(await file.text(), getImportSVGDisplayName(file.name), true)
     } catch (error) {
       options.showToast(error instanceof Error ? error.message : '导入 SVG 失败', 'error')
     } finally {
@@ -583,6 +594,7 @@ export function createHomeAssetsImportModule(
 
   /**
    * 把本地图片文件导入为 Fabric Image，并补齐编辑器元数据后放到画布中心附近。
+   * 图片资源默认锁定宽高比例，避免拖拽缩放时把位图和外部素材意外拉伸变形。
    */
   async function importImageFile(file: File) {
     if (!options.getFabricCanvas()) return
@@ -591,6 +603,8 @@ export function createHomeAssetsImportModule(
       const image = await FabricImage.fromURL(url)
       applyDefaultKaleidoscopeMetadata(image)
       applyDefaultEndpointSnapMargin(image)
+      applyDefaultSizeRatioLockMetadata(image)
+      options.markObjectSizeRatioLocked(image)
       image.set({
         left: options.canvasWidth.value / 2 - (image.width || 60) / 2,
         top: options.canvasHeight.value / 2 - (image.height || 60) / 2,
@@ -759,7 +773,7 @@ export function createHomeAssetsImportModule(
     pasteSVGDialog.error = ''
     pasteSVGDialog.loading = true
     try {
-      await importSVGText(normalizePastedSVGText(pasteSVGDialog.value), '粘贴 SVG')
+      await importSVGText(normalizePastedSVGText(pasteSVGDialog.value), '粘贴 SVG', true)
       handlePasteSVGDialogShowChange(false)
     } catch (error) {
       pasteSVGDialog.error = error instanceof Error ? error.message : '导入 SVG 失败'
@@ -802,7 +816,7 @@ export function createHomeAssetsImportModule(
     for (const file of files) {
       if (isSVGFile(file)) {
         try {
-          await importSVGText(await file.text(), getImportSVGDisplayName(file.name))
+          await importSVGText(await file.text(), getImportSVGDisplayName(file.name), true)
         } catch (error) {
           options.showToast(error instanceof Error ? error.message : '导入 SVG 失败', 'error')
         }
@@ -856,6 +870,7 @@ export function createHomeAssetsImportModule(
 
   /**
    * 获取指定 Iconify 图标的 SVG 并复用 SVG 导入流程，使插入结果保持可改色、缩放和导出。
+   * Iconify 图标默认锁定宽高比例，避免图标被非等比拉伸后出现视觉失真。
    */
   async function insertIconifyIcon(iconName: string) {
     if (!options.getFabricCanvas() || iconifySearch.inserting) return
@@ -864,7 +879,7 @@ export function createHomeAssetsImportModule(
     try {
       const response = await fetch(buildIconifySVGUrl(iconName))
       if (!response.ok) throw new Error(`Iconify 图标获取失败：${response.status}`)
-      await importSVGText(await response.text(), getIconifyDisplayName(iconName))
+      await importSVGText(await response.text(), getIconifyDisplayName(iconName), true)
     } catch (error) {
       iconifySearch.error = error instanceof Error ? error.message : 'Iconify 图标插入失败'
     } finally {
@@ -896,7 +911,7 @@ export function createHomeAssetsImportModule(
     if (!text) return
     if (/<svg[\s>]/i.test(text) || /<path[\s>]/i.test(text)) {
       try {
-        await importSVGText(normalizePastedSVGText(text), '粘贴 SVG')
+        await importSVGText(normalizePastedSVGText(text), '粘贴 SVG', true)
       } catch (error) {
         console.error('粘贴 SVG 失败:', error)
       }

@@ -13,6 +13,7 @@ import {
   applyDefaultEndpointSnapMargin,
   applyDefaultFillGradientMetadata,
   applyDefaultKaleidoscopeMetadata,
+  applyDefaultSizeRatioLockMetadata,
   clearKaleidoscopeMetadata,
   cloneFillGradientStops,
   createGradientFromMetadata,
@@ -21,6 +22,8 @@ import {
   getNormalizedGradientOffsetSlots,
   getKaleidoscopeMetadata,
   getObjectEndpointSnapMargin,
+  isObjectSizeRatioLocked,
+  markObjectSizeRatioLocked,
   normalizeEndpointSnapMargin,
   normalizeKaleidoscopeCount,
   type AnyFabricObject,
@@ -1425,11 +1428,15 @@ export function useHomeEditorRuntime() {
     return touched
   }
 
+  /**
+   * 为克隆对象补齐新的内部标识与默认元数据，避免粘贴/复制后的对象继续复用源对象 id 或缺失比例锁定状态。
+   */
   function prepareClonedObjectMetadata(obj: FabricObject) {
     ensureEditorObjectId(obj)
     ;(obj as AnyFabricObject).editorObjectId = createEditorObjectId()
     ;(obj as AnyFabricObject).endpointAttachments = {}
     applyDefaultFillGradientMetadata(obj)
+    applyDefaultSizeRatioLockMetadata(obj)
   }
 
   // 对象命名计数
@@ -1977,7 +1984,8 @@ export function useHomeEditorRuntime() {
     getObjectDisplayName,
     cloneSerializedObjectData,
     getObjectsCombinedBounds,
-    rebuildKaleidoscopeInstances
+    rebuildKaleidoscopeInstances,
+    markObjectSizeRatioLocked
   })
   const assetsImportState = homeAssetsImport.controller.state
   const assetsImportCommands = homeAssetsImport.controller.commands
@@ -3884,6 +3892,17 @@ export function useHomeEditorRuntime() {
     return width / height
   }
 
+  /**
+   * 将对象当前的宽高比例锁定状态同步到运行时与 Fabric 交互配置。
+   * 这样无论对象来自新建、导入还是剪贴板恢复，属性面板与拖拽缩放都会基于对象自身状态保持一致。
+   */
+  function syncSizeRatioLockFromObject(obj: FabricObject | null | undefined) {
+    const locked = isObjectSizeRatioLocked(obj)
+    sizeRatioLocked.value = locked
+    lockedAspectRatio.value = obj && locked ? getObjectAspectRatio(obj) : 1
+    syncCanvasInteractionMode()
+  }
+
   function collectAligningObjectsFromGroup(group: Group, objects: Set<FabricObject>, excludedObjects: Set<FabricObject>) {
     group.getObjects().forEach((child) => {
       if (excludedObjects.has(child) || child.visible === false || isBooleanPreviewObject(child)) return
@@ -3926,9 +3945,14 @@ export function useHomeEditorRuntime() {
   }
 
   function toggleSizeRatioLock() {
-    sizeRatioLocked.value = !sizeRatioLocked.value
-    if (sizeRatioLocked.value && activeObject.value) {
-      lockedAspectRatio.value = getObjectAspectRatio(activeObject.value)
+    const obj = activeObject.value
+    const nextLocked = !sizeRatioLocked.value
+    sizeRatioLocked.value = nextLocked
+    if (obj) {
+      markObjectSizeRatioLocked(obj, nextLocked)
+      lockedAspectRatio.value = nextLocked ? getObjectAspectRatio(obj) : 1
+    } else if (!nextLocked) {
+      lockedAspectRatio.value = 1
     }
     syncCanvasInteractionMode()
   }
@@ -5153,6 +5177,10 @@ export function useHomeEditorRuntime() {
     booleanError.value = ''
     if (constrained) {
       applyCanvasThemeToObject(constrained)
+      applyDefaultSizeRatioLockMetadata(constrained)
+    } else {
+      sizeRatioLocked.value = false
+      lockedAspectRatio.value = 1
     }
     syncCanvasInteractionMode()
     if (directEditMode === 'segment' && isEditablePathObject(constrained)) {
@@ -5162,9 +5190,7 @@ export function useHomeEditorRuntime() {
     }
     refreshLayers()
     if (constrained) {
-      if (sizeRatioLocked.value) {
-        lockedAspectRatio.value = getObjectAspectRatio(constrained)
-      }
+      syncSizeRatioLockFromObject(constrained)
       syncObjProps()
     }
   }
@@ -5188,6 +5214,7 @@ export function useHomeEditorRuntime() {
   function addShape(item: ShapeLibraryItem) {
     if (!fabricCanvas) return
     const shape = createShape(item)
+    markObjectSizeRatioLocked(shape)
     shape.set({
       left: canvasWidth.value / 2,
       top: canvasHeight.value / 2,
@@ -6642,6 +6669,7 @@ export function useHomeEditorRuntime() {
       if (target) {
         ensureEditorObjectId(target)
         normalizeEndpointAttachments(target)
+        applyDefaultSizeRatioLockMetadata(target)
         applyCanvasThemeToObject(target)
         target.snapAngle = snapToPixelGrid.value ? 15 : undefined
       }

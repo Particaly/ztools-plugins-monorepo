@@ -34,6 +34,10 @@ export type EndpointSnapMarginMetadata = {
   endpointSnapMargin?: number
 }
 
+export type SizeRatioLockMetadata = {
+  sizeRatioLocked?: boolean
+}
+
 export const DEFAULT_KALEIDOSCOPE_COUNT = 6
 export const MIN_KALEIDOSCOPE_COUNT = 1
 export const MAX_KALEIDOSCOPE_COUNT = 36
@@ -80,7 +84,8 @@ export const SERIALIZED_OBJECT_PROPS = [
   'kaleidoscopeSourceId',
   'kaleidoscopeManaged',
   'kaleidoscopeInstanceOf',
-  'kaleidoscopeInstanceIndex'
+  'kaleidoscopeInstanceIndex',
+  'sizeRatioLocked'
 ] as const
 
 function cloneGradientStops(stops: FillGradientStop[]) {
@@ -406,4 +411,34 @@ export function applyDefaultEndpointSnapMargin(obj: FabricObject | null | undefi
 export function getObjectEndpointSnapMargin(obj: FabricObject | null | undefined) {
   applyDefaultEndpointSnapMargin(obj)
   return getEndpointSnapMarginMetadata(obj)?.endpointSnapMargin ?? 0
+}
+
+export function getSizeRatioLockMetadata(obj: FabricObject | null | undefined) {
+  return obj ? (obj as AnyFabricObject & SizeRatioLockMetadata) : null
+}
+
+/**
+ * 统一补齐对象的宽高比例锁定元数据；未显式标记时按未锁定处理，供创建、序列化和恢复链路共享。
+ */
+export function applyDefaultSizeRatioLockMetadata(obj: FabricObject | null | undefined) {
+  const target = getSizeRatioLockMetadata(obj)
+  if (!target) return
+  target.sizeRatioLocked = target.sizeRatioLocked === true
+}
+
+/**
+ * 标记对象默认采用等比缩放；属性面板仍可通过后续开关改写此状态。
+ */
+export function markObjectSizeRatioLocked(obj: FabricObject | null | undefined, locked = true) {
+  const target = getSizeRatioLockMetadata(obj)
+  if (!target) return
+  target.sizeRatioLocked = locked === true
+}
+
+/**
+ * 读取对象当前的宽高比例锁定状态；缺失元数据时会先回填默认值，避免调用方重复做空值判断。
+ */
+export function isObjectSizeRatioLocked(obj: FabricObject | null | undefined) {
+  applyDefaultSizeRatioLockMetadata(obj)
+  return getSizeRatioLockMetadata(obj)?.sizeRatioLocked === true
 }
