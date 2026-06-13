@@ -83,6 +83,7 @@
         @delete-user-asset="assetsImportCommands.deleteUserAsset"
         @update:iconify-query="iconifyImportState.query = $event"
         @search-iconify-icons="assetsImportCommands.searchIconifyIcons"
+        @load-more-iconify-browse-results="assetsImportCommands.loadMoreIconifyBrowseResults"
         @update:iconify-collection-filter="iconifyImportState.collectionFilter = $event"
         @insert-iconify-icon="assetsImportCommands.insertIconifyIcon"
       />

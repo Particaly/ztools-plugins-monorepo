@@ -21,6 +21,7 @@
       @delete-user-asset="$emit('delete-user-asset', $event)"
       @update:iconify-query="$emit('update:iconify-query', $event)"
       @search-iconify-icons="$emit('search-iconify-icons')"
+      @load-more-iconify-browse-results="$emit('load-more-iconify-browse-results')"
       @update:iconify-collection-filter="$emit('update:iconify-collection-filter', $event)"
       @insert-iconify-icon="$emit('insert-iconify-icon', $event)"
     />
@@ -60,6 +61,7 @@ defineEmits<{
   (event: 'delete-user-asset', asset: UserAssetItem): void
   (event: 'update:iconify-query', value: string): void
   (event: 'search-iconify-icons'): void
+  (event: 'load-more-iconify-browse-results'): void
   (event: 'update:iconify-collection-filter', value: string): void
   (event: 'insert-iconify-icon', name: string): void
 }>()

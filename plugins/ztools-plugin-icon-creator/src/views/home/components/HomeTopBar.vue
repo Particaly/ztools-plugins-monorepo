@@ -46,6 +46,7 @@
             @delete-user-asset="handleInsertPanelValueChange('delete-user-asset', $event)"
             @update:iconify-query="handleInsertPanelValueChange('update:iconify-query', $event, false)"
             @search-iconify-icons="handleInsertPanelCommand('search-iconify-icons', false)"
+            @load-more-iconify-browse-results="handleInsertPanelCommand('load-more-iconify-browse-results', false)"
             @update:iconify-collection-filter="handleInsertPanelValueChange('update:iconify-collection-filter', $event, false)"
             @insert-iconify-icon="handleInsertPanelValueChange('insert-iconify-icon', $event)"
           />
@@ -190,6 +191,7 @@ const emit = defineEmits<{
   (event: 'delete-user-asset', asset: UserAssetItem): void
   (event: 'update:iconify-query', value: string): void
   (event: 'search-iconify-icons'): void
+  (event: 'load-more-iconify-browse-results'): void
   (event: 'update:iconify-collection-filter', value: string): void
   (event: 'insert-iconify-icon', name: string): void
 }>()

@@ -88,8 +88,8 @@
         </div>
       </ZTabPane>
       <ZTabPane name="iconify" tab="图标库" display-directive="show">
-        <div class="left-content">
-          <div class="section-title">Iconify 图标搜索</div>
+        <div class="left-content" @scroll.passive="handleIconifyBrowseScroll">
+          <div class="section-title">Iconify 图标库</div>
           <div class="iconify-search-row">
             <ZInput
               :model-value="iconifySearch.query"
@@ -104,9 +104,22 @@
             </ZButton>
           </div>
           <div v-if="iconifySearch.error" class="iconify-error">{{ iconifySearch.error }}</div>
-          <template v-else-if="iconifySearch.lastQuery && !iconifySearch.loading">
+          <template v-else-if="iconifySearch.mode === 'search' && iconifySearch.lastQuery && !iconifySearch.loading">
             <div class="iconify-summary">
               找到 {{ iconifySearch.total }} 个结果，显示 {{ filteredIconifyResults.length }} 个
+            </div>
+            <ZSelect
+              v-if="iconifyCollectionOptions.length > 1"
+              size="small"
+              class="iconify-collection-filter"
+              :model-value="iconifySearch.collectionFilter"
+              :options="iconifyCollectionOptions"
+              @change="$emit('update:iconify-collection-filter', String($event))"
+            />
+          </template>
+          <template v-else-if="iconifySearch.mode === 'browse'">
+            <div class="iconify-summary">
+              默认展示常用图标 {{ filteredIconifyResults.length }} / {{ iconifySearch.total }}
             </div>
             <ZSelect
               v-if="iconifyCollectionOptions.length > 1"
@@ -133,8 +146,13 @@
               <span class="iconify-name">{{ name }}</span>
             </button>
           </div>
-          <div v-else-if="iconifySearch.lastQuery && !iconifySearch.loading && !iconifySearch.error" class="iconify-empty">未找到匹配图标</div>
-          <div v-else class="iconify-hint">输入关键词后从 Iconify 在线图标库搜索，点击结果即可插入为可编辑 SVG。</div>
+          <div v-if="iconifySearch.mode === 'browse' && iconifySearch.hasMore" class="iconify-load-more-row">
+            <ZButton size="small" :disabled="iconifySearch.loadingMore" @click="$emit('load-more-iconify-browse-results')">
+              {{ iconifySearch.loadingMore ? '加载中' : '加载更多' }}
+            </ZButton>
+          </div>
+          <div v-else-if="iconifySearch.mode === 'search' && iconifySearch.lastQuery && !iconifySearch.loading && !iconifySearch.error" class="iconify-empty">未找到匹配图标</div>
+          <div v-else class="iconify-hint">默认按顺序展示常用 Iconify 图标；输入关键词可进一步搜索并筛选结果。</div>
         </div>
       </ZTabPane>
       <ZTabPane name="templates" tab="模板" display-directive="show">
@@ -187,7 +205,7 @@ type SelectOption = {
   value: string
 }
 
-withDefaults(defineProps<{
+const props = withDefaults(defineProps<{
   activeTab: LeftPanelTab
   basicShapes: ShapeLibraryItem[]
   shapePreviewPaths: Record<ShapeId, string>
@@ -202,7 +220,7 @@ withDefaults(defineProps<{
   variant: 'sidebar'
 })
 
-defineEmits<{
+const emit = defineEmits<{
   (event: 'update:active-tab', tab: LeftPanelTab): void
   (event: 'add-shape', item: ShapeLibraryItem): void
   (event: 'add-text', item: TextLibraryItem): void
@@ -213,6 +231,7 @@ defineEmits<{
   (event: 'delete-user-asset', asset: UserAssetItem): void
   (event: 'update:iconify-query', value: string): void
   (event: 'search-iconify-icons'): void
+  (event: 'load-more-iconify-browse-results'): void
   (event: 'update:iconify-collection-filter', value: string): void
   (event: 'insert-iconify-icon', name: string): void
 }>()
@@ -222,6 +241,19 @@ defineEmits<{
  */
 function handleInsertDragStart(event: DragEvent, payload: Parameters<typeof writeInsertDragPayload>[1]) {
   writeInsertDragPayload(event.dataTransfer, payload)
+}
+
+/**
+ * 在默认浏览模式下监听滚动触底，接近底部时自动请求下一批 Iconify 结果，同时保留“加载更多”按钮作为兜底。
+ */
+function handleIconifyBrowseScroll(event: Event) {
+  if (props.iconifySearch.mode !== 'browse' || !props.iconifySearch.hasMore || props.iconifySearch.loadingMore) return
+  const target = event.target as HTMLElement | null
+  if (!target) return
+  const distanceToBottom = target.scrollHeight - target.scrollTop - target.clientHeight
+  if (distanceToBottom <= 24) {
+    emit('load-more-iconify-browse-results')
+  }
 }
 </script>
 
@@ -621,5 +653,11 @@ function handleInsertDragStart(event: DragEvent, payload: Parameters<typeof writ
   .iconify-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
+}
+
+.iconify-load-more-row {
+  display: flex;
+  justify-content: center;
+  padding: 10px 0 4px;
 }
 </style>

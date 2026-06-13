@@ -9,6 +9,7 @@ import {
   type FabricObject
 } from 'fabric'
 import {
+  ICONIFY_BROWSE_BATCH_SIZE,
   ICONIFY_SEARCH_LIMIT,
   USER_ASSET_MAX_THUMBNAIL_SOURCE_SIZE,
   USER_ASSET_STORAGE_KEY,
@@ -118,11 +119,14 @@ export function createHomeAssetsImportModule(
     query: '',
     lastQuery: '',
     loading: false,
+    loadingMore: false,
     error: '',
     results: [],
     total: 0,
     inserting: '',
-    collectionFilter: ''
+    collectionFilter: '',
+    mode: 'browse',
+    hasMore: false
   })
   const pasteSVGDialog = reactive<PasteSVGDialogState>({
     show: false,
@@ -130,10 +134,26 @@ export function createHomeAssetsImportModule(
     error: '',
     loading: false
   })
+  const DEFAULT_ICONIFY_BROWSE_COLLECTIONS = [
+    { prefix: 'mdi', icons: ['home', 'account', 'heart', 'star', 'cog', 'bell', 'plus', 'check', 'close', 'arrow-right', 'menu', 'magnify'] },
+    { prefix: 'tabler', icons: ['home', 'user', 'heart', 'star', 'settings', 'bell', 'plus', 'check', 'x', 'arrow-right', 'menu-2', 'search'] },
+    { prefix: 'lucide', icons: ['house', 'user', 'heart', 'star', 'settings', 'bell', 'plus', 'check', 'x', 'arrow-right', 'menu', 'search'] },
+    { prefix: 'ph', icons: ['house', 'user', 'heart', 'star', 'gear', 'bell', 'plus', 'check', 'x', 'arrow-right', 'list', 'magnifying-glass'] },
+    { prefix: 'solar', icons: ['home-2-bold', 'user-bold', 'heart-bold', 'star-bold', 'settings-bold', 'bell-bold', 'add-circle-bold', 'check-circle-bold', 'close-circle-bold', 'alt-arrow-right-bold', 'hamburger-menu-bold', 'magnifer-bold'] },
+    { prefix: 'mingcute', icons: ['home-4-fill', 'user-4-fill', 'heart-fill', 'star-fill', 'settings-3-fill', 'notification-fill', 'add-circle-fill', 'check-circle-fill', 'close-circle-fill', 'right-line', 'menu-fill', 'search-line'] }
+  ] as const
+
+  function getDefaultIconifyBrowseResults() {
+    return DEFAULT_ICONIFY_BROWSE_COLLECTIONS.flatMap((collection) => collection.icons.map((name) => `${collection.prefix}:${name}`))
+  }
 
   /**
-   * 读取本地素材条目并做最小校验，坏数据会被忽略以免阻塞编辑器启动。
+   * 为 Iconify 默认浏览模式返回当前批次结果；顺序固定，便于首屏展示和后续“加载更多”延续同一浏览路径。
    */
+  function getIconifyBrowseBatch(limit: number) {
+    return getDefaultIconifyBrowseResults().slice(0, Math.max(0, limit))
+  }
+
   function normalizeStoredUserAsset(value: unknown): UserAssetItem | null {
     const source = value && typeof value === 'object' ? value as Partial<UserAssetItem> : null
     if (!source || typeof source.id !== 'string' || typeof source.name !== 'string') return null
@@ -969,6 +989,7 @@ export function createHomeAssetsImportModule(
     iconifySearch.loading = true
     iconifySearch.error = ''
     iconifySearch.lastQuery = query
+    iconifySearch.mode = 'search'
     try {
       const response = await fetch(`https://api.iconify.design/search?query=${encodeURIComponent(query)}&limit=${ICONIFY_SEARCH_LIMIT}`)
       if (!response.ok) throw new Error(`Iconify 搜索失败：${response.status}`)
@@ -977,13 +998,46 @@ export function createHomeAssetsImportModule(
       iconifySearch.results = icons
       iconifySearch.collectionFilter = ''
       iconifySearch.total = Number.isFinite(Number(data.total)) ? Number(data.total) : icons.length
+      iconifySearch.hasMore = false
     } catch (error) {
       iconifySearch.results = []
       iconifySearch.collectionFilter = ''
       iconifySearch.total = 0
+      iconifySearch.hasMore = false
       iconifySearch.error = error instanceof Error ? error.message : 'Iconify 搜索失败'
     } finally {
       iconifySearch.loading = false
+    }
+  }
+
+  /**
+   * 初始化 Iconify 默认浏览结果；当前阶段先提供一组稳定的常用集合与图标顺序，后续可继续扩展为真实接口分页。
+   */
+  function initializeIconifyBrowseResults() {
+    const results = getIconifyBrowseBatch(ICONIFY_BROWSE_BATCH_SIZE)
+    iconifySearch.mode = 'browse'
+    iconifySearch.lastQuery = ''
+    iconifySearch.error = ''
+    iconifySearch.collectionFilter = ''
+    iconifySearch.results = results
+    iconifySearch.total = getDefaultIconifyBrowseResults().length
+    iconifySearch.hasMore = results.length < iconifySearch.total
+  }
+
+  /**
+   * 为默认浏览模式追加下一批常用图标；到达当前内置列表末尾后自动关闭“加载更多”。
+   */
+  function loadMoreIconifyBrowseResults() {
+    if (iconifySearch.mode !== 'browse' || iconifySearch.loadingMore || !iconifySearch.hasMore) return
+    iconifySearch.loadingMore = true
+    try {
+      const nextSize = iconifySearch.results.length + ICONIFY_BROWSE_BATCH_SIZE
+      const nextBatch = getIconifyBrowseBatch(nextSize)
+      iconifySearch.results = nextBatch
+      iconifySearch.total = getDefaultIconifyBrowseResults().length
+      iconifySearch.hasMore = nextBatch.length < iconifySearch.total
+    } finally {
+      iconifySearch.loadingMore = false
     }
   }
 
@@ -1092,6 +1146,7 @@ export function createHomeAssetsImportModule(
       openPasteSVGDialog,
       openRenameUserAssetDialog,
       readClipboardIntoPasteSVGDialog,
+      loadMoreIconifyBrowseResults,
       searchIconifyIcons
     }
   }
@@ -1100,6 +1155,7 @@ export function createHomeAssetsImportModule(
     name: 'home-assets-import',
     onMount() {
       loadUserAssets()
+      initializeIconifyBrowseResults()
     }
   }
 

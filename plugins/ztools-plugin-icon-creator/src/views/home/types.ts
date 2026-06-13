@@ -230,11 +230,14 @@ export type IconifySearchState = {
   query: string
   lastQuery: string
   loading: boolean
+  loadingMore: boolean
   error: string
   results: string[]
   total: number
   inserting: string
   collectionFilter: string
+  mode: 'browse' | 'search'
+  hasMore: boolean
 }
 
 export type IconifySearchResponse = {

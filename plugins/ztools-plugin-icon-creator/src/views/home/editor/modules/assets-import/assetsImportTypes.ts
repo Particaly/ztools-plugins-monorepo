@@ -42,6 +42,7 @@ export interface HomeAssetsImportCommands {
   openPasteSVGDialog: () => void
   openRenameUserAssetDialog: (asset: UserAssetItem) => void
   readClipboardIntoPasteSVGDialog: () => Promise<void>
+  loadMoreIconifyBrowseResults: () => void
   searchIconifyIcons: () => Promise<void>
 }
 
