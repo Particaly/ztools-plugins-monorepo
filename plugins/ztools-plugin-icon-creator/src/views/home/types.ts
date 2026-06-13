@@ -198,6 +198,7 @@ export type LayerContextMenuAction =
   | 'duplicate'
   | 'group'
   | 'ungroup'
+  | 'save-user-asset'
 
 export type LayerItem = {
   id: string

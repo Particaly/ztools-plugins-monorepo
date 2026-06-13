@@ -42,6 +42,7 @@ export interface CreateHomeLayersModuleOptions {
   activeObject: Ref<FabricObject | null>
   applyActiveObjectsSelection: (objects: FabricObject[], event?: MouseEvent) => void
   canGroup: ComputedRef<boolean>
+  canSaveUserAsset: ComputedRef<boolean>
   canUngroup: ComputedRef<boolean>
   clearBooleanPreview: () => void
   clearKaleidoscopeMetadata: (obj: FabricObject) => void
@@ -59,6 +60,7 @@ export interface CreateHomeLayersModuleOptions {
   layerTop: () => void
   layerUp: () => void
   layerVersion: Ref<number>
+  openCreateUserAssetDialog: () => void
   refreshActiveObject: () => void
   refreshLayers: () => void
   selectedObjects: ComputedRef<FabricObject[]>
@@ -167,13 +169,15 @@ export function createHomeLayersModule(options: CreateHomeLayersModuleOptions): 
         { key: 'move-down', label: '下移一层', disabled: !canLayerContextMove.value || target === filteredLayers.value[filteredLayers.value.length - 1]?.obj },
         { key: 'move-bottom', label: '下移到最底层', disabled: !canLayerContextMove.value || target === filteredLayers.value[filteredLayers.value.length - 1]?.obj },
         { type: 'separator' },
-        { key: 'duplicate', label: '复制图层' }
+        { key: 'duplicate', label: '复制' },
+        { key: 'save-user-asset', label: '保存到素材库', disabled: !options.canSaveUserAsset.value }
       ]
     }
     return [
       { key: 'group', label: '成组', disabled: !options.canGroup.value },
       { key: 'ungroup', label: '解组', disabled: !options.canUngroup.value },
       { key: 'duplicate', label: '复制' },
+      { key: 'save-user-asset', label: '保存到素材库', disabled: !options.canSaveUserAsset.value },
       { key: 'delete', label: '删除', danger: true },
       { type: 'separator' },
       { key: 'hide', label: '隐藏', disabled: !targets.some((obj) => obj.visible !== false) },
@@ -455,6 +459,9 @@ export function createHomeLayersModule(options: CreateHomeLayersModuleOptions): 
         return
       case 'ungroup':
         options.ungroupObject()
+        return
+      case 'save-user-asset':
+        options.openCreateUserAssetDialog()
         return
     }
   }

@@ -41,14 +41,6 @@
           <button class="layer-icon-btn danger" @click.stop="$emit('remove-object', item.obj)"><Icon icon="mdi:close" /></button>
         </div>
       </VueDraggable>
-      <ZContextMenu
-        :show="layerContextMenu.show"
-        :x="layerContextMenu.x"
-        :y="layerContextMenu.y"
-        :menu-items="layerContextMenuItems"
-        @update:show="$emit('update-context-menu-show', $event)"
-        @select="$emit('context-menu-select', $event)"
-      />
     </div>
     <div v-else class="layer-empty">
       {{ layerSearch.trim() ? '未找到匹配的图层' : '当前没有图层' }}
@@ -61,16 +53,14 @@ import { computed } from 'vue'
 import { VueDraggable } from 'vue-draggable-plus'
 import { Icon } from '@iconify/vue'
 import type { FabricObject } from 'fabric'
-import { ZButton, ZContextMenu, ZInput } from 'ztools-ui'
-import type { LayerContextMenuState, LayerItem } from '../../types'
+import { ZButton, ZInput } from 'ztools-ui'
+import type { LayerItem } from '../../types'
 
 const props = defineProps<{
   filteredLayers: LayerItem[]
   layerDragItems: LayerItem[]
   isLayerDragDisabled: boolean
   layerSearch: string
-  layerContextMenu: LayerContextMenuState
-  layerContextMenuItems: any[]
   isLayerActive: (obj: FabricObject) => boolean
 }>()
 
@@ -88,8 +78,6 @@ const emit = defineEmits<{
   (event: 'toggle-visible', obj: FabricObject): void
   (event: 'toggle-lock', obj: FabricObject): void
   (event: 'remove-object', obj: FabricObject): void
-  (event: 'update-context-menu-show', value: boolean): void
-  (event: 'context-menu-select', key: string): void
 }>()
 
 // 为 VueDraggable 提供本地 v-model 桥接，实际图层顺序仍由父组件统一提交和快照。

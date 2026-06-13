@@ -451,6 +451,7 @@ export function useHomeEditorRuntime() {
     activeObject,
     applyActiveObjectsSelection,
     canGroup,
+    canSaveUserAsset,
     canUngroup,
     clearBooleanPreview,
     clearKaleidoscopeMetadata,
@@ -468,6 +469,7 @@ export function useHomeEditorRuntime() {
     layerTop,
     layerUp,
     layerVersion,
+    openCreateUserAssetDialog,
     refreshActiveObject,
     refreshLayers,
     selectedObjects,
@@ -6271,6 +6273,15 @@ export function useHomeEditorRuntime() {
     snapshot()
   }
 
+  // 在画布对象上打开与图层面板复用的快捷菜单；空白区忽略，命中对象时自动同步到当前选择。
+  function openCanvasObjectContextMenu(event: MouseEvent) {
+    if (!fabricCanvas) return
+    const targetInfo = fabricCanvas.findTarget(event)
+    const target = targetInfo.target
+    if (!target || isBooleanPreviewObject(target)) return
+    openLayerContextMenu(target, event)
+  }
+
   function isEditableTarget(target: EventTarget | null) {
     if (!(target instanceof HTMLElement)) return false
     const tag = target.tagName.toLowerCase()
@@ -6907,6 +6918,7 @@ export function useHomeEditorRuntime() {
     layerDown,
     layerTop,
     layerBottom,
+    openCanvasObjectContextMenu,
     handleCanvasAreaPointerDown,
     handleCanvasAreaWheel
   }

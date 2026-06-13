@@ -111,7 +111,12 @@
           @dragover.prevent="assetsImportCommands.handleCanvasDragOver"
           @drop.prevent="assetsImportCommands.handleCanvasDrop"
         >
-          <div class="canvas-wrapper" ref="canvasWrapperRef" :class="{ 'transparent-bg': isCanvasBgTransparent }">
+          <div
+            class="canvas-wrapper"
+            ref="canvasWrapperRef"
+            :class="{ 'transparent-bg': isCanvasBgTransparent }"
+            @contextmenu.prevent="openCanvasObjectContextMenu"
+          >
             <div
               v-if="editorSelectors.showPixelGrid"
               class="pixel-grid-overlay"
@@ -302,8 +307,6 @@
             :layer-drag-items="layerDragItems"
             :is-layer-drag-disabled="isLayerDragDisabled"
             :layer-search="layerSearch"
-            :layer-context-menu="layerContextMenu"
-            :layer-context-menu-items="layerContextMenuItems"
             :is-layer-active="isLayerActive"
             @update:layer-drag-items="layerDragItems = $event"
             @update:layer-search="layerSearch = $event"
@@ -318,8 +321,6 @@
             @toggle-visible="toggleVisible"
             @toggle-lock="toggleLock"
             @remove-object="removeObject"
-            @update-context-menu-show="layerContextMenu.show = $event"
-            @context-menu-select="handleLayerContextMenuSelect"
           />
         </template>
         <template #history>
@@ -330,6 +331,14 @@
           />
         </template>
       </RightPanel>
+      <ZContextMenu
+        :show="layerContextMenu.show"
+        :x="layerContextMenu.x"
+        :y="layerContextMenu.y"
+        :menu-items="layerContextMenuItems"
+        @update:show="layerContextMenu.show = $event"
+        @select="handleLayerContextMenuSelect"
+      />
     </div>
 
     <ShortcutDrawer
@@ -403,6 +412,7 @@
 </template>
 
 <script setup lang="ts">
+import { ZContextMenu } from 'ztools-ui'
 import HomeTopBar from './components/HomeTopBar.vue'
 import HomeToolBar from './components/HomeToolBar.vue'
 import LeftPanel from './components/LeftPanel.vue'
@@ -487,6 +497,7 @@ const {
   handleLayerRenameDialogShowChange,
   isLayerActive,
   openLayerContextMenu,
+  openCanvasObjectContextMenu,
   removeObject,
   reorderLayers,
   toggleLock,
