@@ -192,6 +192,8 @@ export function useHomeEditorRuntime() {
   const keylineOpacity = ref(DEFAULT_KEYLINE_OPACITY)
   const keylineMarginInput = ref(String(keylineMargin.value))
   const zoom = ref(1)
+  const canvasPanX = ref(20)
+  const canvasPanY = ref(20)
   const spacePanReady = ref(false)
   const isSpacePanning = ref(false)
   const rulerModifierKeys = reactive({ shift: false, ctrl: false, alt: false, meta: false })
@@ -231,6 +233,9 @@ export function useHomeEditorRuntime() {
     width: `${canvasWidth.value * zoom.value}px`,
     height: `${canvasHeight.value * zoom.value}px`,
     opacity: keylineOpacity.value
+  }))
+  const canvasWrapperStyle = computed(() => ({
+    transform: `translate(${canvasPanX.value}px, ${canvasPanY.value}px)`
   }))
   const keylineSafeArea = computed<KeylineSafeArea>(() => {
     const width = canvasWidth.value
@@ -407,6 +412,8 @@ export function useHomeEditorRuntime() {
     canvasBg,
     lastOpaqueCanvasBg,
     zoom,
+    panX: canvasPanX,
+    panY: canvasPanY,
     sizeRatioLocked,
     selectionMode,
     snapToPixelGrid,
@@ -6588,7 +6595,7 @@ export function useHomeEditorRuntime() {
     return null
   }
 
-  // 在画布区域按住 Ctrl + 滚轮时，以指针位置为锚点缩放并同步滚动偏移，避免浏览器接管页面缩放。
+  // 在画布区域按住 Ctrl + 滚轮时，以指针位置为锚点缩放并同步平移偏移，避免浏览器接管页面缩放。
   function handleCanvasAreaWheel(event: WheelEvent) {
     if (!event.ctrlKey || !canvasAreaRef.value) return
     event.preventDefault()
@@ -6596,17 +6603,15 @@ export function useHomeEditorRuntime() {
     const rect = area.getBoundingClientRect()
     const pointerOffsetX = event.clientX - rect.left
     const pointerOffsetY = event.clientY - rect.top
-    const contentX = area.scrollLeft + pointerOffsetX
-    const contentY = area.scrollTop + pointerOffsetY
     const currentZoom = zoom.value
-    const nextZoom = currentZoom * Math.exp(-event.deltaY * 0.002)
-    const logicalX = contentX / currentZoom
-    const logicalY = contentY / currentZoom
-    setZoom(nextZoom)
-    area.scrollLeft = logicalX * zoom.value - pointerOffsetX
-    area.scrollTop = logicalY * zoom.value - pointerOffsetY
+    const logicalX = (pointerOffsetX - canvasPanX.value) / currentZoom
+    const logicalY = (pointerOffsetY - canvasPanY.value) / currentZoom
+    setZoom(currentZoom * Math.exp(-event.deltaY * 0.002))
+    canvasPanX.value = pointerOffsetX - logicalX * zoom.value
+    canvasPanY.value = pointerOffsetY - logicalY * zoom.value
   }
 
+  // 仅在空格平移模式下接管指针并记录起始偏移，保证任意缩放级别都能拖动画板。
   function handleCanvasAreaPointerDown(event: PointerEvent) {
     if (!spacePanReady.value || !canvasAreaRef.value) return
     event.preventDefault()
@@ -6617,8 +6622,8 @@ export function useHomeEditorRuntime() {
       pointerId: event.pointerId,
       x: event.clientX,
       y: event.clientY,
-      scrollLeft: area.scrollLeft,
-      scrollTop: area.scrollTop
+      panX: canvasPanX.value,
+      panY: canvasPanY.value
     }
     isSpacePanning.value = true
     window.addEventListener('pointermove', handleSpacePanPointerMove, true)
@@ -6626,11 +6631,12 @@ export function useHomeEditorRuntime() {
     window.addEventListener('pointercancel', handleSpacePanPointerEnd, true)
   }
 
+  // 按指针位移直接更新画布包裹层平移量，避免依赖容器滚动条才能看到拖动画布结果。
   function handleSpacePanPointerMove(event: PointerEvent) {
-    if (!spacePanStart || !canvasAreaRef.value || event.pointerId !== spacePanStart.pointerId) return
+    if (!spacePanStart || event.pointerId !== spacePanStart.pointerId) return
     event.preventDefault()
-    canvasAreaRef.value.scrollLeft = spacePanStart.scrollLeft - (event.clientX - spacePanStart.x)
-    canvasAreaRef.value.scrollTop = spacePanStart.scrollTop - (event.clientY - spacePanStart.y)
+    canvasPanX.value = spacePanStart.panX + (event.clientX - spacePanStart.x)
+    canvasPanY.value = spacePanStart.panY + (event.clientY - spacePanStart.y)
   }
 
   function handleSpacePanPointerEnd(event?: PointerEvent) {
@@ -7026,6 +7032,7 @@ export function useHomeEditorRuntime() {
     canvasBgPickerValue,
     pixelGridOverlayStyle,
     keylineOverlayStyle,
+    canvasWrapperStyle,
     keylineSafeArea,
     iconCheckIssues,
     booleanBusy,

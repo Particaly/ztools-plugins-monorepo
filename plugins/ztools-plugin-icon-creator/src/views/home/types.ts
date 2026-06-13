@@ -153,8 +153,8 @@ export type SpacePanStart = {
   pointerId: number
   x: number
   y: number
-  scrollLeft: number
-  scrollTop: number
+  panX: number
+  panY: number
 }
 
 export type EndpointAttachmentEdge = 'left' | 'right' | 'top' | 'bottom'

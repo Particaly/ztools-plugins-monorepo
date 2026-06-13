@@ -140,6 +140,7 @@
             class="canvas-wrapper"
             ref="canvasWrapperRef"
             :class="{ 'transparent-bg': isCanvasBgTransparent, 'is-hidden': canvasViewMode !== 'canvas' }"
+            :style="canvasWrapperStyle"
             @contextmenu.prevent="openCanvasObjectContextMenu"
           >
             <div
@@ -518,6 +519,7 @@ const {
   canvasBgPickerValue,
   pixelGridOverlayStyle,
   keylineOverlayStyle,
+  canvasWrapperStyle,
   keylineSafeArea,
   iconCheckIssues,
   booleanBusy,
@@ -763,13 +765,15 @@ $panel-bg: #fff;
 .canvas-area {
   flex: 1;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: auto;
+  align-items: flex-start;
+  justify-content: flex-start;
+  overflow: hidden;
   background: #e0e0e0;
 }
 .canvas-wrapper {
   position: relative;
+  flex: 0 0 auto;
+  transform-origin: top left;
   box-shadow: 0 2px 12px rgba(0,0,0,0.15);
   background: #fff;
   &.is-hidden {
