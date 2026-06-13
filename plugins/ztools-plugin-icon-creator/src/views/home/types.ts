@@ -94,6 +94,9 @@ export type ExportFormat = 'svg' | 'png'
 export type PreviewBackgroundMode = 'transparent' | 'light' | 'dark'
 export type KeylineTemplate = 'none' | 'material' | 'ios' | 'favicon' | 'custom'
 
+export type IconCreatorProjectViewMode = 'canvas' | 'svg'
+export type IconCreatorProjectSvgPreviewMode = 'graphic' | 'code'
+
 export type IconCreatorProjectCanvas = {
   width: number
   height: number
@@ -104,6 +107,17 @@ export type IconCreatorProjectCanvas = {
   keylineTemplate?: KeylineTemplate
   keylineMargin?: number
   keylineOpacity?: number
+}
+
+export type IconCreatorProjectViewport = {
+  zoom: number
+  panX: number
+  panY: number
+}
+
+export type IconCreatorProjectViewState = IconCreatorProjectViewport & {
+  viewMode: IconCreatorProjectViewMode
+  svgPreviewMode: IconCreatorProjectSvgPreviewMode
 }
 
 export type IconCreatorProjectArtboard = {

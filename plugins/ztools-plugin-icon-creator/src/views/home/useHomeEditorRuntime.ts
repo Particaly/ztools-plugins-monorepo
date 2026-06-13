@@ -75,6 +75,9 @@ import type {
   FabricControls,
   FillModeOption,
   GradientPresetItem,
+  IconCreatorProjectFile,
+  IconCreatorProjectSvgPreviewMode,
+  IconCreatorProjectViewMode,
   IconCheckIssue,
   IconifySearchResponse,
   KeylineSafeArea,
@@ -102,6 +105,7 @@ import { applyBooleanOperation, computeBooleanResult } from './geometry/booleanO
 import type { BooleanOperation, SubtractDirection } from './geometry/booleanOps'
 import { pathKitToEditablePathObject, pathKitToFabricPath } from './geometry/pathKitToFabric'
 import { getPathKit, peekPathKit } from './geometry/pathkit'
+import type { HistoryState } from './composables/contracts'
 import { createHomeWorkspaceModule } from './editor/modules/workspace/createHomeWorkspaceModule'
 import { createHomeCanvasKernelModule } from './editor/modules/canvas/createHomeCanvasKernelModule'
 import { createHomeAssetsImportModule } from './editor/modules/assets-import/createHomeAssetsImportModule'
@@ -633,7 +637,8 @@ export function useHomeEditorRuntime() {
     isTransparentCanvasBg,
     endSpacePan,
     cancelSmallPreviewsRefresh,
-    projectInputRef
+    projectInputRef,
+    afterInitialDocumentReady: initializeProjectTabs
   })
   const {
     artboards,
@@ -646,6 +651,7 @@ export function useHomeEditorRuntime() {
   } = homeWorkspace.controller.state
   const {
     addArtboard,
+    captureHistoryState,
     clearStoredDraft,
     deleteArtboard,
     duplicateArtboard,
@@ -657,6 +663,7 @@ export function useHomeEditorRuntime() {
     redo,
     renameArtboard,
     resetHistoryToCurrentCanvas,
+    restoreHistoryState,
     saveProject,
     scheduleDraftSave,
     snapshot,
@@ -686,12 +693,35 @@ export function useHomeEditorRuntime() {
     { value: 'code', label: '代码模式', description: '只读查看 SVG 源码，并提供语法高亮。', icon: 'mdi:code-tags' }
   ]
   const previewBackgroundMode = ref<PreviewBackgroundMode>('transparent')
-  const canvasViewMode = ref<'canvas' | 'svg'>('canvas')
-  const svgPreviewMode = ref<'graphic' | 'code'>('graphic')
+  const canvasViewMode = ref<IconCreatorProjectViewMode>('canvas')
+  const svgPreviewMode = ref<IconCreatorProjectSvgPreviewMode>('graphic')
   const previewItems = shallowRef<PreviewItem[]>([])
   const previewPopoverVisible = ref(false)
   const previewDirty = ref(true)
   let previewRenderTimer: ReturnType<typeof window.setTimeout> | null = null
+
+  type ProjectTabState = {
+    id: string
+    name: string
+    project: IconCreatorProjectFile
+    selectedObjectIds: string[]
+    zoom: number
+    panX: number
+    panY: number
+    viewMode: IconCreatorProjectViewMode
+    svgPreviewMode: IconCreatorProjectSvgPreviewMode
+    history: HistoryState
+    dirty: boolean
+  }
+
+  const projectTabs = ref<ProjectTabState[]>([])
+  const activeProjectTabId = ref('')
+  let projectTabSeed = 0
+  let switchingProjectTab = false
+  let projectTabSnapshotReady = false
+  let suppressProjectTabAutoSave = false
+  const hasMultipleProjectTabs = computed(() => projectTabs.value.length > 1)
+  const activeProjectTab = computed(() => projectTabs.value.find((tab) => tab.id === activeProjectTabId.value) ?? null)
   const visibleColorPaletteGroups = computed(() => stylePresetSettings.colorPaletteGroups)
   const visibleGradientPresets = computed(() => {
     const maxCount = Math.max(
@@ -2206,9 +2236,222 @@ export function useHomeEditorRuntime() {
   ))
 
   // 切换 SVG 二级预览模式；该状态只影响 SVG 页签下的展示方式，不修改画布或导出内容。
-  function setSvgPreviewMode(mode: 'graphic' | 'code') {
+  function setSvgPreviewMode(mode: IconCreatorProjectSvgPreviewMode) {
     svgPreviewMode.value = mode
     canvasViewMode.value = 'svg'
+  }
+
+  // 生成项目标签的本地唯一 id，标签只在当前编辑会话内隔离不同项目状态。
+  function createProjectTabId() {
+    projectTabSeed += 1
+    return `project-tab-${projectTabSeed}-${Date.now()}`
+  }
+
+  // 使用顺序编号生成默认项目名，避免多个未保存标签都显示成难以区分的空名称。
+  function createProjectTabName() {
+    return `项目 ${projectTabs.value.length + 1}`
+  }
+
+  // 深拷贝工程对象，避免 inactive 标签与当前画布恢复流程共享可变引用。
+  function cloneProjectFile(project: IconCreatorProjectFile): IconCreatorProjectFile {
+    return JSON.parse(JSON.stringify(project)) as IconCreatorProjectFile
+  }
+
+  // 收集当前选区对象 id，切换回标签时尽量恢复用户离开前的选择上下文。
+  function captureSelectedObjectIds() {
+    if (!fabricCanvas) return []
+    return fabricCanvas.getActiveObjects()
+      .filter((obj) => !isBooleanPreviewObject(obj))
+      .map((obj) => ensureEditorObjectId(obj))
+      .filter(Boolean)
+  }
+
+  // 根据保存的对象 id 恢复标签选区；对象已删除或无法恢复时自动退化为空选择。
+  function restoreSelectedObjectsByIds(ids: string[]) {
+    if (!fabricCanvas || !ids.length) {
+      fabricCanvas?.discardActiveObject()
+      syncActiveObject(null)
+      fabricCanvas?.requestRenderAll()
+      return
+    }
+    const idSet = new Set(ids)
+    const targets = fabricCanvas.getObjects()
+      .filter((obj) => !isBooleanPreviewObject(obj) && idSet.has(String((obj as AnyFabricObject).editorObjectId || '')))
+    applyActiveObjectsSelection(targets)
+  }
+
+  // 捕获指定项目标签的完整编辑现场，包括工程内容、选择态、视口、视图模式和历史栈。
+  function captureCurrentProjectTabState(tab: ProjectTabState) {
+    if (!fabricCanvas) return
+    tab.project = cloneProjectFile(createProjectFile())
+    tab.selectedObjectIds = captureSelectedObjectIds()
+    tab.zoom = zoom.value
+    tab.panX = canvasPanX.value
+    tab.panY = canvasPanY.value
+    tab.viewMode = canvasViewMode.value
+    tab.svgPreviewMode = svgPreviewMode.value
+    tab.history = captureHistoryState()
+  }
+
+  // 在离开当前标签前保存现场，确保再次切换回来时不会丢失编辑状态。
+  function persistActiveProjectTabState() {
+    const tab = activeProjectTab.value
+    if (!tab || !fabricCanvas) return
+    captureCurrentProjectTabState(tab)
+  }
+
+  // 将标签中保存的完整项目状态恢复到当前 Fabric 画布，并还原独立历史与视口。
+  async function loadProjectTabState(tab: ProjectTabState) {
+    if (!fabricCanvas) return
+    switchingProjectTab = true
+    try {
+      activeProjectTabId.value = tab.id
+      await loadProjectFile(cloneProjectFile(tab.project), { keepDraft: true, resetHistory: false })
+      restoreHistoryState(tab.history)
+      canvasViewMode.value = tab.viewMode
+      svgPreviewMode.value = tab.svgPreviewMode
+      setZoom(tab.zoom)
+      canvasPanX.value = tab.panX
+      canvasPanY.value = tab.panY
+      restoreSelectedObjectsByIds(tab.selectedObjectIds)
+      markSmallPreviewsDirty()
+    } finally {
+      switchingProjectTab = false
+    }
+  }
+
+  // 初始化第一个项目标签，将当前启动后的画布包装成可切换项目。
+  function initializeProjectTabs() {
+    if (projectTabs.value.length || !fabricCanvas) return
+    const id = createProjectTabId()
+    const tab: ProjectTabState = {
+      id,
+      name: createProjectTabName(),
+      project: cloneProjectFile(createProjectFile()),
+      selectedObjectIds: captureSelectedObjectIds(),
+      zoom: zoom.value,
+      panX: canvasPanX.value,
+      panY: canvasPanY.value,
+      viewMode: canvasViewMode.value,
+      svgPreviewMode: svgPreviewMode.value,
+      history: captureHistoryState(),
+      dirty: false
+    }
+    projectTabs.value = [tab]
+    activeProjectTabId.value = id
+    projectTabSnapshotReady = true
+  }
+
+  // 新建独立项目标签，并把画布重置为新的空项目现场。
+  async function addProjectTab() {
+    if (!fabricCanvas) return
+    if (!projectTabs.value.length) initializeProjectTabs()
+    persistActiveProjectTabState()
+    const id = createProjectTabId()
+    const name = createProjectTabName()
+    switchingProjectTab = true
+    suppressProjectTabAutoSave = true
+    try {
+      newDoc()
+      canvasViewMode.value = 'canvas'
+      svgPreviewMode.value = 'graphic'
+      fitCanvasInView()
+      const tab: ProjectTabState = {
+        id,
+        name,
+        project: cloneProjectFile(createProjectFile()),
+        selectedObjectIds: [],
+        zoom: zoom.value,
+        panX: canvasPanX.value,
+        panY: canvasPanY.value,
+        viewMode: canvasViewMode.value,
+        svgPreviewMode: svgPreviewMode.value,
+        history: captureHistoryState(),
+        dirty: false
+      }
+      projectTabs.value = [...projectTabs.value, tab]
+      activeProjectTabId.value = id
+      showToast('已新建项目标签', 'success')
+    } finally {
+      suppressProjectTabAutoSave = false
+      switchingProjectTab = false
+    }
+  }
+
+  // 切换到目标项目标签；当前标签会先保存现场，目标标签再恢复自己的项目、历史与视图状态。
+  async function switchProjectTab(tabId: string) {
+    if (switchingProjectTab || tabId === activeProjectTabId.value) return
+    const target = projectTabs.value.find((tab) => tab.id === tabId)
+    if (!target) return
+    persistActiveProjectTabState()
+    await loadProjectTabState(target)
+  }
+
+  // 关闭项目标签；关闭含未保存提示的标签前做轻量确认，至少保留一个项目标签。
+  async function closeProjectTab(tabId: string) {
+    if (projectTabs.value.length <= 1) return
+    const index = projectTabs.value.findIndex((tab) => tab.id === tabId)
+    if (index < 0) return
+    const target = projectTabs.value[index]
+    if (target.dirty && !window.confirm(`项目“${target.name}”存在未保存修改，确定关闭吗？`)) return
+    const wasActive = tabId === activeProjectTabId.value
+    const nextTab = wasActive
+      ? projectTabs.value[index + 1] ?? projectTabs.value[index - 1]
+      : null
+    projectTabs.value = projectTabs.value.filter((tab) => tab.id !== tabId)
+    if (wasActive && nextTab) await loadProjectTabState(nextTab)
+  }
+
+  watch(historyIndex, () => {
+    if (!projectTabSnapshotReady || switchingProjectTab || suppressProjectTabAutoSave) return
+    const tab = activeProjectTab.value
+    if (tab) tab.dirty = true
+  })
+
+  watch([canvasViewMode, svgPreviewMode, zoom, canvasPanX, canvasPanY], () => {
+    if (switchingProjectTab) return
+    const tab = activeProjectTab.value
+    if (!tab) return
+    tab.viewMode = canvasViewMode.value
+    tab.svgPreviewMode = svgPreviewMode.value
+    tab.zoom = zoom.value
+    tab.panX = canvasPanX.value
+    tab.panY = canvasPanY.value
+  })
+
+  // 顶栏“新建”命令在当前标签内重置项目内容，并同步更新该标签保存的初始历史。
+  function resetActiveProjectTabDocument() {
+    newDoc()
+    canvasViewMode.value = 'canvas'
+    svgPreviewMode.value = 'graphic'
+    const tab = activeProjectTab.value
+    if (!tab || !fabricCanvas) return
+    captureCurrentProjectTabState(tab)
+    tab.dirty = false
+  }
+
+  // 保存当前项目标签并清除未保存提示；实际文件落盘仍复用既有工程保存流程。
+  function saveActiveProjectTab() {
+    saveProject()
+    const tab = activeProjectTab.value
+    if (!tab || !fabricCanvas) return
+    captureCurrentProjectTabState(tab)
+    tab.dirty = false
+  }
+
+  // 打开工程入口会先保存当前标签现场，再复用文件选择器加载到当前项目标签。
+  function openProjectForActiveTab() {
+    persistActiveProjectTabState()
+    openProject()
+  }
+
+  async function onProjectFileChosenForActiveTab(event: Event) {
+    await onProjectFileChosen(event)
+    const tab = activeProjectTab.value
+    if (!tab || !fabricCanvas) return
+    tab.name = '导入项目'
+    captureCurrentProjectTabState(tab)
+    tab.dirty = false
   }
 
   const iconCheckSummary = computed(() => {
@@ -2306,15 +2549,15 @@ export function useHomeEditorRuntime() {
     insertIconTemplate: assetsImportCommands.insertIconTemplate,
     insertIconifyIcon: assetsImportCommands.insertIconifyIcon,
     insertUserAsset: assetsImportCommands.insertUserAsset,
-    newDoc,
+    newDoc: resetActiveProjectTabDocument,
     openCreateUserAssetDialog: assetsImportCommands.openCreateUserAssetDialog,
     openExportDialog,
     openPasteSVGDialog: assetsImportCommands.openPasteSVGDialog,
-    openProject,
+    openProject: openProjectForActiveTab,
     openRenameUserAssetDialog: assetsImportCommands.openRenameUserAssetDialog,
     openShortcutDrawer,
     redo,
-    saveProject,
+    saveProject: saveActiveProjectTab,
     searchIconifyIcons: assetsImportCommands.searchIconifyIcons,
     setSelectionMode,
     setZoom,
@@ -7154,6 +7397,12 @@ export function useHomeEditorRuntime() {
     toggleLock,
     toggleVisible,
     toast,
+    projectTabs,
+    activeProjectTabId,
+    hasMultipleProjectTabs,
+    addProjectTab,
+    switchProjectTab,
+    closeProjectTab,
     artboards,
     activeArtboardId,
     undoStack,
@@ -7162,7 +7411,7 @@ export function useHomeEditorRuntime() {
     deleteArtboard,
     duplicateArtboard,
     jumpToHistory,
-    onProjectFileChosen,
+    onProjectFileChosen: onProjectFileChosenForActiveTab,
     renameArtboard,
     switchArtboard,
     keylineTemplateOptions,

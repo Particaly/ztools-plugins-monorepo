@@ -131,6 +131,36 @@
 
       <!-- 中间画布区 -->
       <div class="canvas-frame" :class="[{ 'with-ruler': editorSelectors.showRuler }, { 'is-left-panel-collapsed': leftPanelCollapsed }, `mode-${canvasViewMode}`]">
+        <div class="project-tab-bar" role="tablist" aria-label="项目标签">
+          <div
+            v-for="tab in projectTabs"
+            :key="tab.id"
+            class="project-tab"
+            :class="{ active: tab.id === activeProjectTabId, dirty: tab.dirty }"
+            role="tab"
+            tabindex="0"
+            :aria-selected="tab.id === activeProjectTabId"
+            @click="switchProjectTab(tab.id)"
+            @keydown.enter.prevent="switchProjectTab(tab.id)"
+            @keydown.space.prevent="switchProjectTab(tab.id)"
+          >
+            <span class="project-tab-name">{{ tab.name }}</span>
+            <span v-if="tab.dirty" class="project-tab-dirty" title="未保存修改" aria-label="未保存修改"></span>
+            <button
+              v-if="hasMultipleProjectTabs"
+              type="button"
+              class="project-tab-close"
+              title="关闭项目"
+              aria-label="关闭项目"
+              @click.stop="closeProjectTab(tab.id)"
+            >
+              <Icon icon="mdi:close" />
+            </button>
+          </div>
+          <button type="button" class="project-tab-add" title="新建项目标签" aria-label="新建项目标签" @click="addProjectTab">
+            <Icon icon="mdi:plus" />
+          </button>
+        </div>
         <main
           class="canvas-area"
           ref="canvasAreaRef"
@@ -657,6 +687,12 @@ const {
   toggleLock,
   toggleVisible,
   toast,
+  projectTabs,
+  activeProjectTabId,
+  hasMultipleProjectTabs,
+  addProjectTab,
+  switchProjectTab,
+  closeProjectTab,
   artboards,
   activeArtboardId,
   undoStack,
@@ -861,7 +897,98 @@ $panel-bg: #fff;
   min-width: 0;
   min-height: 0;
   display: flex;
+  flex-direction: column;
   position: relative;
+}
+.project-tab-bar {
+  flex: 0 0 34px;
+  min-width: 0;
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  padding: 4px 10px 0;
+  border-bottom: $border;
+  background: color-mix(in srgb, #f5f5f5, #ffffff 45%);
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.project-tab {
+  height: 30px;
+  max-width: 220px;
+  min-width: 96px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 8px 0 12px;
+  border: $border;
+  border-bottom-color: transparent;
+  border-radius: 8px 8px 0 0;
+  background: rgba(255, 255, 255, 0.58);
+  color: #4b5563;
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.82);
+    color: #1f2937;
+  }
+
+  &.active {
+    background: #fff;
+    color: #111827;
+    box-shadow: 0 -1px 8px rgba(15, 23, 42, 0.08);
+  }
+}
+.project-tab-name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+.project-tab-dirty {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #f97316;
+  box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.14);
+}
+.project-tab-close,
+.project-tab-add {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: #6b7280;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+
+  :deep(svg) {
+    width: 16px;
+    height: 16px;
+  }
+
+  &:hover {
+    background: rgba(30, 111, 255, 0.10);
+    color: #1e40af;
+  }
+}
+.project-tab-close {
+  width: 20px;
+  height: 20px;
+}
+.project-tab-add {
+  width: 28px;
+  height: 28px;
+  margin-bottom: 1px;
+  border: $border;
+  background: rgba(255, 255, 255, 0.62);
 }
 .canvas-frame .canvas-area {
   flex: 1;
