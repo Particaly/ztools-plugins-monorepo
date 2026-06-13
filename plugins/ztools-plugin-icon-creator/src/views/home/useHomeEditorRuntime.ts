@@ -684,6 +684,7 @@ export function useHomeEditorRuntime() {
   const previewBackgroundMode = ref<PreviewBackgroundMode>('transparent')
   const canvasViewMode = ref<'canvas' | 'svg'>('canvas')
   const previewItems = shallowRef<PreviewItem[]>([])
+  const previewPopoverVisible = ref(false)
   const previewDirty = ref(true)
   let previewRenderTimer: ReturnType<typeof window.setTimeout> | null = null
   const visibleColorPaletteGroups = computed(() => stylePresetSettings.colorPaletteGroups)
@@ -2158,6 +2159,20 @@ export function useHomeEditorRuntime() {
     return createCanvasSVGPreview(false)
   })
 
+  const iconCheckSummary = computed(() => {
+    const count = iconCheckIssues.value.length
+    if (!count) {
+      return {
+        title: '当前没有检测到问题',
+        detail: '检查结果会根据画布、安全区、颜色和小尺寸表现自动刷新。'
+      }
+    }
+    return {
+      title: `检测到 ${count} 项问题`,
+      detail: '悬浮查看问题列表，点击具体问题可直接定位到关联对象。'
+    }
+  })
+
   const activeKaleidoscopeInstance = computed(() => {
     const obj = activeObject.value
     return obj && isKaleidoscopeInstance(obj) ? obj : null
@@ -3179,7 +3194,7 @@ export function useHomeEditorRuntime() {
   // 点击检查项时定位到关联对象，方便用户直接调整越界、描边过细或非整数坐标问题。
   function selectIconCheckIssue(issue: IconCheckIssue) {
     if (!issue.target || !fabricCanvas) return
-    activeRightTab.value = 'properties'
+    previewPopoverVisible.value = false
     applyActiveObjectsSelection([issue.target])
   }
 
@@ -3999,9 +4014,9 @@ export function useHomeEditorRuntime() {
     return { hasSelection: true, mixed, value }
   }
 
-  // 切换到预览 Tab 时立即刷新过期缩略图，保持隐藏状态下不做额外渲染。
-  watch(activeRightTab, (tab) => {
-    if (tab === 'preview' && previewDirty.value) refreshSmallPreviews()
+  // 预览浮层展开时立即刷新过期缩略图；关闭后保留 dirty 标记，等下次查看时再补齐。
+  watch(previewPopoverVisible, (show) => {
+    if (show && previewDirty.value) refreshSmallPreviews()
   })
 
   // 保留多对象选择结果，让图层面板可以批量选中万花筒实例后执行脱离、隐藏、锁定等操作。
@@ -5910,10 +5925,10 @@ export function useHomeEditorRuntime() {
     previewDirty.value = false
   }
 
-  // 在预览 Tab 可见时立即补齐过期缩略图；隐藏时只记录 dirty，避免后台频繁生成 dataURL。
+  // 在预览浮层可见时立即补齐过期缩略图；关闭时只记录 dirty，避免后台频繁生成 dataURL。
   function markSmallPreviewsDirty() {
     previewDirty.value = true
-    if (activeRightTab.value === 'preview') scheduleSmallPreviewsRefresh()
+    if (previewPopoverVisible.value) scheduleSmallPreviewsRefresh()
   }
 
   // ── 对象操作 ──
@@ -6556,6 +6571,12 @@ export function useHomeEditorRuntime() {
     leftPanelCollapsed.value = !leftPanelCollapsed.value
   }
 
+  // 切换底部轻量预览浮层显隐；展开时触发预览更新，收起时合并掉等待中的刷新计时器。
+  function handlePreviewPopoverShowChange(show: boolean) {
+    previewPopoverVisible.value = show
+    if (!show) cancelSmallPreviewsRefresh()
+  }
+
   // 在画布对象上打开与图层面板复用的快捷菜单；空白区忽略，命中对象时自动同步到当前选择。
   function openCanvasObjectContextMenu(event: MouseEvent) {
     if (!fabricCanvas) return
@@ -7042,6 +7063,7 @@ export function useHomeEditorRuntime() {
     canvasWrapperStyle,
     keylineSafeArea,
     iconCheckIssues,
+    iconCheckSummary,
     booleanBusy,
     strokeOutlineBusy,
     textOutlineBusy,
@@ -7095,6 +7117,7 @@ export function useHomeEditorRuntime() {
     previewBackgroundOptions,
     previewBackgroundMode,
     canvasViewMode,
+    previewPopoverVisible,
     previewItems,
     visibleColorPaletteGroups,
     visibleGradientPresets,
@@ -7211,6 +7234,7 @@ export function useHomeEditorRuntime() {
     svgPreviewSource,
     setPreviewBackgroundMode,
     setCanvasViewMode,
+    handlePreviewPopoverShowChange,
     toggleLeftPanel,
     deleteObject,
     lockObject,

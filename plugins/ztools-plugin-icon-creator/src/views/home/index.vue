@@ -192,7 +192,52 @@
           :zoom="editorSelectors.zoom"
           :coordinate-hint-active="rulerCoordinateHintActive"
         />
-        <div class="canvas-mode-switcher" role="group" aria-label="画布模式切换">
+        <div class="canvas-mode-switcher" role="group" aria-label="画布模式切换与状态">
+          <ZPopover
+            :show="previewPopoverVisible"
+            trigger="hover"
+            placement="top"
+            :to="false"
+            show-arrow
+            keep-alive-on-hover
+            @update:show="handlePreviewPopoverShowChange"
+          >
+            <template #trigger>
+              <button type="button" class="canvas-mode-icon-btn" title="预览输出尺寸预览" aria-label="预览输出尺寸预览">
+                <Icon icon="mdi:image-search-outline" />
+              </button>
+            </template>
+            <PreviewPanel
+              :background-options="previewBackgroundOptions"
+              :background-mode="previewBackgroundMode"
+              :items="previewItems"
+              :stage-class="previewStageClass"
+              @set-background-mode="setPreviewBackgroundMode"
+            />
+          </ZPopover>
+          <ZPopover
+            trigger="hover"
+            placement="top"
+            :to="false"
+            show-arrow
+            keep-alive-on-hover
+          >
+            <template #trigger>
+              <button
+                type="button"
+                class="canvas-mode-icon-btn"
+                :class="{ 'has-issues': iconCheckIssues.length > 0 }"
+                :title="iconCheckSummary.title"
+                :aria-label="iconCheckSummary.title"
+              >
+                <Icon :icon="iconCheckIssues.length > 0 ? 'mdi:alert-circle-outline' : 'mdi:check-circle-outline'" />
+              </button>
+            </template>
+            <IconChecksPanel
+              :issues="iconCheckIssues"
+              @select-issue="selectIconCheckIssue"
+            />
+          </ZPopover>
           <button type="button" class="canvas-mode-btn" :class="{ active: canvasViewMode === 'canvas' }" @click="setCanvasViewMode('canvas')">Canvas</button>
           <button type="button" class="canvas-mode-btn" :class="{ active: canvasViewMode === 'svg' }" @click="setCanvasViewMode('svg')">SVG</button>
         </div>
@@ -326,21 +371,6 @@
             @update:keyline-margin-input="keylineMarginInput = $event"
           />
         </template>
-        <template #preview>
-          <PreviewPanel
-            :background-options="previewBackgroundOptions"
-            :background-mode="previewBackgroundMode"
-            :items="previewItems"
-            :stage-class="previewStageClass"
-            @set-background-mode="setPreviewBackgroundMode"
-          />
-        </template>
-        <template #checks>
-          <IconChecksPanel
-            :issues="iconCheckIssues"
-            @select-issue="selectIconCheckIssue"
-          />
-        </template>
         <template #layers>
           <LayersPanel
             :filtered-layers="filteredLayers"
@@ -470,7 +500,8 @@
 </template>
 
 <script setup lang="ts">
-import { ZContextMenu } from 'ztools-ui'
+import { Icon } from '@iconify/vue'
+import { ZContextMenu, ZPopover } from 'ztools-ui'
 import HomeTopBar from './components/HomeTopBar.vue'
 import HomeToolBar from './components/HomeToolBar.vue'
 import LeftPanel from './components/LeftPanel.vue'
@@ -579,7 +610,9 @@ const {
   previewBackgroundOptions,
   previewBackgroundMode,
   canvasViewMode,
+  previewPopoverVisible,
   previewItems,
+  iconCheckSummary,
   visibleColorPaletteGroups,
   visibleGradientPresets,
   stylePresetManagerState,
@@ -693,6 +726,7 @@ const {
   svgPreviewSource,
   setPreviewBackgroundMode,
   setCanvasViewMode,
+  handlePreviewPopoverShowChange,
   toggleLeftPanel,
   deleteObject,
   lockObject,
@@ -884,6 +918,7 @@ $panel-bg: #fff;
   bottom: 12px;
   z-index: 20;
   display: inline-flex;
+  align-items: center;
   padding: 4px;
   gap: 4px;
   border: $border;
@@ -891,6 +926,45 @@ $panel-bg: #fff;
   background: rgba(255, 255, 255, 0.92);
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
   backdrop-filter: blur(8px);
+
+  :deep(.zt-popover__content) {
+    max-width: min(420px, calc(100vw - 32px));
+  }
+
+  :deep(.zt-popover__body--card) {
+    padding: 0;
+    border-radius: 12px;
+    overflow: hidden;
+  }
+}
+.canvas-mode-icon-btn {
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: #4b5563;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+
+  :deep(svg) {
+    width: 18px;
+    height: 18px;
+  }
+
+  &:hover {
+    background: rgba(30, 111, 255, 0.08);
+    color: #1e40af;
+  }
+
+  &.has-issues {
+    color: #c2410c;
+  }
 }
 .canvas-mode-btn {
   border: none;
