@@ -23,7 +23,9 @@
               :key="s.id"
               class="asset-item"
               :title="s.label"
+              draggable="true"
               @click="$emit('add-shape', s)"
+              @dragstart="handleInsertDragStart($event, { kind: 'shape', itemId: s.id })"
             >
               <svg class="shape-preview-svg" viewBox="0 0 64 64" aria-hidden="true">
                 <path :d="shapePreviewPaths[s.id]" fill="#fff" stroke="#333" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
@@ -38,7 +40,9 @@
           <div class="text-list">
             <button
               v-for="t in textPresets" :key="t.id" class="text-preset-btn"
+              draggable="true"
               @click="$emit('add-text', t)"
+              @dragstart="handleInsertDragStart($event, { kind: 'text', itemId: t.id })"
             >
               <span :style="{ fontSize: t.fontSize > 30 ? 20 : t.fontSize + 'px', fontWeight: t.fontWeight }">{{ t.label }}</span>
             </button>
@@ -55,7 +59,13 @@
               class="user-asset-card"
               :title="asset.name"
             >
-              <button type="button" class="user-asset-preview" @click="$emit('insert-user-asset', asset)">
+              <button
+                type="button"
+                class="user-asset-preview"
+                draggable="true"
+                @click="$emit('insert-user-asset', asset)"
+                @dragstart="handleInsertDragStart($event, { kind: 'user-asset', itemId: asset.id })"
+              >
                 <img v-if="asset.thumbnail" :src="asset.thumbnail" :alt="`${asset.name} 预览`" />
                 <span v-else class="user-asset-preview-placeholder">素材</span>
               </button>
@@ -115,7 +125,9 @@
               class="iconify-item"
               :title="`插入 ${name}`"
               :disabled="iconifySearch.inserting === name"
+              draggable="true"
               @click="$emit('insert-iconify-icon', name)"
+              @dragstart="handleInsertDragStart($event, { kind: 'iconify', iconName: name })"
             >
               <Icon class="iconify-preview-icon" :icon="name" />
               <span class="iconify-name">{{ name }}</span>
@@ -135,7 +147,13 @@
               class="template-card"
               :title="template.description"
             >
-              <button type="button" class="template-preview" @click="$emit('insert-template', template)">
+              <button
+                type="button"
+                class="template-preview"
+                draggable="true"
+                @click="$emit('insert-template', template)"
+                @dragstart="handleInsertDragStart($event, { kind: 'template', itemId: template.id })"
+              >
                 <svg class="template-preview-svg" :viewBox="`0 0 ${template.width} ${template.height}`" aria-hidden="true" v-html="getTemplatePreviewMarkup(template)"></svg>
               </button>
               <div class="template-info">
@@ -162,6 +180,7 @@ import type { IconTemplateItem, ShapeId, ShapeLibraryItem, TextLibraryItem } fro
 import { getTemplatePreviewMarkup } from '../templatePreview'
 import { formatUserAssetDate, getUserAssetObjectCountLabel } from '../userAssets'
 import type { IconifySearchState, LeftPanelTab, UserAssetItem } from '../types'
+import { writeInsertDragPayload } from '../editor/modules/assets-import/insertDragPayload'
 
 type SelectOption = {
   label: string
@@ -197,6 +216,13 @@ defineEmits<{
   (event: 'update:iconify-collection-filter', value: string): void
   (event: 'insert-iconify-icon', name: string): void
 }>()
+
+/**
+ * 将左侧资源卡片写入拖拽负载，供画布 drop 时按类型恢复对应插入命令与落点位置。
+ */
+function handleInsertDragStart(event: DragEvent, payload: Parameters<typeof writeInsertDragPayload>[1]) {
+  writeInsertDragPayload(event.dataTransfer, payload)
+}
 </script>
 
 <style lang="scss" scoped>

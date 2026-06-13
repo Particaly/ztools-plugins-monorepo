@@ -1965,6 +1965,8 @@ export function useHomeEditorRuntime() {
     showToast,
     clearBooleanPreview,
     clearPointEditing,
+    addShape,
+    addText,
     refreshLayers,
     syncActiveObjectPreservingPointMode,
     setSelectionMode,
@@ -5211,13 +5213,18 @@ export function useHomeEditorRuntime() {
   }
 
   // ── 添加元素 ──
-  function addShape(item: ShapeLibraryItem) {
+  /**
+   * 添加基础图形；拖拽插入时优先把图形中心放到落点，普通点击则保持原有画布中心插入行为。
+   */
+  function addShape(item: ShapeLibraryItem, scenePoint: { x: number; y: number } | null = null) {
     if (!fabricCanvas) return
     const shape = createShape(item)
     markObjectSizeRatioLocked(shape)
+    const left = scenePoint?.x ?? canvasWidth.value / 2
+    const top = scenePoint?.y ?? canvasHeight.value / 2
     shape.set({
-      left: canvasWidth.value / 2,
-      top: canvasHeight.value / 2,
+      left,
+      top,
       name: nextName(item.label)
     })
     ensureEditorObjectId(shape)
@@ -5229,16 +5236,22 @@ export function useHomeEditorRuntime() {
     fabricCanvas.requestRenderAll()
   }
 
-  function addText(preset: TextLibraryItem) {
+  /**
+   * 添加文字预设；拖拽插入时以鼠标落点为文本框中心，点击插入时沿用原有默认位置。
+   */
+  function addText(preset: TextLibraryItem, scenePoint: { x: number; y: number } | null = null) {
     if (!fabricCanvas) return
+    const width = 200
+    const left = scenePoint ? scenePoint.x - width / 2 : canvasWidth.value / 2 - width / 2
+    const top = scenePoint ? scenePoint.y - preset.fontSize / 2 : canvasHeight.value / 2 - preset.fontSize / 2
     const t = new Textbox(preset.text, {
-      left: canvasWidth.value / 2 - 100,
-      top: canvasHeight.value / 2 - preset.fontSize / 2,
+      left,
+      top,
       fontSize: preset.fontSize,
       fontWeight: preset.fontWeight as any,
       fill: '#000000',
       name: nextName(preset.label),
-      width: 200
+      width
     })
     applyDefaultKaleidoscopeMetadata(t)
     applyDefaultEndpointSnapMargin(t)

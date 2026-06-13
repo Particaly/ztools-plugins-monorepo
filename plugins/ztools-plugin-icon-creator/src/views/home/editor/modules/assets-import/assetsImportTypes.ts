@@ -7,6 +7,11 @@ import type {
   UserAssetItem
 } from '../../../types'
 
+export type InsertScenePoint = {
+  x: number
+  y: number
+}
+
 export interface HomeAssetsImportState {
   filteredIconifyResults: ComputedRef<string[]>
   iconifyCollectionOptions: ComputedRef<Array<{ label: string; value: string }>>
@@ -28,9 +33,9 @@ export interface HomeAssetsImportCommands {
   handleWindowPaste: (event: ClipboardEvent) => Promise<void>
   importImage: () => void
   importSVG: () => void
-  insertIconTemplate: (template: IconTemplateItem) => Promise<void>
-  insertIconifyIcon: (iconName: string) => Promise<void>
-  insertUserAsset: (asset: UserAssetItem) => Promise<void>
+  insertIconTemplate: (template: IconTemplateItem, scenePoint?: InsertScenePoint | null) => Promise<void>
+  insertIconifyIcon: (iconName: string, scenePoint?: InsertScenePoint | null) => Promise<void>
+  insertUserAsset: (asset: UserAssetItem, scenePoint?: InsertScenePoint | null) => Promise<void>
   onImageFileChosen: (event: Event) => Promise<void>
   onSVGFileChosen: (event: Event) => Promise<void>
   openCreateUserAssetDialog: () => void

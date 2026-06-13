@@ -14,7 +14,16 @@ import {
   USER_ASSET_STORAGE_KEY,
   USER_ASSET_THUMBNAIL_SIZE
 } from '../../../constants'
-import type { IconTemplateItem } from '../../../editorCatalog'
+import {
+  basicShapes,
+  iconTemplates,
+  textPresets
+} from '../../../editorCatalog'
+import type {
+  IconTemplateItem,
+  ShapeLibraryItem,
+  TextLibraryItem
+} from '../../../editorCatalog'
 import {
   SERIALIZED_OBJECT_PROPS,
   applyDefaultEndpointSnapMargin,
@@ -38,7 +47,8 @@ import type {
   UserAssetDialogState,
   UserAssetItem
 } from '../../../types'
-import type { HomeAssetsImportController } from './assetsImportTypes'
+import type { HomeAssetsImportController, InsertScenePoint } from './assetsImportTypes'
+import { readInsertDragPayload } from './insertDragPayload'
 
 export interface CreateHomeAssetsImportModuleOptions {
   svgInputRef: Ref<HTMLInputElement | null>
@@ -59,6 +69,8 @@ export interface CreateHomeAssetsImportModuleOptions {
   showToast: HomeShowToast
   clearBooleanPreview: () => void
   clearPointEditing: () => void
+  addShape: (item: ShapeLibraryItem, scenePoint?: InsertScenePoint | null) => void
+  addText: (item: TextLibraryItem, scenePoint?: InsertScenePoint | null) => void
   refreshLayers: () => void
   syncActiveObjectPreservingPointMode: (obj: FabricObject | null) => void
   setSelectionMode: (mode: 'shape' | 'point' | 'segment') => void
@@ -223,6 +235,78 @@ export function createHomeAssetsImportModule(
     const dataUrl = thumbCanvas.toDataURL('image/png')
     sourceCanvas.dispose()
     return dataUrl
+  }
+
+  /**
+   * 根据静态目录 id 找到基础形状定义；拖拽负载可能来自旧 DOM，查不到时返回 null 供上层安全忽略。
+   */
+  function findShapeLibraryItem(itemId: string) {
+    return basicShapes.find((item) => item.id === itemId) ?? null
+  }
+
+  /**
+   * 根据预设 id 找到文字模板，供点击插入与拖拽插入共用同一份目录数据。
+   */
+  function findTextPreset(itemId: string) {
+    return textPresets.find((item) => item.id === itemId) ?? null
+  }
+
+  /**
+   * 根据模板 id 找到内置模板定义；拖拽结束前模板列表可能发生切换，因此这里始终按最新目录兜底解析。
+   */
+  function findIconTemplate(itemId: string) {
+    return iconTemplates.find((item) => item.id === itemId) ?? null
+  }
+
+  /**
+   * 根据素材 id 从当前本地列表中查找素材，供左栏卡片拖放时恢复具体对象内容。
+   */
+  function findUserAsset(itemId: string) {
+    return userAssets.value.find((item) => item.id === itemId) ?? null
+  }
+
+  /**
+   * 将拖拽事件换算为画布场景坐标，供左侧插入项落点插入时复用；拿不到画布时返回 null 避免误插入。
+   */
+  function getScenePointFromDragEvent(event: DragEvent): InsertScenePoint | null {
+    const fabricCanvas = options.getFabricCanvas()
+    if (!fabricCanvas) return null
+    const scenePoint = fabricCanvas.getScenePoint(event)
+    if (!Number.isFinite(scenePoint.x) || !Number.isFinite(scenePoint.y)) return null
+    return { x: scenePoint.x, y: scenePoint.y }
+  }
+
+  /**
+   * 把对象包围盒中心移动到指定场景坐标，用于拖拽插入时让落点与用户鼠标位置尽量对齐。
+   */
+  function moveObjectBoundsCenterToScenePoint(object: FabricObject, scenePoint: InsertScenePoint) {
+    object.setCoords()
+    const bounds = object.getBoundingRect()
+    if (!Number.isFinite(bounds.width) || !Number.isFinite(bounds.height)) return
+    const dx = scenePoint.x - (bounds.left + bounds.width / 2)
+    const dy = scenePoint.y - (bounds.top + bounds.height / 2)
+    object.set({
+      left: (object.left ?? 0) + dx,
+      top: (object.top ?? 0) + dy
+    })
+    object.setCoords()
+  }
+
+  /**
+   * 将一组对象作为整体移动到指定场景坐标，保持组内相对位置不变，供素材拖拽落点插入复用。
+   */
+  function moveObjectsBoundsCenterToScenePoint(objects: FabricObject[], scenePoint: InsertScenePoint) {
+    const bounds = options.getObjectsCombinedBounds(objects)
+    if (!bounds) return
+    const dx = scenePoint.x - (bounds.left + bounds.width / 2)
+    const dy = scenePoint.y - (bounds.top + bounds.height / 2)
+    objects.forEach((obj) => {
+      obj.set({
+        left: (obj.left ?? 0) + dx,
+        top: (obj.top ?? 0) + dy
+      })
+      obj.setCoords()
+    })
   }
 
   /**
@@ -402,8 +486,9 @@ export function createHomeAssetsImportModule(
 
   /**
    * 将个人素材重新反序列化为 Fabric 对象插入画布，插入后保持可编辑并生成一次撤销快照。
+   * 传入落点时会改为按鼠标位置居中放置，未传入时仍保持原有“画布中心插入”行为。
    */
-  async function insertUserAsset(asset: UserAssetItem) {
+  async function insertUserAsset(asset: UserAssetItem, scenePoint: InsertScenePoint | null = null) {
     const fabricCanvas = options.getFabricCanvas()
     if (!fabricCanvas) return
     options.clearBooleanPreview()
@@ -414,7 +499,12 @@ export function createHomeAssetsImportModule(
       prepareUserAssetObjectForInsert(obj, asset.name, index)
     })
     const { dx, dy } = placeUserAssetObjects(objects)
-    objects.forEach((obj) => resetInsertedAssetKaleidoscopeMetadata(obj, dx, dy))
+    objects.forEach((obj) => {
+      resetInsertedAssetKaleidoscopeMetadata(obj, dx, dy)
+    })
+    if (scenePoint) {
+      moveObjectsBoundsCenterToScenePoint(objects, scenePoint)
+    }
     await commitImportedObjects(objects, false)
   }
 
@@ -559,7 +649,12 @@ export function createHomeAssetsImportModule(
    * 使用 Fabric 的 SVG 解析能力把完整 SVG 文本转换成一个可编辑对象，并加入当前画布。
    * `lockSizeRatio` 为 true 时会给导入结果补上默认等比缩放标记，供 Iconify 等需要保持原始比例的入口复用。
    */
-  async function importSVGText(svgText: string, displayName: string, lockSizeRatio = false) {
+  async function importSVGText(
+    svgText: string,
+    displayName: string,
+    lockSizeRatio = false,
+    scenePoint: InsertScenePoint | null = null
+  ) {
     if (!options.getFabricCanvas()) return
     options.clearBooleanPreview()
     options.clearPointEditing()
@@ -572,6 +667,9 @@ export function createHomeAssetsImportModule(
     const imported = util.groupSVGElements(svgObjects, svgOptions) as FabricObject
     prepareImportedSVGObjectMetadata(imported, displayName, { lockSizeRatio })
     placeImportedSVGObject(imported)
+    if (scenePoint) {
+      moveObjectBoundsCenterToScenePoint(imported, scenePoint)
+    }
     await commitImportedObjects([imported])
   }
 
@@ -636,9 +734,10 @@ export function createHomeAssetsImportModule(
 
   /**
    * 把模板 SVG 插入当前画布，作为普通可编辑对象继续参与图层、属性、导出和撤销流程。
+   * 拖拽插入会按落点定位，点击插入则沿用默认中心布局。
    */
-  async function insertIconTemplate(template: IconTemplateItem) {
-    await importSVGText(template.svg, template.name)
+  async function insertIconTemplate(template: IconTemplateItem, scenePoint: InsertScenePoint | null = null) {
+    await importSVGText(template.svg, template.name, false, scenePoint)
   }
 
   /**
@@ -807,10 +906,41 @@ export function createHomeAssetsImportModule(
   }
 
   /**
-   * 处理文件拖放导入，按类型分发到 SVG 或位图导入流程。
+   * 处理左侧插入项拖放到画布的场景：优先消费自定义插入负载，未命中时再退回到文件导入流程。
    */
   async function handleCanvasDrop(event: DragEvent) {
     event.preventDefault()
+    const insertPayload = readInsertDragPayload(event.dataTransfer)
+    if (insertPayload) {
+      const scenePoint = getScenePointFromDragEvent(event)
+      switch (insertPayload.kind) {
+        case 'shape': {
+          const shape = findShapeLibraryItem(insertPayload.itemId)
+          if (shape) options.addShape(shape, scenePoint)
+          break
+        }
+        case 'text': {
+          const preset = findTextPreset(insertPayload.itemId)
+          if (preset) options.addText(preset, scenePoint)
+          break
+        }
+        case 'template': {
+          const template = findIconTemplate(insertPayload.itemId)
+          if (template) await insertIconTemplate(template, scenePoint)
+          break
+        }
+        case 'user-asset': {
+          const asset = findUserAsset(insertPayload.itemId)
+          if (asset) await insertUserAsset(asset, scenePoint)
+          break
+        }
+        case 'iconify':
+          await insertIconifyIcon(insertPayload.iconName, scenePoint)
+          break
+      }
+      return
+    }
+
     const files = Array.from(event.dataTransfer?.files ?? [])
     if (!files.length) return
     for (const file of files) {
@@ -872,14 +1002,14 @@ export function createHomeAssetsImportModule(
    * 获取指定 Iconify 图标的 SVG 并复用 SVG 导入流程，使插入结果保持可改色、缩放和导出。
    * Iconify 图标默认锁定宽高比例，避免图标被非等比拉伸后出现视觉失真。
    */
-  async function insertIconifyIcon(iconName: string) {
+  async function insertIconifyIcon(iconName: string, scenePoint: InsertScenePoint | null = null) {
     if (!options.getFabricCanvas() || iconifySearch.inserting) return
     iconifySearch.inserting = iconName
     iconifySearch.error = ''
     try {
       const response = await fetch(buildIconifySVGUrl(iconName))
       if (!response.ok) throw new Error(`Iconify 图标获取失败：${response.status}`)
-      await importSVGText(await response.text(), getIconifyDisplayName(iconName), true)
+      await importSVGText(await response.text(), getIconifyDisplayName(iconName), true, scenePoint)
     } catch (error) {
       iconifySearch.error = error instanceof Error ? error.message : 'Iconify 图标插入失败'
     } finally {
