@@ -6302,6 +6302,25 @@ export function useHomeEditorRuntime() {
     return null
   }
 
+  // 在画布区域按住 Ctrl + 滚轮时，以指针位置为锚点缩放并同步滚动偏移，避免浏览器接管页面缩放。
+  function handleCanvasAreaWheel(event: WheelEvent) {
+    if (!event.ctrlKey || !canvasAreaRef.value) return
+    event.preventDefault()
+    const area = canvasAreaRef.value
+    const rect = area.getBoundingClientRect()
+    const pointerOffsetX = event.clientX - rect.left
+    const pointerOffsetY = event.clientY - rect.top
+    const contentX = area.scrollLeft + pointerOffsetX
+    const contentY = area.scrollTop + pointerOffsetY
+    const currentZoom = zoom.value
+    const nextZoom = currentZoom * Math.exp(-event.deltaY * 0.002)
+    const logicalX = contentX / currentZoom
+    const logicalY = contentY / currentZoom
+    setZoom(nextZoom)
+    area.scrollLeft = logicalX * zoom.value - pointerOffsetX
+    area.scrollTop = logicalY * zoom.value - pointerOffsetY
+  }
+
   function handleCanvasAreaPointerDown(event: PointerEvent) {
     if (!spacePanReady.value || !canvasAreaRef.value) return
     event.preventDefault()
@@ -6888,6 +6907,7 @@ export function useHomeEditorRuntime() {
     layerDown,
     layerTop,
     layerBottom,
-    handleCanvasAreaPointerDown
+    handleCanvasAreaPointerDown,
+    handleCanvasAreaWheel
   }
 }

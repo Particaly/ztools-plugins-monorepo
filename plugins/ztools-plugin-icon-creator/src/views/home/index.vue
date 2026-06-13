@@ -109,6 +109,7 @@
           class="canvas-area"
           ref="canvasAreaRef"
           @pointerdown.capture="handleCanvasAreaPointerDown"
+          @wheel="handleCanvasAreaWheel"
           @dragover.prevent="assetsImportCommands.handleCanvasDragOver"
           @drop.prevent="assetsImportCommands.handleCanvasDrop"
         >
@@ -622,7 +623,8 @@ const {
   layerDown,
   layerTop,
   layerBottom,
-  handleCanvasAreaPointerDown
+  handleCanvasAreaPointerDown,
+  handleCanvasAreaWheel
 } = useHomeEditorRuntime()
 </script>
 
