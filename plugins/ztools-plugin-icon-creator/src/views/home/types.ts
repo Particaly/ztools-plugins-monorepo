@@ -52,7 +52,7 @@ export type StylePresetSettings = {
   colorPaletteGroups: ColorPaletteGroup[]
   gradientPresets: GradientPresetItem[]
   colorColumns: number
-  gradientPresetVisibleCount: number
+  gradientPresetRows: number
 }
 
 export type UserStylePresets = {

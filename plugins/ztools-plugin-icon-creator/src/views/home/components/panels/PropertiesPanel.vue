@@ -334,7 +334,7 @@
           <div class="style-preset-title-row gradient-preset-title-row">
             <span>渐变预设</span>
             <div class="style-preset-actions">
-              <button class="tb-btn sm" title="管理渐变预设和展示条数" @click="openStylePresetManager('gradients')">设置</button>
+              <button class="tb-btn sm" title="管理渐变预设和展示行数" @click="openStylePresetManager('gradients')">设置</button>
             </div>
           </div>
           <div class="gradient-preset-grid">

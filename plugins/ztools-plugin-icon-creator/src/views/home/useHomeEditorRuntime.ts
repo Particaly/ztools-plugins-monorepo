@@ -42,11 +42,12 @@ import {
   DEFAULT_KEYLINE_TEMPLATE,
   DEFAULT_PIXEL_GRID_SIZE,
   EXPORT_PNG_SIZE_OPTIONS,
+  GRADIENT_PRESET_GRID_COLUMNS,
   ICONIFY_SEARCH_LIMIT,
   MAX_COLOR_PALETTE_COLUMNS,
-  MAX_GRADIENT_PRESET_VISIBLE_COUNT,
+  MAX_GRADIENT_PRESET_ROWS,
   MIN_COLOR_PALETTE_COLUMNS,
-  MIN_GRADIENT_PRESET_VISIBLE_COUNT,
+  MIN_GRADIENT_PRESET_ROWS,
   MIN_PIXEL_GRID_VISIBLE_STEP,
   SMALL_PREVIEW_SIZE_OPTIONS,
   STYLE_PRESET_STORAGE_SCHEMA_VERSION,
@@ -542,7 +543,10 @@ export function useHomeEditorRuntime() {
       stops: preset.stops.map((stop) => ({ ...stop }))
     })),
     colorColumns: DEFAULT_COLOR_PALETTE_COLUMNS,
-    gradientPresetVisibleCount: defaultGradientPresets.length
+    gradientPresetRows: Math.max(
+      MIN_GRADIENT_PRESET_ROWS,
+      Math.ceil(defaultGradientPresets.length / GRADIENT_PRESET_GRID_COLUMNS)
+    )
   })
   const stylePresetManagerState = reactive<{
     show: boolean
@@ -676,16 +680,22 @@ export function useHomeEditorRuntime() {
   let previewRenderTimer: ReturnType<typeof window.setTimeout> | null = null
   const visibleColorPaletteGroups = computed(() => stylePresetSettings.colorPaletteGroups)
   const visibleGradientPresets = computed(() => {
-    const count = Math.min(stylePresetSettings.gradientPresetVisibleCount, stylePresetSettings.gradientPresets.length)
-    return stylePresetSettings.gradientPresets.slice(0, Math.max(0, count))
+    const maxCount = Math.max(
+      GRADIENT_PRESET_GRID_COLUMNS,
+      stylePresetSettings.gradientPresetRows * GRADIENT_PRESET_GRID_COLUMNS
+    )
+    return stylePresetSettings.gradientPresets.slice(0, maxCount)
   })
   const stylePresetColorColumns = computed(() => stylePresetSettings.colorColumns)
   const stylePresetGradientPresets = computed(() => stylePresetSettings.gradientPresets)
-  const stylePresetGradientVisibleCount = computed(() => stylePresetSettings.gradientPresetVisibleCount)
+  const stylePresetGradientRows = computed(() => stylePresetSettings.gradientPresetRows)
   const defaultStylePresetColorPaletteGroups = computed(() => cloneManagedColorPaletteGroups(defaultColorPaletteGroups))
   const defaultStylePresetGradientPresets = computed(() => cloneManagedGradientPresets(defaultGradientPresets))
   const defaultStylePresetColorColumns = DEFAULT_COLOR_PALETTE_COLUMNS
-  const defaultStylePresetGradientVisibleCount = defaultGradientPresets.length
+  const defaultStylePresetGradientRows = Math.max(
+    MIN_GRADIENT_PRESET_ROWS,
+    Math.ceil(defaultGradientPresets.length / GRADIENT_PRESET_GRID_COLUMNS)
+  )
   function refreshLayers() {
     selectionCommands.refreshLayers()
   }
@@ -2503,11 +2513,20 @@ export function useHomeEditorRuntime() {
     return Math.min(MAX_COLOR_PALETTE_COLUMNS, Math.max(MIN_COLOR_PALETTE_COLUMNS, parsed))
   }
 
-  // 将渐变展示条数收敛为正整数，既兼容手输配置，也避免属性面板出现无意义的超长列表。
-  function normalizeGradientPresetVisibleCount(value: unknown, fallback = defaultGradientPresets.length) {
+  // 将渐变展示行数限制在合理范围内，结合固定两列布局控制右侧面板露出的预设数量。
+  function normalizeGradientPresetRows(
+    value: unknown,
+    fallback = Math.ceil(defaultGradientPresets.length / GRADIENT_PRESET_GRID_COLUMNS)
+  ) {
     const parsed = Math.round(Number(value))
     if (!Number.isFinite(parsed)) return fallback
-    return Math.min(MAX_GRADIENT_PRESET_VISIBLE_COUNT, Math.max(MIN_GRADIENT_PRESET_VISIBLE_COUNT, parsed))
+    return Math.min(MAX_GRADIENT_PRESET_ROWS, Math.max(MIN_GRADIENT_PRESET_ROWS, parsed))
+  }
+
+  // 按固定两列网格把预设数量折算为展示行数，兼容默认值计算和旧版“展示条数”配置迁移。
+  function getGradientPresetRowsFromCount(count: unknown) {
+    const parsed = Math.max(0, Math.round(Number(count) || 0))
+    return normalizeGradientPresetRows(Math.ceil(parsed / GRADIENT_PRESET_GRID_COLUMNS))
   }
 
   // 读取本地颜色预设时执行最小校验，过滤空颜色并为旧数据补齐名称和 id。
@@ -2579,7 +2598,10 @@ export function useHomeEditorRuntime() {
     stylePresetSettings.colorPaletteGroups = cloneManagedColorPaletteGroups(defaultColorPaletteGroups)
     stylePresetSettings.gradientPresets = cloneManagedGradientPresets(defaultGradientPresets)
     stylePresetSettings.colorColumns = DEFAULT_COLOR_PALETTE_COLUMNS
-    stylePresetSettings.gradientPresetVisibleCount = defaultGradientPresets.length
+    stylePresetSettings.gradientPresetRows = Math.max(
+      MIN_GRADIENT_PRESET_ROWS,
+      Math.ceil(defaultGradientPresets.length / GRADIENT_PRESET_GRID_COLUMNS)
+    )
   }
 
   // 旧版本仅保存“我的颜色/渐变”，迁移时把颜色合并成独立分组并追加到系统预设后面。
@@ -2621,9 +2643,11 @@ export function useHomeEditorRuntime() {
         stylePresetSettings.colorPaletteGroups = groups
         stylePresetSettings.gradientPresets = presets
         stylePresetSettings.colorColumns = normalizeColorPaletteColumns(parsed.colorColumns)
-        stylePresetSettings.gradientPresetVisibleCount = normalizeGradientPresetVisibleCount(
-          parsed.gradientPresetVisibleCount,
-          presets.length || defaultGradientPresets.length
+        stylePresetSettings.gradientPresetRows = normalizeGradientPresetRows(
+          parsed.gradientPresetRows,
+          Object.prototype.hasOwnProperty.call(parsed, 'gradientPresetVisibleCount')
+            ? getGradientPresetRowsFromCount(parsed.gradientPresetVisibleCount)
+            : Math.ceil((presets.length || defaultGradientPresets.length) / GRADIENT_PRESET_GRID_COLUMNS)
         )
         return
       }
@@ -2644,9 +2668,9 @@ export function useHomeEditorRuntime() {
         ...legacyGradients
       ]
       stylePresetSettings.colorColumns = DEFAULT_COLOR_PALETTE_COLUMNS
-      stylePresetSettings.gradientPresetVisibleCount = normalizeGradientPresetVisibleCount(
-        parsed.gradientPresetVisibleCount,
-        stylePresetSettings.gradientPresets.length || defaultGradientPresets.length
+      stylePresetSettings.gradientPresetRows = normalizeGradientPresetRows(
+        parsed.gradientPresetRows,
+        getGradientPresetRowsFromCount(parsed.gradientPresetVisibleCount)
       )
     } catch (error) {
       console.warn('读取样式预设失败', error)
@@ -2662,7 +2686,7 @@ export function useHomeEditorRuntime() {
         colorPaletteGroups: stylePresetSettings.colorPaletteGroups,
         gradientPresets: stylePresetSettings.gradientPresets,
         colorColumns: stylePresetSettings.colorColumns,
-        gradientPresetVisibleCount: stylePresetSettings.gradientPresetVisibleCount
+        gradientPresetRows: stylePresetSettings.gradientPresetRows
       }))
     } catch (error) {
       console.warn('保存样式预设失败', error)
@@ -2724,9 +2748,9 @@ export function useHomeEditorRuntime() {
           .filter((item): item is GradientPresetItem => !!item)
         : cloneManagedGradientPresets(defaultGradientPresets)
       stylePresetSettings.colorColumns = normalizeColorPaletteColumns(next.colorColumns)
-      stylePresetSettings.gradientPresetVisibleCount = normalizeGradientPresetVisibleCount(
-        next.gradientPresetVisibleCount,
-        stylePresetSettings.gradientPresets.length || defaultGradientPresets.length
+      stylePresetSettings.gradientPresetRows = normalizeGradientPresetRows(
+        next.gradientPresetRows,
+        Math.ceil((stylePresetSettings.gradientPresets.length || defaultGradientPresets.length) / GRADIENT_PRESET_GRID_COLUMNS)
       )
       saveUserStylePresets()
       stylePresetManagerState.show = false
@@ -7063,11 +7087,11 @@ export function useHomeEditorRuntime() {
     stylePresetManagerState,
     stylePresetColorColumns,
     stylePresetGradientPresets,
-    stylePresetGradientVisibleCount,
+    stylePresetGradientRows,
     defaultStylePresetColorPaletteGroups,
     defaultStylePresetGradientPresets,
     defaultStylePresetColorColumns,
-    defaultStylePresetGradientVisibleCount,
+    defaultStylePresetGradientRows,
     stylePresetCurrentFillColor,
     stylePresetCurrentStrokeColor,
     stylePresetCurrentGradientPreset,

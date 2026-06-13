@@ -446,8 +446,8 @@
       :default-gradient-presets="defaultStylePresetGradientPresets"
       :color-columns="stylePresetColorColumns"
       :default-color-columns="defaultStylePresetColorColumns"
-      :gradient-visible-count="stylePresetGradientVisibleCount"
-      :default-gradient-visible-count="defaultStylePresetGradientVisibleCount"
+      :gradient-rows="stylePresetGradientRows"
+      :default-gradient-rows="defaultStylePresetGradientRows"
       :current-fill-color="stylePresetCurrentFillColor"
       :current-stroke-color="stylePresetCurrentStrokeColor"
       :current-gradient-preset="stylePresetCurrentGradientPreset"
@@ -579,11 +579,11 @@ const {
   stylePresetManagerState,
   stylePresetColorColumns,
   stylePresetGradientPresets,
-  stylePresetGradientVisibleCount,
+  stylePresetGradientRows,
   defaultStylePresetColorPaletteGroups,
   defaultStylePresetGradientPresets,
   defaultStylePresetColorColumns,
-  defaultStylePresetGradientVisibleCount,
+  defaultStylePresetGradientRows,
   stylePresetCurrentFillColor,
   stylePresetCurrentStrokeColor,
   stylePresetCurrentGradientPreset,
