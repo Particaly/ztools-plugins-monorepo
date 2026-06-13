@@ -68,6 +68,29 @@
         @insert-iconify-icon="assetsImportCommands.insertIconifyIcon"
       />
 
+      <!-- 工具栏 -->
+      <HomeToolBar
+        :can-undo="editorSelectors.canUndo"
+        :can-redo="editorSelectors.canRedo"
+        :selection-mode="editorSelectors.selectionMode"
+        :has-editable-points="editorSelectors.hasEditablePoints"
+        :show-artboard-list="editorSelectors.showArtboardList"
+        :show-ruler="editorSelectors.showRuler"
+        :show-pixel-grid="editorSelectors.showPixelGrid"
+        :snap-to-pixel-grid="editorSelectors.snapToPixelGrid"
+        :keyline-active="editorSelectors.isKeylineActive"
+        :shortcut-drawer-open="editorSelectors.shortcutDrawerOpen"
+        @undo="editorCommands.undo"
+        @redo="editorCommands.redo"
+        @set-selection-mode="editorCommands.setSelectionMode"
+        @toggle-artboard-list="editorCommands.toggleArtboardList"
+        @toggle-ruler="editorCommands.toggleRuler"
+        @toggle-pixel-grid="editorCommands.togglePixelGrid"
+        @toggle-snap-to-pixel-grid="editorCommands.toggleSnapToPixelGrid"
+        @toggle-keyline-overlay="editorCommands.toggleKeylineOverlay"
+        @open-shortcut-drawer="editorCommands.openShortcutDrawer"
+      />
+
       <!-- 画板列表 -->
       <ArtboardList
         v-if="editorSelectors.showArtboardList && artboards.length > 0"
@@ -380,6 +403,7 @@
 
 <script setup lang="ts">
 import HomeTopBar from './components/HomeTopBar.vue'
+import HomeToolBar from './components/HomeToolBar.vue'
 import LeftPanel from './components/LeftPanel.vue'
 import ArtboardList from './components/ArtboardList.vue'
 import Ruler from './components/Ruler.vue'

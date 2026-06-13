@@ -2,53 +2,108 @@
   <header class="top-bar">
     <div class="top-bar-left">
       <span class="app-title">图标编辑器</span>
+      <nav class="top-menu-strip" aria-label="主菜单">
+        <ZPopover
+          v-for="menu in topMenus"
+          :key="menu.id"
+          class="top-menu-popover"
+          :show="openMenuId === menu.id"
+          trigger="click"
+          placement="bottom-start"
+          :to="false"
+          show-arrow
+          @update:show="handleTopMenuShowChange(menu.id, $event)"
+        >
+          <template #trigger>
+            <ZButton
+              size="small"
+              class="top-menu-trigger"
+              :class="{ 'is-active': openMenuId === menu.id }"
+              :title="`${menu.label}菜单`"
+            >
+              {{ menu.label }}
+            </ZButton>
+          </template>
+          <div class="top-menu-panel" role="menu">
+            <template v-for="entry in menu.items" :key="entry.id">
+              <span v-if="entry.type === 'separator'" class="top-menu-separator" role="separator"></span>
+              <button
+                v-else
+                type="button"
+                class="top-menu-item"
+                :class="{ 'is-active': entry.active }"
+                :disabled="entry.disabled"
+                :title="entry.title"
+                role="menuitem"
+                @click="runTopMenuItem(entry)"
+              >
+                <Icon v-if="entry.icon" class="top-menu-item-icon" :icon="entry.icon" aria-hidden="true" />
+                <span class="top-menu-item-label">{{ entry.label }}</span>
+                <span v-if="entry.active" class="top-menu-item-state">开</span>
+              </button>
+            </template>
+          </div>
+        </ZPopover>
+      </nav>
     </div>
-    <div class="top-bar-center">
-      <ZButton size="small" class="top-bar-btn" title="新建" @click="$emit('new-doc')">新建</ZButton>
-      <ZButton size="small" class="top-bar-btn" title="打开工程" @click="$emit('open-project')">打开工程</ZButton>
-      <ZButton size="small" class="top-bar-btn" title="保存工程" @click="$emit('save-project')">保存工程</ZButton>
-      <ZButton size="small" class="top-bar-btn" title="导入 SVG" @click="$emit('import-svg')">导入 SVG</ZButton>
-      <ZButton size="small" class="top-bar-btn" title="粘贴 SVG 或 Path" @click="$emit('open-paste-svg')">粘贴 SVG</ZButton>
-      <ZButton size="small" class="top-bar-btn" title="导入图片" @click="$emit('import-image')">导入图片</ZButton>
-      <ZButton size="small" class="top-bar-btn" title="复制为 SVG" @click="$emit('copy-as-svg')">复制 SVG</ZButton>
-      <ZButton size="small" class="top-bar-btn" title="复制为 PNG" @click="$emit('copy-as-png')">复制 PNG</ZButton>
-      <ZButton size="small" class="top-bar-btn" title="导出面板" @click="$emit('open-export')">导出</ZButton>
-      <span class="tb-sep"></span>
-      <ZButton size="small" class="top-bar-btn" :class="{ 'is-active': showArtboardList }" title="画板列表" @click="$emit('toggle-artboard-list')">画板</ZButton>
-      <span class="tb-sep"></span>
-      <ZButton size="small" class="top-bar-btn" :disabled="!canUndo" title="撤销" @click="$emit('undo')">撤销</ZButton>
-      <ZButton size="small" class="top-bar-btn" :disabled="!canRedo" title="重做" @click="$emit('redo')">重做</ZButton>
-      <span class="tb-sep"></span>
-      <ZButton size="small" class="top-bar-btn" :class="{ 'is-active': showRuler }" title="标尺" @click="$emit('toggle-ruler')">标尺</ZButton>
-      <ZButton size="small" class="top-bar-btn" :class="{ 'is-active': showPixelGrid }" title="像素网格" @click="$emit('toggle-pixel-grid')">网格</ZButton>
-      <ZButton size="small" class="top-bar-btn" :class="{ 'is-active': snapToPixelGrid }" title="吸附到网格" @click="$emit('toggle-snap-to-pixel-grid')">吸附</ZButton>
-      <ZButton size="small" class="top-bar-btn" :class="{ 'is-active': keylineActive }" title="Keyline 与安全区参考线" @click="$emit('toggle-keyline-overlay')">参考线</ZButton>
-      <ZButton size="small" class="top-bar-btn shortcut-topbar-btn" :class="{ 'is-active': shortcutDrawerOpen }" title="快捷键设置" @click="$emit('open-shortcut-drawer')">快捷键</ZButton>
-      <span class="tb-sep"></span>
-      <ZButton size="small" class="top-bar-icon-btn" :class="{ 'is-active': selectionMode === 'shape' }" title="选择图形" @click="$emit('set-selection-mode', 'shape')">
-        <Icon icon="mdi:cursor-default-outline" />
-      </ZButton>
-      <ZButton size="small" class="top-bar-icon-btn" :class="{ 'is-active': selectionMode === 'point' }" :disabled="!hasEditablePoints" title="选择点位" @click="$emit('set-selection-mode', 'point')">
-        <Icon icon="mdi:circle-outline" />
-      </ZButton>
-      <ZButton size="small" class="top-bar-icon-btn" :class="{ 'is-active': selectionMode === 'segment' }" :disabled="!hasEditablePoints" title="选择线段" @click="$emit('set-selection-mode', 'segment')">
-        <Icon icon="mdi:minus" />
-      </ZButton>
-    </div>
+    <div class="top-bar-spacer"></div>
     <div class="top-bar-right">
       <span class="zoom-label">{{ Math.round(zoom * 100) }}%</span>
-      <ZButton size="small" class="top-bar-icon-btn" @click="$emit('set-zoom', zoom - 0.1)">−</ZButton>
-      <ZButton size="small" class="top-bar-icon-btn" @click="$emit('set-zoom', zoom + 0.1)">+</ZButton>
-      <ZButton size="small" class="top-bar-btn top-bar-reset-btn" @click="$emit('set-zoom', 1)">1:1</ZButton>
+      <ZButton size="small" class="top-bar-icon-btn" title="缩小" @click="$emit('set-zoom', zoom - 0.1)">−</ZButton>
+      <ZButton size="small" class="top-bar-icon-btn" title="放大" @click="$emit('set-zoom', zoom + 0.1)">+</ZButton>
+      <ZButton size="small" class="top-bar-btn top-bar-reset-btn" title="重置缩放到 100%" @click="$emit('set-zoom', 1)">1:1</ZButton>
     </div>
   </header>
 </template>
 
 <script setup lang="ts">
 import { Icon } from '@iconify/vue'
-import { ZButton } from 'ztools-ui'
+import { computed, ref } from 'vue'
+import { ZButton, ZPopover } from 'ztools-ui'
 
-defineProps<{
+type TopMenuId = 'file' | 'edit' | 'view' | 'output'
+type TopMenuEvent =
+  | 'new-doc'
+  | 'open-project'
+  | 'save-project'
+  | 'import-svg'
+  | 'open-paste-svg'
+  | 'import-image'
+  | 'copy-as-svg'
+  | 'copy-as-png'
+  | 'open-export'
+  | 'toggle-artboard-list'
+  | 'undo'
+  | 'redo'
+  | 'toggle-ruler'
+  | 'toggle-pixel-grid'
+  | 'toggle-snap-to-pixel-grid'
+  | 'toggle-keyline-overlay'
+  | 'open-shortcut-drawer'
+
+type TopMenuItem = {
+  type: 'item'
+  id: string
+  label: string
+  title: string
+  icon: string
+  event: TopMenuEvent
+  active?: boolean
+  disabled?: boolean
+}
+
+type TopMenuSeparator = {
+  type: 'separator'
+  id: string
+}
+
+type TopMenu = {
+  id: TopMenuId
+  label: string
+  items: Array<TopMenuItem | TopMenuSeparator>
+}
+
+const props = defineProps<{
   canUndo: boolean
   canRedo: boolean
   showRuler: boolean
@@ -62,7 +117,7 @@ defineProps<{
   showArtboardList: boolean
 }>()
 
-defineEmits<{
+const emit = defineEmits<{
   (event: 'new-doc'): void
   (event: 'open-project'): void
   (event: 'save-project'): void
@@ -83,6 +138,136 @@ defineEmits<{
   (event: 'set-selection-mode', mode: 'shape' | 'point' | 'segment'): void
   (event: 'set-zoom', zoom: number): void
 }>()
+
+const openMenuId = ref<TopMenuId | null>(null)
+
+// 菜单配置集中描述顶栏入口，使模板只负责渲染，同时复用现有 props 计算禁用与激活状态。
+const topMenus = computed<TopMenu[]>(() => [
+  {
+    id: 'file',
+    label: '文件',
+    items: [
+      { type: 'item', id: 'new-doc', label: '新建', title: '新建文档', icon: 'mdi:file-plus-outline', event: 'new-doc' },
+      { type: 'item', id: 'open-project', label: '打开工程', title: '打开工程文件', icon: 'mdi:folder-open-outline', event: 'open-project' },
+      { type: 'item', id: 'save-project', label: '保存工程', title: '保存当前工程', icon: 'mdi:content-save-outline', event: 'save-project' },
+      { type: 'separator', id: 'file-import-separator' },
+      { type: 'item', id: 'import-svg', label: '导入 SVG', title: '导入 SVG 文件', icon: 'mdi:svg', event: 'import-svg' },
+      { type: 'item', id: 'open-paste-svg', label: '粘贴 SVG', title: '粘贴 SVG 或 Path', icon: 'mdi:clipboard-text-outline', event: 'open-paste-svg' },
+      { type: 'item', id: 'import-image', label: '导入图片', title: '导入图片', icon: 'mdi:image-plus-outline', event: 'import-image' }
+    ]
+  },
+  {
+    id: 'edit',
+    label: '编辑',
+    items: [
+      { type: 'item', id: 'undo', label: '撤销', title: '撤销上一步操作', icon: 'mdi:undo', event: 'undo', disabled: !props.canUndo },
+      { type: 'item', id: 'redo', label: '重做', title: '重做上一步操作', icon: 'mdi:redo', event: 'redo', disabled: !props.canRedo }
+    ]
+  },
+  {
+    id: 'view',
+    label: '视图',
+    items: [
+      { type: 'item', id: 'toggle-artboard-list', label: '画板', title: '显示或隐藏画板列表', icon: 'mdi:view-dashboard-outline', event: 'toggle-artboard-list', active: props.showArtboardList },
+      { type: 'separator', id: 'view-panel-separator' },
+      { type: 'item', id: 'toggle-ruler', label: '标尺', title: '显示或隐藏标尺', icon: 'mdi:ruler', event: 'toggle-ruler', active: props.showRuler },
+      { type: 'item', id: 'toggle-pixel-grid', label: '网格', title: '显示或隐藏像素网格', icon: 'mdi:grid', event: 'toggle-pixel-grid', active: props.showPixelGrid },
+      { type: 'item', id: 'toggle-snap-to-pixel-grid', label: '吸附', title: '切换吸附到像素网格', icon: 'mdi:magnet', event: 'toggle-snap-to-pixel-grid', active: props.snapToPixelGrid },
+      { type: 'item', id: 'toggle-keyline-overlay', label: '参考线', title: '显示或隐藏 Keyline 与安全区参考线', icon: 'mdi:vector-square', event: 'toggle-keyline-overlay', active: props.keylineActive },
+      { type: 'separator', id: 'view-shortcut-separator' },
+      { type: 'item', id: 'open-shortcut-drawer', label: '快捷键', title: '打开快捷键设置', icon: 'mdi:keyboard-outline', event: 'open-shortcut-drawer', active: props.shortcutDrawerOpen }
+    ]
+  },
+  {
+    id: 'output',
+    label: '输出',
+    items: [
+      { type: 'item', id: 'copy-as-svg', label: '复制 SVG', title: '复制为 SVG', icon: 'mdi:content-copy', event: 'copy-as-svg' },
+      { type: 'item', id: 'copy-as-png', label: '复制 PNG', title: '复制为 PNG', icon: 'mdi:image-multiple-outline', event: 'copy-as-png' },
+      { type: 'separator', id: 'output-export-separator' },
+      { type: 'item', id: 'open-export', label: '导出', title: '打开导出面板', icon: 'mdi:export-variant', event: 'open-export' }
+    ]
+  }
+])
+
+/**
+ * 同步 ZPopover 的显隐状态，保证任一时刻只展开一个顶栏菜单。
+ */
+function handleTopMenuShowChange(menuId: TopMenuId, show: boolean): void {
+  if (show) {
+    openMenuId.value = menuId
+    return
+  }
+
+  if (openMenuId.value === menuId) {
+    openMenuId.value = null
+  }
+}
+
+/**
+ * 执行菜单项对应的现有顶栏事件，并在命令触发后收起菜单。
+ */
+function runTopMenuItem(entry: TopMenuItem): void {
+  if (entry.disabled) {
+    return
+  }
+
+  switch (entry.event) {
+    case 'new-doc':
+      emit('new-doc')
+      break
+    case 'open-project':
+      emit('open-project')
+      break
+    case 'save-project':
+      emit('save-project')
+      break
+    case 'import-svg':
+      emit('import-svg')
+      break
+    case 'open-paste-svg':
+      emit('open-paste-svg')
+      break
+    case 'import-image':
+      emit('import-image')
+      break
+    case 'copy-as-svg':
+      emit('copy-as-svg')
+      break
+    case 'copy-as-png':
+      emit('copy-as-png')
+      break
+    case 'open-export':
+      emit('open-export')
+      break
+    case 'toggle-artboard-list':
+      emit('toggle-artboard-list')
+      break
+    case 'undo':
+      emit('undo')
+      break
+    case 'redo':
+      emit('redo')
+      break
+    case 'toggle-ruler':
+      emit('toggle-ruler')
+      break
+    case 'toggle-pixel-grid':
+      emit('toggle-pixel-grid')
+      break
+    case 'toggle-snap-to-pixel-grid':
+      emit('toggle-snap-to-pixel-grid')
+      break
+    case 'toggle-keyline-overlay':
+      emit('toggle-keyline-overlay')
+      break
+    case 'open-shortcut-drawer':
+      emit('open-shortcut-drawer')
+      break
+  }
+
+  openMenuId.value = null
+}
 </script>
 
 <style lang="scss" scoped>
@@ -96,38 +281,128 @@ defineEmits<{
   padding: 0 10px;
   background: $panel-bg;
   border-bottom: $border;
-  gap: 6px;
+  gap: 8px;
   flex-shrink: 0;
+  position: relative;
+  overflow: visible;
 }
 .top-bar-left {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+
   .app-title {
     font-weight: 700;
     font-size: 14px;
-    margin-right: 12px;
+    margin-right: 14px;
+    white-space: nowrap;
   }
 }
-.top-bar-center {
+.top-menu-strip {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
+  min-width: 0;
+}
+.top-menu-popover {
+  :deep(.zt-popover__content) {
+    min-width: 176px;
+  }
+
+  :deep(.zt-popover__body--card) {
+    padding: 6px;
+  }
+}
+.top-menu-trigger {
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  box-shadow: none;
+  color: #444;
+  white-space: nowrap;
+
+  &:hover:not(:disabled),
+  &.is-active {
+    background: var(--primary-light-bg);
+    border-color: color-mix(in srgb, var(--primary-color), transparent 62%);
+    color: var(--primary-color);
+  }
+}
+.top-menu-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.top-menu-item {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 30px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #444;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  box-sizing: border-box;
+
+  &:hover:not(:disabled) {
+    background: rgba(30, 111, 255, 0.08);
+    color: #222;
+  }
+
+  &:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  &.is-active {
+    background: var(--primary-light-bg);
+    color: var(--primary-color);
+  }
+}
+.top-menu-item-icon {
+  width: 16px;
+  height: 16px;
+}
+.top-menu-item-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.top-menu-item-state {
+  min-width: 18px;
+  color: var(--primary-color);
+  font-size: 11px;
+  text-align: right;
+}
+.top-menu-separator {
+  height: 1px;
+  margin: 4px 2px;
+  background: rgba(128, 128, 128, 0.18);
+}
+.top-bar-spacer {
   flex: 1;
-  justify-content: center;
+  min-width: 8px;
 }
 .top-bar-right {
   display: flex;
   align-items: center;
   gap: 4px;
+  flex-shrink: 0;
+
   .zoom-label {
     font-size: 12px;
     min-width: 42px;
     text-align: right;
   }
-}
-.tb-sep {
-  width: 1px;
-  height: 20px;
-  background: rgba(128, 128, 128, 0.2);
-  margin: 0 4px;
 }
 .top-bar-btn,
 .top-bar-icon-btn {
@@ -178,8 +453,5 @@ defineEmits<{
 .top-bar-reset-btn {
   width: auto;
   min-width: 40px;
-}
-.shortcut-topbar-btn {
-  min-width: 54px;
 }
 </style>
