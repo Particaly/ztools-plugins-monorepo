@@ -17,17 +17,17 @@
       <ZTabPane name="properties" tab="属性" display-directive="show">
         <slot name="properties"></slot>
       </ZTabPane>
-      <ZTabPane name="preview" tab="预览" display-directive="show">
-        <slot name="preview"></slot>
-      </ZTabPane>
-      <ZTabPane name="checks" tab="检查" display-directive="show">
-        <slot name="checks"></slot>
-      </ZTabPane>
       <ZTabPane name="layers" tab="图层" display-directive="show">
         <slot name="layers"></slot>
       </ZTabPane>
       <ZTabPane name="history" tab="历史" display-directive="show">
         <slot name="history"></slot>
+      </ZTabPane>
+      <ZTabPane name="preview" tab="预览" display-directive="show">
+        <slot name="preview"></slot>
+      </ZTabPane>
+      <ZTabPane name="checks" tab="检查" display-directive="show">
+        <slot name="checks"></slot>
       </ZTabPane>
     </ZTabs>
   </aside>
