@@ -247,6 +247,7 @@
             :keyline-opacity="keylineOpacity"
             :color-palette-groups="visibleColorPaletteGroups"
             :gradient-presets="visibleGradientPresets"
+            :color-palette-columns="stylePresetColorColumns"
             :select-kaleidoscope-source-from-instance="selectKaleidoscopeSourceFromInstance"
             :detach-kaleidoscope-instance="detachKaleidoscopeInstance"
             :set-obj-prop-from-input="setObjPropFromInput"
@@ -268,9 +269,8 @@
             :set-fill-gradient-angle-value="setFillGradientAngleValue"
             :set-fill-gradient-radius-value="setFillGradientRadiusValue"
             :apply-color-swatch="applyColorSwatch"
-            :save-current-color-swatch="saveCurrentColorSwatch"
             :apply-gradient-preset="applyGradientPreset"
-            :save-current-gradient-preset="saveCurrentGradientPreset"
+            :open-style-preset-manager="openStylePresetManager"
             :toggle-stroke="toggleStroke"
             :set-stroke-width-from-input="setStrokeWidthFromInput"
             :set-stroke-line-type="setStrokeLineType"
@@ -437,6 +437,24 @@
       @confirm="assetsImportCommands.confirmUserAssetDialog"
     />
 
+    <StylePresetManagerModal
+      :show="stylePresetManagerState.show"
+      :initial-tab="stylePresetManagerState.initialTab"
+      :color-palette-groups="visibleColorPaletteGroups"
+      :gradient-presets="stylePresetGradientPresets"
+      :default-color-palette-groups="defaultStylePresetColorPaletteGroups"
+      :default-gradient-presets="defaultStylePresetGradientPresets"
+      :color-columns="stylePresetColorColumns"
+      :default-color-columns="defaultStylePresetColorColumns"
+      :gradient-visible-count="stylePresetGradientVisibleCount"
+      :default-gradient-visible-count="defaultStylePresetGradientVisibleCount"
+      :current-fill-color="stylePresetCurrentFillColor"
+      :current-stroke-color="stylePresetCurrentStrokeColor"
+      :current-gradient-preset="stylePresetCurrentGradientPreset"
+      @update:show="handleStylePresetManagerShowChange"
+      @confirm="applyStylePresetSettings"
+    />
+
         <!-- 隐藏的文件输入 -->
     <input ref="projectInputRef" type="file" accept=".iconcreator.json,application/json" style="display:none" @change="onProjectFileChosen" />
     <input ref="svgInputRef" type="file" accept=".svg,image/svg+xml" style="display:none" @change="assetsImportCommands.onSVGFileChosen" />
@@ -465,6 +483,7 @@ import PasteSvgModal from './components/modals/PasteSvgModal.vue'
 import ExportModal from './components/modals/ExportModal.vue'
 import LayerRenameModal from './components/modals/LayerRenameModal.vue'
 import UserAssetModal from './components/modals/UserAssetModal.vue'
+import StylePresetManagerModal from './components/modals/StylePresetManagerModal.vue'
 import Toast from './components/Toast.vue'
 import { basicShapes, textPresets, shapePreviewPaths, iconTemplates } from './editorCatalog'
 import { EXPORT_PNG_SIZE_OPTIONS } from './constants'
@@ -557,6 +576,17 @@ const {
   previewItems,
   visibleColorPaletteGroups,
   visibleGradientPresets,
+  stylePresetManagerState,
+  stylePresetColorColumns,
+  stylePresetGradientPresets,
+  stylePresetGradientVisibleCount,
+  defaultStylePresetColorPaletteGroups,
+  defaultStylePresetGradientPresets,
+  defaultStylePresetColorColumns,
+  defaultStylePresetGradientVisibleCount,
+  stylePresetCurrentFillColor,
+  stylePresetCurrentStrokeColor,
+  stylePresetCurrentGradientPreset,
   isFillGradientStopPercentDisabled,
   assetsImportCommands,
   importedUserAssets,
@@ -591,9 +621,10 @@ const {
   editorCommands,
   arrowAggregated,
   applyColorSwatch,
-  saveCurrentColorSwatch,
   applyGradientPreset,
-  saveCurrentGradientPreset,
+  openStylePresetManager,
+  applyStylePresetSettings,
+  handleStylePresetManagerShowChange,
   setPixelGridVisible,
   setSnapToPixelGrid,
   setPixelGridSizeFromInput,

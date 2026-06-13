@@ -1,7 +1,7 @@
 import { ref, shallowRef, triggerRef, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useZtoolsTheme } from 'ztools-ui'
 import { Canvas, Control, FabricObject, Gradient, Textbox, Group, ActiveSelection, FabricImage, Path, Point, Rect, Circle, Triangle, Polygon, Line, StaticCanvas, util, loadSVGFromString } from 'fabric'
-import { basicShapes, textPresets, canvasPresets, shapePreviewPaths, iconTemplates, colorPaletteGroups, gradientPresets } from './editorCatalog'
+import { basicShapes, textPresets, canvasPresets, shapePreviewPaths, iconTemplates, colorPaletteGroups as defaultColorPaletteGroups, gradientPresets as defaultGradientPresets } from './editorCatalog'
 import type { ShapeLibraryItem, TextLibraryItem, IconTemplateItem } from './editorCatalog'
 import {
   DEFAULT_FILL_GRADIENT_ANGLE,
@@ -36,14 +36,20 @@ import {
   BITMAP_VECTOR_DEFAULT_THRESHOLD,
   BITMAP_VECTOR_MAX_TRACE_SIDE,
   BITMAP_VECTOR_TRACE_MULTIPLIER,
+  DEFAULT_COLOR_PALETTE_COLUMNS,
   DEFAULT_KEYLINE_MARGIN,
   DEFAULT_KEYLINE_OPACITY,
   DEFAULT_KEYLINE_TEMPLATE,
   DEFAULT_PIXEL_GRID_SIZE,
   EXPORT_PNG_SIZE_OPTIONS,
   ICONIFY_SEARCH_LIMIT,
+  MAX_COLOR_PALETTE_COLUMNS,
+  MAX_GRADIENT_PRESET_VISIBLE_COUNT,
+  MIN_COLOR_PALETTE_COLUMNS,
+  MIN_GRADIENT_PRESET_VISIBLE_COUNT,
   MIN_PIXEL_GRID_VISIBLE_STEP,
   SMALL_PREVIEW_SIZE_OPTIONS,
+  STYLE_PRESET_STORAGE_SCHEMA_VERSION,
   TEXT_OUTLINE_ALPHA_THRESHOLD,
   TEXT_OUTLINE_TRACE_MULTIPLIER,
   USER_ASSET_MAX_THUMBNAIL_SOURCE_SIZE,
@@ -56,6 +62,7 @@ import type {
   BitmapTraceMode,
   BoundsEndpointAttachment,
   ClipboardEntry,
+  ColorPaletteGroup,
   ColorSwatchItem,
   CurveControlPointKey,
   EditableSegmentRefWithTarget,
@@ -80,10 +87,11 @@ import type {
   SpacePanStart,
   StrokeLineType,
   StrokeOutlineResult,
+  StylePresetManagerTab,
+  StylePresetSettings,
   StyleTargetChannel,
   UiFillGradientStop,
-  UserAssetItem,
-  UserStylePresets
+  UserAssetItem
 } from './types'
 import { isTransparentCanvasBg, normalizeCanvasBg, normalizeKeylineMargin, normalizeKeylineOpacity, normalizeKeylineTemplate, normalizePixelGridSize } from './canvasSettings'
 import { buildIconCheckIssues as buildIconCheckIssuesFromContext } from './iconChecks'
@@ -524,9 +532,24 @@ export function useHomeEditorRuntime() {
   }
 
   // 图层搜索
-  const userStylePresets = reactive<UserStylePresets>({
-    colors: [],
-    gradients: []
+  const stylePresetSettings = reactive<StylePresetSettings>({
+    colorPaletteGroups: defaultColorPaletteGroups.map((group) => ({
+      ...group,
+      colors: group.colors.map((color) => ({ ...color }))
+    })),
+    gradientPresets: defaultGradientPresets.map((preset) => ({
+      ...preset,
+      stops: preset.stops.map((stop) => ({ ...stop }))
+    })),
+    colorColumns: DEFAULT_COLOR_PALETTE_COLUMNS,
+    gradientPresetVisibleCount: defaultGradientPresets.length
+  })
+  const stylePresetManagerState = reactive<{
+    show: boolean
+    initialTab: StylePresetManagerTab
+  }>({
+    show: false,
+    initialTab: 'colors'
   })
 
   // Toast 通知状态
@@ -651,18 +674,18 @@ export function useHomeEditorRuntime() {
   const previewItems = shallowRef<PreviewItem[]>([])
   const previewDirty = ref(true)
   let previewRenderTimer: ReturnType<typeof window.setTimeout> | null = null
-  const visibleColorPaletteGroups = computed(() => {
-    const groups = [...colorPaletteGroups]
-    if (userStylePresets.colors.length) {
-      groups.push({
-        id: 'user',
-        name: '我的颜色',
-        colors: userStylePresets.colors
-      })
-    }
-    return groups
+  const visibleColorPaletteGroups = computed(() => stylePresetSettings.colorPaletteGroups)
+  const visibleGradientPresets = computed(() => {
+    const count = Math.min(stylePresetSettings.gradientPresetVisibleCount, stylePresetSettings.gradientPresets.length)
+    return stylePresetSettings.gradientPresets.slice(0, Math.max(0, count))
   })
-  const visibleGradientPresets = computed(() => [...gradientPresets, ...userStylePresets.gradients])
+  const stylePresetColorColumns = computed(() => stylePresetSettings.colorColumns)
+  const stylePresetGradientPresets = computed(() => stylePresetSettings.gradientPresets)
+  const stylePresetGradientVisibleCount = computed(() => stylePresetSettings.gradientPresetVisibleCount)
+  const defaultStylePresetColorPaletteGroups = computed(() => cloneManagedColorPaletteGroups(defaultColorPaletteGroups))
+  const defaultStylePresetGradientPresets = computed(() => cloneManagedGradientPresets(defaultGradientPresets))
+  const defaultStylePresetColorColumns = DEFAULT_COLOR_PALETTE_COLUMNS
+  const defaultStylePresetGradientVisibleCount = defaultGradientPresets.length
   function refreshLayers() {
     selectionCommands.refreshLayers()
   }
@@ -2441,9 +2464,26 @@ export function useHomeEditorRuntime() {
     }
   }
 
-  // 为用户保存的颜色和渐变生成稳定 id，避免同名预设在列表渲染和再次应用时互相覆盖。
-  function createUserStylePresetId(kind: 'color' | 'gradient') {
+  // 为样式预设生成稳定 id，避免分组、颜色和渐变在排序、编辑或二次保存后互相覆盖。
+  function createUserStylePresetId(kind: 'color' | 'gradient' | 'color-group') {
     return `${kind}-preset-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+  }
+
+  // 深拷贝色板分组，保证管理弹窗和持久化写入都不会复用编辑器内置配置的对象引用。
+  function cloneManagedColorPaletteGroups(groups: ColorPaletteGroup[]) {
+    return groups.map((group) => ({
+      id: group.id,
+      name: group.name,
+      colors: group.colors.map((color) => ({ ...color }))
+    }))
+  }
+
+  // 深拷贝渐变预设及其色标，避免应用预设或弹窗编辑时直接改写当前运行中的列表源数据。
+  function cloneManagedGradientPresets(presets: GradientPresetItem[]) {
+    return presets.map((preset) => ({
+      ...preset,
+      stops: preset.stops.map((stop) => ({ ...stop }))
+    }))
   }
 
   // 规范用户样式预设名称；本地旧数据缺失名称时回退到便于识别的默认标题。
@@ -2456,6 +2496,20 @@ export function useHomeEditorRuntime() {
     return typeof value === 'string' && value.trim() ? value.trim() : ''
   }
 
+  // 将色板列数限制在可读范围内，避免配置异常时把属性面板挤成无法点击的极窄色块。
+  function normalizeColorPaletteColumns(value: unknown, fallback = DEFAULT_COLOR_PALETTE_COLUMNS) {
+    const parsed = Math.round(Number(value))
+    if (!Number.isFinite(parsed)) return fallback
+    return Math.min(MAX_COLOR_PALETTE_COLUMNS, Math.max(MIN_COLOR_PALETTE_COLUMNS, parsed))
+  }
+
+  // 将渐变展示条数收敛为正整数，既兼容手输配置，也避免属性面板出现无意义的超长列表。
+  function normalizeGradientPresetVisibleCount(value: unknown, fallback = defaultGradientPresets.length) {
+    const parsed = Math.round(Number(value))
+    if (!Number.isFinite(parsed)) return fallback
+    return Math.min(MAX_GRADIENT_PRESET_VISIBLE_COUNT, Math.max(MIN_GRADIENT_PRESET_VISIBLE_COUNT, parsed))
+  }
+
   // 读取本地颜色预设时执行最小校验，过滤空颜色并为旧数据补齐名称和 id。
   function normalizeStoredColorSwatch(value: unknown, index: number): ColorSwatchItem | null {
     const source = value && typeof value === 'object' ? value as Partial<ColorSwatchItem> : null
@@ -2465,6 +2519,22 @@ export function useHomeEditorRuntime() {
       id: typeof source.id === 'string' && source.id.trim() ? source.id : createUserStylePresetId('color'),
       name: normalizeUserStylePresetName(source.name, `颜色 ${index + 1}`),
       color
+    }
+  }
+
+  // 读取本地色板分组时保留空分类，便于用户先搭好结构再逐步补颜色。
+  function normalizeStoredColorPaletteGroup(value: unknown, index: number): ColorPaletteGroup | null {
+    const source = value && typeof value === 'object' ? value as Partial<ColorPaletteGroup> : null
+    if (!source) return null
+    const colors = Array.isArray(source.colors)
+      ? source.colors
+        .map(normalizeStoredColorSwatch)
+        .filter((item): item is ColorSwatchItem => !!item)
+      : []
+    return {
+      id: typeof source.id === 'string' && source.id.trim() ? source.id : createUserStylePresetId('color-group'),
+      name: normalizeUserStylePresetName(source.name, `分类 ${index + 1}`),
+      colors
     }
   }
 
@@ -2500,43 +2570,175 @@ export function useHomeEditorRuntime() {
       centerX: normalizeGradientPresetUnit(source.centerX),
       centerY: normalizeGradientPresetUnit(source.centerY),
       radius: normalizeFillGradientRadiusInput(Number(source.radius ?? DEFAULT_FILL_GRADIENT_RADIUS)),
+      userCreated: source.userCreated === true
+    }
+  }
+
+  // 恢复为编辑器内置色板和渐变基线；重置操作与异常回退都复用这一份默认构建逻辑。
+  function resetStylePresetSettingsToDefault() {
+    stylePresetSettings.colorPaletteGroups = cloneManagedColorPaletteGroups(defaultColorPaletteGroups)
+    stylePresetSettings.gradientPresets = cloneManagedGradientPresets(defaultGradientPresets)
+    stylePresetSettings.colorColumns = DEFAULT_COLOR_PALETTE_COLUMNS
+    stylePresetSettings.gradientPresetVisibleCount = defaultGradientPresets.length
+  }
+
+  // 旧版本仅保存“我的颜色/渐变”，迁移时把颜色合并成独立分组并追加到系统预设后面。
+  function buildMigratedColorPaletteGroups(legacyColors: ColorSwatchItem[]) {
+    const groups = cloneManagedColorPaletteGroups(defaultColorPaletteGroups)
+    if (!legacyColors.length) return groups
+    groups.push({
+      id: createUserStylePresetId('color-group'),
+      name: '我的颜色',
+      colors: legacyColors.map((item) => ({ ...item }))
+    })
+    return groups
+  }
+
+  // 启动时加载用户保存的样式预设；兼容旧版仅有 colors/gradients 的结构，并允许新版保存空分组或空预设。
+  function loadUserStylePresets() {
+    try {
+      const raw = window.localStorage.getItem(USER_STYLE_PRESET_STORAGE_KEY)
+      if (!raw) {
+        resetStylePresetSettingsToDefault()
+        return
+      }
+      const parsed = JSON.parse(raw) as Record<string, unknown>
+      const isManagedSchema = Number(parsed.schemaVersion) >= STYLE_PRESET_STORAGE_SCHEMA_VERSION
+        || Object.prototype.hasOwnProperty.call(parsed, 'colorPaletteGroups')
+        || Object.prototype.hasOwnProperty.call(parsed, 'gradientPresets')
+
+      if (isManagedSchema) {
+        const groups = Array.isArray(parsed.colorPaletteGroups)
+          ? parsed.colorPaletteGroups
+            .map(normalizeStoredColorPaletteGroup)
+            .filter((item): item is ColorPaletteGroup => !!item)
+          : cloneManagedColorPaletteGroups(defaultColorPaletteGroups)
+        const presets = Array.isArray(parsed.gradientPresets)
+          ? parsed.gradientPresets
+            .map(normalizeStoredGradientPreset)
+            .filter((item): item is GradientPresetItem => !!item)
+          : cloneManagedGradientPresets(defaultGradientPresets)
+        stylePresetSettings.colorPaletteGroups = groups
+        stylePresetSettings.gradientPresets = presets
+        stylePresetSettings.colorColumns = normalizeColorPaletteColumns(parsed.colorColumns)
+        stylePresetSettings.gradientPresetVisibleCount = normalizeGradientPresetVisibleCount(
+          parsed.gradientPresetVisibleCount,
+          presets.length || defaultGradientPresets.length
+        )
+        return
+      }
+
+      const legacyColors = Array.isArray(parsed.colors)
+        ? parsed.colors
+          .map(normalizeStoredColorSwatch)
+          .filter((item): item is ColorSwatchItem => !!item)
+        : []
+      const legacyGradients = Array.isArray(parsed.gradients)
+        ? parsed.gradients
+          .map(normalizeStoredGradientPreset)
+          .filter((item): item is GradientPresetItem => !!item)
+        : []
+      stylePresetSettings.colorPaletteGroups = buildMigratedColorPaletteGroups(legacyColors)
+      stylePresetSettings.gradientPresets = [
+        ...cloneManagedGradientPresets(defaultGradientPresets),
+        ...legacyGradients
+      ]
+      stylePresetSettings.colorColumns = DEFAULT_COLOR_PALETTE_COLUMNS
+      stylePresetSettings.gradientPresetVisibleCount = normalizeGradientPresetVisibleCount(
+        parsed.gradientPresetVisibleCount,
+        stylePresetSettings.gradientPresets.length || defaultGradientPresets.length
+      )
+    } catch (error) {
+      console.warn('读取样式预设失败', error)
+      resetStylePresetSettingsToDefault()
+    }
+  }
+
+  // 将当前样式预设完整写回 localStorage，保存失败时抛出错误供弹窗或按钮操作提示用户。
+  function saveUserStylePresets() {
+    try {
+      window.localStorage.setItem(USER_STYLE_PRESET_STORAGE_KEY, JSON.stringify({
+        schemaVersion: STYLE_PRESET_STORAGE_SCHEMA_VERSION,
+        colorPaletteGroups: stylePresetSettings.colorPaletteGroups,
+        gradientPresets: stylePresetSettings.gradientPresets,
+        colorColumns: stylePresetSettings.colorColumns,
+        gradientPresetVisibleCount: stylePresetSettings.gradientPresetVisibleCount
+      }))
+    } catch (error) {
+      console.warn('保存样式预设失败', error)
+      throw new Error('保存样式预设失败，请检查浏览器本地存储空间')
+    }
+  }
+
+  // 获取或创建“我的颜色”分组，供快捷保存当前填充/描边色以及旧功能迁移复用。
+  function getOrCreateUserColorPaletteGroup() {
+    const existing = stylePresetSettings.colorPaletteGroups.find((group) => group.name === '我的颜色')
+    if (existing) return existing
+    const group: ColorPaletteGroup = {
+      id: createUserStylePresetId('color-group'),
+      name: '我的颜色',
+      colors: []
+    }
+    stylePresetSettings.colorPaletteGroups = [...stylePresetSettings.colorPaletteGroups, group]
+    return group
+  }
+
+  // 构造当前对象的渐变快照，供管理弹窗“取当前渐变”和旧快捷保存逻辑复用。
+  function createCurrentGradientPreset(name = '当前渐变'): GradientPresetItem | null {
+    if (!activeObject.value || objProps.fillMode !== 'gradient') return null
+    return {
+      id: createUserStylePresetId('gradient'),
+      name,
+      type: objProps.fillGradientType === 'radial' ? 'radial' : 'linear',
+      stops: cloneFillGradientStops(objProps.fillGradientStops.map(({ color, offset }) => ({ color, offset }))),
+      angle: normalizeGradientPresetAngle(objProps.fillGradientAngle),
+      centerX: normalizeGradientPresetUnit(objProps.fillGradientCenterX),
+      centerY: normalizeGradientPresetUnit(objProps.fillGradientCenterY),
+      radius: normalizeFillGradientRadiusInput(objProps.fillGradientRadius),
       userCreated: true
     }
   }
 
-  // 启动时加载用户保存的颜色和渐变预设；解析失败只清空内存状态，避免影响编辑器主体功能。
-  function loadUserStylePresets() {
+  // 打开样式预设管理弹窗，并记住入口来源，便于直接切到色板或渐变管理页签。
+  function openStylePresetManager(tab: StylePresetManagerTab) {
+    stylePresetManagerState.initialTab = tab
+    stylePresetManagerState.show = true
+  }
+
+  // 统一同步样式预设管理弹窗显隐，供外层 Modal 的 v-model 透传使用。
+  function handleStylePresetManagerShowChange(show: boolean) {
+    stylePresetManagerState.show = show
+  }
+
+  // 应用管理弹窗提交的完整配置；这里只更新本地样式体系，不写入撤销栈也不改动画板数据。
+  function applyStylePresetSettings(next: StylePresetSettings) {
     try {
-      const raw = window.localStorage.getItem(USER_STYLE_PRESET_STORAGE_KEY)
-      if (!raw) return
-      const parsed = JSON.parse(raw) as Partial<UserStylePresets>
-      const rawColors = Array.isArray(parsed.colors) ? parsed.colors : []
-      const rawGradients = Array.isArray(parsed.gradients) ? parsed.gradients : []
-      userStylePresets.colors = rawColors
-        .map(normalizeStoredColorSwatch)
-        .filter((item): item is ColorSwatchItem => !!item)
-      userStylePresets.gradients = rawGradients
-        .map(normalizeStoredGradientPreset)
-        .filter((item): item is GradientPresetItem => !!item)
+      stylePresetSettings.colorPaletteGroups = Array.isArray(next.colorPaletteGroups)
+        ? next.colorPaletteGroups
+          .map(normalizeStoredColorPaletteGroup)
+          .filter((item): item is ColorPaletteGroup => !!item)
+        : cloneManagedColorPaletteGroups(defaultColorPaletteGroups)
+      stylePresetSettings.gradientPresets = Array.isArray(next.gradientPresets)
+        ? next.gradientPresets
+          .map(normalizeStoredGradientPreset)
+          .filter((item): item is GradientPresetItem => !!item)
+        : cloneManagedGradientPresets(defaultGradientPresets)
+      stylePresetSettings.colorColumns = normalizeColorPaletteColumns(next.colorColumns)
+      stylePresetSettings.gradientPresetVisibleCount = normalizeGradientPresetVisibleCount(
+        next.gradientPresetVisibleCount,
+        stylePresetSettings.gradientPresets.length || defaultGradientPresets.length
+      )
+      saveUserStylePresets()
+      stylePresetManagerState.show = false
+      showToast('样式预设已保存', 'success')
     } catch (error) {
-      console.warn('读取样式预设失败', error)
-      userStylePresets.colors = []
-      userStylePresets.gradients = []
+      showToast(error instanceof Error ? error.message : '保存样式预设失败', 'error')
     }
   }
 
-  // 将用户自定义颜色和渐变写入 localStorage，供重启插件后继续复用个人配色风格。
-  function saveUserStylePresets() {
-    try {
-      window.localStorage.setItem(USER_STYLE_PRESET_STORAGE_KEY, JSON.stringify({
-        schemaVersion: 1,
-        colors: userStylePresets.colors,
-        gradients: userStylePresets.gradients
-      }))
-    } catch (error) {
-      console.warn('保存样式预设失败', error)
-    }
-  }
+  const stylePresetCurrentFillColor = computed(() => normalizeSavedColor(objProps.fill))
+  const stylePresetCurrentStrokeColor = computed(() => normalizeSavedColor(objProps.stroke))
+  const stylePresetCurrentGradientPreset = computed(() => createCurrentGradientPreset())
 
   // 应用描边色板时同步补齐描边宽度，确保从无描边对象点击色板也能立即看到效果。
   function applyStrokeColorSwatch(color: string) {
@@ -2578,20 +2780,23 @@ export function useHomeEditorRuntime() {
     setSolidFillColor(normalized)
   }
 
-  // 把当前填充色或描边色保存到“我的颜色”，重复颜色会前置更新名称，避免本地色板堆积重复项。
+  // 兼容旧快捷保存入口：把当前填充色或描边色加入“我的颜色”，重复颜色会前置刷新名称。
   function saveCurrentColorSwatch(channel: StyleTargetChannel) {
     const color = normalizeSavedColor(channel === 'stroke' ? objProps.stroke : objProps.fill)
     if (!color) return
-    const name = `${channel === 'stroke' ? '描边色' : '填充色'} ${userStylePresets.colors.length + 1}`
-    const existingIndex = userStylePresets.colors.findIndex((item) => item.color.toLowerCase() === color.toLowerCase())
+    const group = getOrCreateUserColorPaletteGroup()
+    const name = `${channel === 'stroke' ? '描边色' : '填充色'} ${group.colors.length + 1}`
+    const existingIndex = group.colors.findIndex((item) => item.color.toLowerCase() === color.toLowerCase())
     if (existingIndex >= 0) {
-      const [existing] = userStylePresets.colors.splice(existingIndex, 1)
+      const [existing] = group.colors.splice(existingIndex, 1)
       existing.name = name
-      userStylePresets.colors = [existing, ...userStylePresets.colors]
+      group.colors.unshift(existing)
     } else {
-      userStylePresets.colors = [{ id: createUserStylePresetId('color'), name, color }, ...userStylePresets.colors]
+      group.colors.unshift({ id: createUserStylePresetId('color'), name, color })
     }
+    stylePresetSettings.colorPaletteGroups = [...stylePresetSettings.colorPaletteGroups]
     saveUserStylePresets()
+    showToast('已保存到我的颜色', 'success')
   }
 
   // 将渐变预设写入当前填充，保留对象原位置尺寸并刷新径向渐变控制点和万花筒同步内容。
@@ -2624,23 +2829,13 @@ export function useHomeEditorRuntime() {
     syncObjProps()
   }
 
-  // 保存当前对象填充渐变为用户预设；只有处于渐变填充模式时才会生成可复用条目。
+  // 兼容旧快捷保存入口：把当前对象渐变插到预设列表前面，便于立刻在右侧面板再次复用。
   function saveCurrentGradientPreset() {
-    if (!activeObject.value || objProps.fillMode !== 'gradient') return
-    const name = `渐变 ${userStylePresets.gradients.length + 1}`
-    const preset: GradientPresetItem = {
-      id: createUserStylePresetId('gradient'),
-      name,
-      type: objProps.fillGradientType === 'radial' ? 'radial' : 'linear',
-      stops: cloneFillGradientStops(objProps.fillGradientStops.map(({ color, offset }) => ({ color, offset }))),
-      angle: normalizeGradientPresetAngle(objProps.fillGradientAngle),
-      centerX: normalizeGradientPresetUnit(objProps.fillGradientCenterX),
-      centerY: normalizeGradientPresetUnit(objProps.fillGradientCenterY),
-      radius: normalizeFillGradientRadiusInput(objProps.fillGradientRadius),
-      userCreated: true
-    }
-    userStylePresets.gradients = [preset, ...userStylePresets.gradients]
+    const preset = createCurrentGradientPreset(`渐变 ${stylePresetSettings.gradientPresets.length + 1}`)
+    if (!preset) return
+    stylePresetSettings.gradientPresets = [preset, ...stylePresetSettings.gradientPresets]
     saveUserStylePresets()
+    showToast('已保存当前渐变', 'success')
   }
 
   // 打开保存素材弹窗，并使用当前选区名称作为默认值以减少重复输入。
@@ -6865,6 +7060,17 @@ export function useHomeEditorRuntime() {
     previewItems,
     visibleColorPaletteGroups,
     visibleGradientPresets,
+    stylePresetManagerState,
+    stylePresetColorColumns,
+    stylePresetGradientPresets,
+    stylePresetGradientVisibleCount,
+    defaultStylePresetColorPaletteGroups,
+    defaultStylePresetGradientPresets,
+    defaultStylePresetColorColumns,
+    defaultStylePresetGradientVisibleCount,
+    stylePresetCurrentFillColor,
+    stylePresetCurrentStrokeColor,
+    stylePresetCurrentGradientPreset,
     isFillGradientStopPercentDisabled,
     assetsImportCommands,
     importedUserAssets,
@@ -6902,6 +7108,9 @@ export function useHomeEditorRuntime() {
     saveCurrentColorSwatch,
     applyGradientPreset,
     saveCurrentGradientPreset,
+    openStylePresetManager,
+    applyStylePresetSettings,
+    handleStylePresetManagerShowChange,
     setPixelGridVisible,
     setSnapToPixelGrid,
     setPixelGridSizeFromInput,

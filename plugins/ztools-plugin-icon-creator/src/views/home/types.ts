@@ -22,6 +22,7 @@ export type UiFillGradientStop = FillGradientStop & {
 }
 
 export type StyleTargetChannel = 'fill' | 'stroke'
+export type StylePresetManagerTab = 'colors' | 'gradients'
 
 export type ColorSwatchItem = {
   id: string
@@ -45,6 +46,13 @@ export type GradientPresetItem = {
   centerY?: number
   radius?: number
   userCreated?: boolean
+}
+
+export type StylePresetSettings = {
+  colorPaletteGroups: ColorPaletteGroup[]
+  gradientPresets: GradientPresetItem[]
+  colorColumns: number
+  gradientPresetVisibleCount: number
 }
 
 export type UserStylePresets = {

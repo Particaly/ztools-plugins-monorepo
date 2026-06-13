@@ -307,14 +307,13 @@
           <div class="style-preset-title-row">
             <span>色板</span>
             <div class="style-preset-actions">
-              <button class="tb-btn sm" title="保存当前填充色到我的颜色" @click="saveCurrentColorSwatch('fill')">存填充</button>
-              <button class="tb-btn sm" title="保存当前描边色到我的颜色" @click="saveCurrentColorSwatch('stroke')">存描边</button>
+              <button class="tb-btn sm" title="管理色板分类、颜色和展示列数" @click="openStylePresetManager('colors')">设置</button>
             </div>
           </div>
           <div class="palette-groups">
             <section v-for="group in colorPaletteGroups" :key="group.id" class="palette-group">
               <div class="palette-group-name">{{ group.name }}</div>
-              <div class="palette-grid">
+              <div class="palette-grid" :style="{ '--palette-columns': String(colorPaletteColumns) }">
                 <div v-for="swatch in group.colors" :key="swatch.id" class="palette-swatch-pair">
                   <button
                     v-for="target in colorSwatchTargets"
@@ -334,7 +333,9 @@
           </div>
           <div class="style-preset-title-row gradient-preset-title-row">
             <span>渐变预设</span>
-            <button class="tb-btn sm" :disabled="objProps.fillMode !== 'gradient'" title="保存当前填充渐变到我的渐变" @click="saveCurrentGradientPreset">保存当前</button>
+            <div class="style-preset-actions">
+              <button class="tb-btn sm" title="管理渐变预设和展示条数" @click="openStylePresetManager('gradients')">设置</button>
+            </div>
           </div>
           <div class="gradient-preset-grid">
             <button
@@ -721,7 +722,7 @@ import { VueDraggable } from 'vue-draggable-plus'
 import { Icon } from '@iconify/vue'
 import { ActiveSelection, type FabricObject } from 'fabric'
 import { ZButton, ZColorPicker, ZInput, ZPopover, ZSelect, ZSlider, ZSwitch } from 'ztools-ui'
-import type { ColorPaletteGroup, GradientPresetItem, KeylineTemplate, StyleTargetChannel } from '../../types'
+import type { ColorPaletteGroup, GradientPresetItem, KeylineTemplate, StylePresetManagerTab, StyleTargetChannel } from '../../types'
 
 type AnyFn = (...args: any[]) => any
 
@@ -777,6 +778,7 @@ const props = defineProps<{
   keylineOpacity: number
   colorPaletteGroups: ColorPaletteGroup[]
   gradientPresets: GradientPresetItem[]
+  colorPaletteColumns: number
   selectKaleidoscopeSourceFromInstance: AnyFn
   detachKaleidoscopeInstance: AnyFn
   setObjPropFromInput: AnyFn
@@ -798,9 +800,7 @@ const props = defineProps<{
   setFillGradientAngleValue: AnyFn
   setFillGradientRadiusValue: AnyFn
   applyColorSwatch: AnyFn
-  saveCurrentColorSwatch: AnyFn
   applyGradientPreset: AnyFn
-  saveCurrentGradientPreset: AnyFn
   toggleStroke: AnyFn
   setStrokeWidthFromInput: AnyFn
   setStrokeLineType: AnyFn
@@ -845,6 +845,7 @@ const props = defineProps<{
   setKeylineTemplate: AnyFn
   setKeylineMarginFromInput: AnyFn
   setKeylineOpacity: AnyFn
+  openStylePresetManager: (tab: StylePresetManagerTab) => void
 }>()
 
 const emit = defineEmits<{
@@ -895,6 +896,10 @@ function getGradientPresetTitle(preset: GradientPresetItem) {
   return `${preset.name} · ${typeLabel}${preset.userCreated ? ' · 我的预设' : ''}`
 }
 
+const colorPaletteColumns = computed(() => {
+  const parsed = Number(props.colorPaletteColumns)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 6
+})
 const alignPopoverVisible = computed({
   get: () => props.alignPopoverVisible,
   set: (value: boolean) => emit('update:align-popover-visible', value)
@@ -1260,7 +1265,7 @@ const keylineMarginInput = computed({
 }
 .palette-grid {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(var(--palette-columns, 6), minmax(0, 1fr));
   gap: 4px;
 }
 .palette-swatch-pair {
