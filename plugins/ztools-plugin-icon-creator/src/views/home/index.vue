@@ -625,7 +625,7 @@ const {
 <style lang="scss" scoped>
 /* ── 基础变量 ── */
 $topbar-h: 44px;
-$left-w: 280px;
+$left-w: 270px;
 $right-w: 240px;
 $border: 1px solid rgba(128, 128, 128, 0.18);
 $bg: #f5f5f5;

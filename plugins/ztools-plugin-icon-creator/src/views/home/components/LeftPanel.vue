@@ -45,32 +45,6 @@
           </div>
         </div>
       </ZTabPane>
-      <ZTabPane name="templates" tab="模板" display-directive="show">
-        <div class="left-content">
-          <div class="section-title">内置模板库</div>
-          <div class="template-list">
-            <article
-              v-for="template in iconTemplates"
-              :key="template.id"
-              class="template-card"
-              :title="template.description"
-            >
-              <button type="button" class="template-preview" @click="$emit('insert-template', template)">
-                <svg class="template-preview-svg" :viewBox="`0 0 ${template.width} ${template.height}`" aria-hidden="true" v-html="getTemplatePreviewMarkup(template)"></svg>
-              </button>
-              <div class="template-info">
-                <div class="template-name">{{ template.name }}</div>
-                <div class="template-meta">{{ template.category }} · {{ template.width }}×{{ template.height }}</div>
-                <p class="template-desc">{{ template.description }}</p>
-                <div class="template-actions">
-                  <ZButton size="small" @click="$emit('insert-template', template)">插入</ZButton>
-                  <ZButton size="small" @click="$emit('apply-template-as-document', template)">新建</ZButton>
-                </div>
-              </div>
-            </article>
-          </div>
-        </div>
-      </ZTabPane>
       <ZTabPane name="assets" tab="素材" display-directive="show">
         <div class="left-content">
           <div class="section-title-row asset-title-row">
@@ -150,6 +124,32 @@
           </div>
           <div v-else-if="iconifySearch.lastQuery && !iconifySearch.loading && !iconifySearch.error" class="iconify-empty">未找到匹配图标</div>
           <div v-else class="iconify-hint">输入关键词后从 Iconify 在线图标库搜索，点击结果即可插入为可编辑 SVG。</div>
+        </div>
+      </ZTabPane>
+      <ZTabPane name="templates" tab="模板" display-directive="show">
+        <div class="left-content">
+          <div class="section-title">内置模板库</div>
+          <div class="template-list">
+            <article
+              v-for="template in iconTemplates"
+              :key="template.id"
+              class="template-card"
+              :title="template.description"
+            >
+              <button type="button" class="template-preview" @click="$emit('insert-template', template)">
+                <svg class="template-preview-svg" :viewBox="`0 0 ${template.width} ${template.height}`" aria-hidden="true" v-html="getTemplatePreviewMarkup(template)"></svg>
+              </button>
+              <div class="template-info">
+                <div class="template-name">{{ template.name }}</div>
+                <div class="template-meta">{{ template.category }} · {{ template.width }}×{{ template.height }}</div>
+                <p class="template-desc">{{ template.description }}</p>
+                <div class="template-actions">
+                  <ZButton size="small" @click="$emit('insert-template', template)">插入</ZButton>
+                  <ZButton size="small" @click="$emit('apply-template-as-document', template)">新建</ZButton>
+                </div>
+              </div>
+            </article>
+          </div>
         </div>
       </ZTabPane>
     </ZTabs>
