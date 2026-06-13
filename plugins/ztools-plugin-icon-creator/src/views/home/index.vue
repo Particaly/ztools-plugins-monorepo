@@ -102,7 +102,7 @@
       />
 
       <!-- 中间画布区 -->
-      <div class="canvas-frame" :class="{ 'with-ruler': editorSelectors.showRuler }">
+      <div class="canvas-frame" :class="[{ 'with-ruler': editorSelectors.showRuler }, `mode-${canvasViewMode}`]">
         <main
           class="canvas-area"
           ref="canvasAreaRef"
@@ -114,7 +114,7 @@
           <div
             class="canvas-wrapper"
             ref="canvasWrapperRef"
-            :class="{ 'transparent-bg': isCanvasBgTransparent }"
+            :class="{ 'transparent-bg': isCanvasBgTransparent, 'is-hidden': canvasViewMode !== 'canvas' }"
             @contextmenu.prevent="openCanvasObjectContextMenu"
           >
             <div
@@ -148,14 +148,25 @@
             </svg>
             <canvas ref="canvasElRef"></canvas>
           </div>
+          <section v-if="canvasViewMode === 'svg'" class="svg-preview-panel" aria-label="SVG 只读预览">
+            <div class="svg-preview-head">
+              <div class="svg-preview-title">SVG 只读预览</div>
+              <div class="svg-preview-subtitle">当前画布实时导出的 SVG 文本</div>
+            </div>
+            <pre class="svg-preview-code">{{ svgPreviewSource }}</pre>
+          </section>
         </main>
         <Ruler
-          v-if="editorSelectors.showRuler"
+          v-if="editorSelectors.showRuler && canvasViewMode === 'canvas'"
           :scroll-el="canvasAreaRef"
           :wrapper-el="canvasWrapperRef"
           :zoom="editorSelectors.zoom"
           :coordinate-hint-active="rulerCoordinateHintActive"
         />
+        <div class="canvas-mode-switcher" role="group" aria-label="画布模式切换">
+          <button type="button" class="canvas-mode-btn" :class="{ active: canvasViewMode === 'canvas' }" @click="setCanvasViewMode('canvas')">Canvas</button>
+          <button type="button" class="canvas-mode-btn" :class="{ active: canvasViewMode === 'svg' }" @click="setCanvasViewMode('svg')">SVG</button>
+        </div>
       </div>
 
       <!-- 右栏 -->
@@ -517,6 +528,7 @@ const {
   keylineTemplateOptions,
   previewBackgroundOptions,
   previewBackgroundMode,
+  canvasViewMode,
   previewItems,
   visibleColorPaletteGroups,
   visibleGradientPresets,
@@ -616,7 +628,9 @@ const {
   setCanvasBg,
   applyCanvasPreset,
   previewStageClass,
+  svgPreviewSource,
   setPreviewBackgroundMode,
+  setCanvasViewMode,
   deleteObject,
   lockObject,
   groupObjects,
@@ -702,6 +716,9 @@ $panel-bg: #fff;
   position: relative;
   box-shadow: 0 2px 12px rgba(0,0,0,0.15);
   background: #fff;
+  &.is-hidden {
+    display: none;
+  }
   &.transparent-bg {
     background-color: #fff;
     background-image:
@@ -750,6 +767,86 @@ $panel-bg: #fff;
   }
   :deep(canvas) {
     display: block;
+  }
+}
+.canvas-frame.mode-svg .canvas-area {
+  align-items: stretch;
+  justify-content: stretch;
+}
+.svg-preview-panel {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin: 24px;
+  border: $border;
+  border-radius: 10px;
+  background: #ffffff;
+  overflow: hidden;
+}
+.svg-preview-head {
+  padding: 12px 14px;
+  border-bottom: $border;
+  background: color-mix(in srgb, #ffffff, #f3f4f6 70%);
+}
+.svg-preview-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #374151;
+}
+.svg-preview-subtitle {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #6b7280;
+}
+.svg-preview-code {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 14px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #1f2937;
+  background: #fbfbfc;
+}
+.canvas-mode-switcher {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 20;
+  display: inline-flex;
+  padding: 4px;
+  gap: 4px;
+  border: $border;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+  backdrop-filter: blur(8px);
+}
+.canvas-mode-btn {
+  border: none;
+  border-radius: 999px;
+  padding: 6px 12px;
+  background: transparent;
+  color: #4b5563;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+
+  &:hover {
+    background: rgba(30, 111, 255, 0.08);
+    color: #1e40af;
+  }
+
+  &.active {
+    background: var(--primary-color);
+    color: #fff;
+    box-shadow: 0 2px 8px rgba(30, 111, 255, 0.28);
   }
 }
 

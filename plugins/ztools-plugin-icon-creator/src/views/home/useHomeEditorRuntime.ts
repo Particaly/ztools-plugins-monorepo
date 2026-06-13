@@ -644,6 +644,7 @@ export function useHomeEditorRuntime() {
     { value: 'dark', label: '深色' }
   ]
   const previewBackgroundMode = ref<PreviewBackgroundMode>('transparent')
+  const canvasViewMode = ref<'canvas' | 'svg'>('canvas')
   const previewItems = shallowRef<PreviewItem[]>([])
   const previewDirty = ref(true)
   let previewRenderTimer: ReturnType<typeof window.setTimeout> | null = null
@@ -2089,12 +2090,22 @@ export function useHomeEditorRuntime() {
   } = exportDeliveryCommands
   const {
     copySelectionToInternalClipboard,
+    createCanvasSVGPreview,
     duplicateSelection,
     exportPNG,
     exportSVG,
     pasteInternalClipboard,
     renderPNGDataUrl
   } = exportDeliveryHelpers
+
+  const svgPreviewSource = computed(() => {
+    if (canvasViewMode.value !== 'svg') return ''
+    void layerVersion.value
+    void canvasWidth.value
+    void canvasHeight.value
+    void canvasBg.value
+    return createCanvasSVGPreview(false)
+  })
 
   const activeKaleidoscopeInstance = computed(() => {
     const obj = activeObject.value
@@ -6282,6 +6293,11 @@ export function useHomeEditorRuntime() {
     openLayerContextMenu(target, event)
   }
 
+  // 切换画布视图模式；SVG 模式只读展示当前画布导出的文本结果，不销毁真实 Fabric 画布节点。
+  function setCanvasViewMode(mode: 'canvas' | 'svg') {
+    canvasViewMode.value = mode
+  }
+
   function isEditableTarget(target: EventTarget | null) {
     if (!(target instanceof HTMLElement)) return false
     const tag = target.tagName.toLowerCase()
@@ -6804,6 +6820,7 @@ export function useHomeEditorRuntime() {
     keylineTemplateOptions,
     previewBackgroundOptions,
     previewBackgroundMode,
+    canvasViewMode,
     previewItems,
     visibleColorPaletteGroups,
     visibleGradientPresets,
@@ -6903,7 +6920,9 @@ export function useHomeEditorRuntime() {
     setCanvasBg,
     applyCanvasPreset,
     previewStageClass,
+    svgPreviewSource,
     setPreviewBackgroundMode,
+    setCanvasViewMode,
     deleteObject,
     lockObject,
     groupObjects,

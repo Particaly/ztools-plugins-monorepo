@@ -44,6 +44,7 @@ export interface HomeExportDeliveryCommands {
 
 export interface HomeExportDeliveryHelpers {
   copySelectionToInternalClipboard: () => boolean
+  createCanvasSVGPreview: (includeBackground?: boolean) => string
   duplicateSelection: () => Promise<boolean>
   exportPNG: (size?: number, fileName?: string, transparentBackground?: boolean) => string
   exportSVG: (fileName?: string, includeBackground?: boolean) => string

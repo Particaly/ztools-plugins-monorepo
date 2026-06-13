@@ -319,6 +319,13 @@ export function createHomeExportDeliveryModule(
   }
 
   /**
+   * 生成当前整张画布的优化 SVG 文本，供 SVG 模式只读预览等纯文本消费场景复用。
+   */
+  function createCanvasSVGPreview(includeBackground = false) {
+    return createOptimizedSVG(includeBackground)
+  }
+
+  /**
    * 导出优化后的 SVG 到下载目录，支持导出面板传入自定义文件名和是否保留画布背景。
    */
   function exportSVG(fileName?: string, includeBackground = false) {
@@ -874,6 +881,7 @@ export function createHomeExportDeliveryModule(
       commands,
       helpers: {
         copySelectionToInternalClipboard,
+        createCanvasSVGPreview,
         duplicateSelection,
         exportPNG,
         exportSVG,
