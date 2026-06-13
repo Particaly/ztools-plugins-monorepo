@@ -681,8 +681,13 @@ export function useHomeEditorRuntime() {
     { value: 'light', label: '浅色' },
     { value: 'dark', label: '深色' }
   ]
+  const svgPreviewModeOptions: Array<{ value: 'graphic' | 'code'; label: string; description: string; icon: string }> = [
+    { value: 'graphic', label: '图形模式', description: '以图形方式预览当前 SVG 输出结果。', icon: 'mdi:image-outline' },
+    { value: 'code', label: '代码模式', description: '只读查看 SVG 源码，并提供语法高亮。', icon: 'mdi:code-tags' }
+  ]
   const previewBackgroundMode = ref<PreviewBackgroundMode>('transparent')
   const canvasViewMode = ref<'canvas' | 'svg'>('canvas')
+  const svgPreviewMode = ref<'graphic' | 'code'>('graphic')
   const previewItems = shallowRef<PreviewItem[]>([])
   const previewPopoverVisible = ref(false)
   const previewDirty = ref(true)
@@ -2158,6 +2163,53 @@ export function useHomeEditorRuntime() {
     void canvasBg.value
     return createCanvasSVGPreview(false)
   })
+
+  const svgPreviewDataUrl = computed(() => (
+    svgPreviewSource.value ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgPreviewSource.value)}` : ''
+  ))
+
+  // 将 SVG 源码转成分段高亮的 HTML，保持代码模式只读展示且不执行源码中的 SVG 内容。
+  function highlightSvgSource(source: string) {
+    const escapeHtml = (value: string) => value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+
+    const tagPattern = /<\/?[\w:-]+(?:\s+[\w:-]+(?:=(?:"[^"]*"|'[^']*'|[^\s>]+))?)*\s*\/?>/g
+    let highlighted = ''
+    let lastIndex = 0
+    for (const match of source.matchAll(tagPattern)) {
+      const tagSource = match[0]
+      const index = match.index ?? 0
+      highlighted += escapeHtml(source.slice(lastIndex, index))
+      const escapedTag = escapeHtml(tagSource)
+      const highlightedAttrs = escapedTag.replace(
+        /([\w:-]+)(=)("[^"]*"|'[^']*'|[^\s]+)/g,
+        '<span class="svg-code-attr">$1</span>$2<span class="svg-code-string">$3</span>'
+      )
+      highlighted += highlightedAttrs
+        .replace(/^(&lt;\/?)([\w:-]+)/, '<span class="svg-code-bracket">$1</span><span class="svg-code-tag">$2</span>')
+        .replace(/(\/??&gt;)$/, '<span class="svg-code-bracket">$1</span>')
+      lastIndex = index + tagSource.length
+    }
+    highlighted += escapeHtml(source.slice(lastIndex))
+    return highlighted
+  }
+
+  const highlightedSvgPreviewSource = computed(() => highlightSvgSource(svgPreviewSource.value))
+
+  const svgModeTooltipTitle = computed(() => svgPreviewMode.value === 'graphic' ? 'SVG 图形模式' : 'SVG 代码模式')
+  const svgModeTooltipDetail = computed(() => (
+    svgPreviewMode.value === 'graphic'
+      ? '悬浮可切换为代码模式；当前以图形方式预览导出结果。'
+      : '悬浮可切换为图形模式；当前只读查看带高亮的 SVG 源码。'
+  ))
+
+  // 切换 SVG 二级预览模式；该状态只影响 SVG 页签下的展示方式，不修改画布或导出内容。
+  function setSvgPreviewMode(mode: 'graphic' | 'code') {
+    svgPreviewMode.value = mode
+    canvasViewMode.value = 'svg'
+  }
 
   const iconCheckSummary = computed(() => {
     const count = iconCheckIssues.value.length
@@ -7115,6 +7167,7 @@ export function useHomeEditorRuntime() {
     switchArtboard,
     keylineTemplateOptions,
     previewBackgroundOptions,
+    svgPreviewModeOptions,
     previewBackgroundMode,
     canvasViewMode,
     previewPopoverVisible,
@@ -7232,8 +7285,14 @@ export function useHomeEditorRuntime() {
     applyCanvasPreset,
     previewStageClass,
     svgPreviewSource,
+    svgPreviewDataUrl,
+    highlightedSvgPreviewSource,
+    svgPreviewMode,
+    svgModeTooltipTitle,
+    svgModeTooltipDetail,
     setPreviewBackgroundMode,
     setCanvasViewMode,
+    setSvgPreviewMode,
     handlePreviewPopoverShowChange,
     toggleLeftPanel,
     deleteObject,
