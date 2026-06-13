@@ -49,7 +49,6 @@
         :text-presets="textPresets"
         :icon-templates="iconTemplates"
         :user-assets="importedUserAssets"
-        :can-save-user-asset="canSaveUserAsset"
         :iconify-search="iconifyImportState"
         :filtered-iconify-results="importedFilteredIconifyResults"
         :iconify-collection-options="importedIconifyCollectionOptions"
@@ -58,7 +57,6 @@
         @add-text="editorCommands.addText"
         @insert-template="assetsImportCommands.insertIconTemplate"
         @apply-template-as-document="assetsImportCommands.applyIconTemplateAsDocument"
-        @open-create-user-asset-dialog="assetsImportCommands.openCreateUserAssetDialog"
         @insert-user-asset="assetsImportCommands.insertUserAsset"
         @rename-user-asset="assetsImportCommands.openRenameUserAssetDialog"
         @delete-user-asset="assetsImportCommands.deleteUserAsset"
@@ -473,7 +471,6 @@ const {
   canDirectionalSubtract,
   canDistributeSelection,
   canGroup,
-  canSaveUserAsset,
   canUngroup,
   canVectorizeBitmapSelection,
   filteredLayers,

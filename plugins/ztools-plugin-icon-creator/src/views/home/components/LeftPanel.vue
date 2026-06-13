@@ -47,10 +47,7 @@
       </ZTabPane>
       <ZTabPane name="assets" tab="素材" display-directive="show">
         <div class="left-content">
-          <div class="section-title-row asset-title-row">
-            <div class="section-title">我的素材</div>
-            <ZButton size="small" class="user-asset-save-btn" :disabled="!canSaveUserAsset" @click="$emit('open-create-user-asset-dialog')">保存选中</ZButton>
-          </div>
+          <div class="section-title">我的素材</div>
           <div v-if="userAssets.length" class="user-asset-list">
             <article
               v-for="asset in userAssets"
@@ -74,7 +71,9 @@
             </article>
           </div>
           <div v-if="!userAssets.length" class="user-asset-empty">
-            选中画布对象后点击“保存选中”，即可把常用对象或组合保存到本地素材库。
+            <div class="user-asset-empty-icon" aria-hidden="true">📦</div>
+            <div class="user-asset-empty-title">素材库还是空的</div>
+            <div class="user-asset-empty-desc">选中画布对象后，可通过右键菜单将常用对象或组合保存到本地素材库。</div>
           </div>
         </div>
       </ZTabPane>
@@ -176,7 +175,6 @@ defineProps<{
   textPresets: TextLibraryItem[]
   iconTemplates: IconTemplateItem[]
   userAssets: UserAssetItem[]
-  canSaveUserAsset: boolean
   iconifySearch: IconifySearchState
   filteredIconifyResults: string[]
   iconifyCollectionOptions: SelectOption[]
@@ -188,7 +186,6 @@ defineEmits<{
   (event: 'add-text', item: TextLibraryItem): void
   (event: 'insert-template', template: IconTemplateItem): void
   (event: 'apply-template-as-document', template: IconTemplateItem): void
-  (event: 'open-create-user-asset-dialog'): void
   (event: 'insert-user-asset', asset: UserAssetItem): void
   (event: 'rename-user-asset', asset: UserAssetItem): void
   (event: 'delete-user-asset', asset: UserAssetItem): void
@@ -448,6 +445,19 @@ defineEmits<{
   font-size: 12px;
   line-height: 1.6;
   text-align: center;
+}
+.user-asset-empty-icon {
+  font-size: 28px;
+  line-height: 1;
+}
+.user-asset-empty-title {
+  margin-top: 10px;
+  color: #555;
+  font-size: 13px;
+  font-weight: 700;
+}
+.user-asset-empty-desc {
+  margin-top: 6px;
 }
 .iconify-search-row {
   display: grid;
