@@ -6,7 +6,7 @@
         <ZPopover
           v-for="menu in topMenus"
           :key="menu.id"
-          class="top-menu-popover"
+          :class="['top-menu-popover', { 'insert-menu-popover': menu.kind === 'insert-panel' }]"
           :show="openMenuId === menu.id"
           trigger="click"
           placement="bottom-start"
@@ -24,8 +24,33 @@
               {{ menu.label }}
             </ZButton>
           </template>
-          <div class="top-menu-panel" role="menu">
-            <template v-for="entry in menu.items" :key="entry.id">
+          <InsertPanelContent
+            v-if="menu.kind === 'insert-panel'"
+            variant="popover"
+            :active-tab="insertActiveTab"
+            :basic-shapes="basicShapes"
+            :shape-preview-paths="shapePreviewPaths"
+            :text-presets="textPresets"
+            :icon-templates="iconTemplates"
+            :user-assets="userAssets"
+            :iconify-search="iconifySearch"
+            :filtered-iconify-results="filteredIconifyResults"
+            :iconify-collection-options="iconifyCollectionOptions"
+            @update:active-tab="handleInsertPanelValueChange('update:insert-active-tab', $event, false)"
+            @add-shape="handleInsertPanelValueChange('add-shape', $event)"
+            @add-text="handleInsertPanelValueChange('add-text', $event)"
+            @insert-template="handleInsertPanelValueChange('insert-template', $event)"
+            @apply-template-as-document="handleInsertPanelValueChange('apply-template-as-document', $event)"
+            @insert-user-asset="handleInsertPanelValueChange('insert-user-asset', $event)"
+            @rename-user-asset="handleInsertPanelValueChange('rename-user-asset', $event)"
+            @delete-user-asset="handleInsertPanelValueChange('delete-user-asset', $event)"
+            @update:iconify-query="handleInsertPanelValueChange('update:iconify-query', $event, false)"
+            @search-iconify-icons="handleInsertPanelCommand('search-iconify-icons', false)"
+            @update:iconify-collection-filter="handleInsertPanelValueChange('update:iconify-collection-filter', $event, false)"
+            @insert-iconify-icon="handleInsertPanelValueChange('insert-iconify-icon', $event)"
+          />
+          <div v-else class="top-menu-panel" role="menu">
+            <template v-for="entry in menu.items ?? []" :key="entry.id">
               <span v-if="entry.type === 'separator'" class="top-menu-separator" role="separator"></span>
               <button
                 v-else
@@ -60,8 +85,11 @@
 import { Icon } from '@iconify/vue'
 import { computed, ref } from 'vue'
 import { ZButton, ZPopover } from 'ztools-ui'
+import type { IconTemplateItem, ShapeId, ShapeLibraryItem, TextLibraryItem } from '../editorCatalog'
+import type { IconifySearchState, LeftPanelTab, UserAssetItem } from '../types'
+import InsertPanelContent from './InsertPanelContent.vue'
 
-type TopMenuId = 'file' | 'edit' | 'view' | 'output'
+type TopMenuId = 'file' | 'insert' | 'edit' | 'view' | 'output'
 type TopMenuEvent =
   | 'new-doc'
   | 'open-project'
@@ -100,7 +128,13 @@ type TopMenuSeparator = {
 type TopMenu = {
   id: TopMenuId
   label: string
-  items: Array<TopMenuItem | TopMenuSeparator>
+  kind: 'items' | 'insert-panel'
+  items?: Array<TopMenuItem | TopMenuSeparator>
+}
+
+type SelectOption = {
+  label: string
+  value: string
 }
 
 const props = defineProps<{
@@ -115,6 +149,15 @@ const props = defineProps<{
   hasEditablePoints: boolean
   zoom: number
   showArtboardList: boolean
+  insertActiveTab: LeftPanelTab
+  basicShapes: ShapeLibraryItem[]
+  shapePreviewPaths: Record<ShapeId, string>
+  textPresets: TextLibraryItem[]
+  iconTemplates: IconTemplateItem[]
+  userAssets: UserAssetItem[]
+  iconifySearch: IconifySearchState
+  filteredIconifyResults: string[]
+  iconifyCollectionOptions: SelectOption[]
 }>()
 
 const emit = defineEmits<{
@@ -137,6 +180,18 @@ const emit = defineEmits<{
   (event: 'open-shortcut-drawer'): void
   (event: 'set-selection-mode', mode: 'shape' | 'point' | 'segment'): void
   (event: 'set-zoom', zoom: number): void
+  (event: 'update:insert-active-tab', tab: LeftPanelTab): void
+  (event: 'add-shape', item: ShapeLibraryItem): void
+  (event: 'add-text', item: TextLibraryItem): void
+  (event: 'insert-template', template: IconTemplateItem): void
+  (event: 'apply-template-as-document', template: IconTemplateItem): void
+  (event: 'insert-user-asset', asset: UserAssetItem): void
+  (event: 'rename-user-asset', asset: UserAssetItem): void
+  (event: 'delete-user-asset', asset: UserAssetItem): void
+  (event: 'update:iconify-query', value: string): void
+  (event: 'search-iconify-icons'): void
+  (event: 'update:iconify-collection-filter', value: string): void
+  (event: 'insert-iconify-icon', name: string): void
 }>()
 
 const openMenuId = ref<TopMenuId | null>(null)
@@ -146,6 +201,7 @@ const topMenus = computed<TopMenu[]>(() => [
   {
     id: 'file',
     label: '文件',
+    kind: 'items',
     items: [
       { type: 'item', id: 'new-doc', label: '新建', title: '新建文档', icon: 'mdi:file-plus-outline', event: 'new-doc' },
       { type: 'item', id: 'open-project', label: '打开工程', title: '打开工程文件', icon: 'mdi:folder-open-outline', event: 'open-project' },
@@ -157,8 +213,14 @@ const topMenus = computed<TopMenu[]>(() => [
     ]
   },
   {
+    id: 'insert',
+    label: '插入',
+    kind: 'insert-panel'
+  },
+  {
     id: 'edit',
     label: '编辑',
+    kind: 'items',
     items: [
       { type: 'item', id: 'undo', label: '撤销', title: '撤销上一步操作', icon: 'mdi:undo', event: 'undo', disabled: !props.canUndo },
       { type: 'item', id: 'redo', label: '重做', title: '重做上一步操作', icon: 'mdi:redo', event: 'redo', disabled: !props.canRedo }
@@ -167,6 +229,7 @@ const topMenus = computed<TopMenu[]>(() => [
   {
     id: 'view',
     label: '视图',
+    kind: 'items',
     items: [
       { type: 'item', id: 'toggle-artboard-list', label: '画板', title: '显示或隐藏画板列表', icon: 'mdi:view-dashboard-outline', event: 'toggle-artboard-list', active: props.showArtboardList },
       { type: 'separator', id: 'view-panel-separator' },
@@ -181,6 +244,7 @@ const topMenus = computed<TopMenu[]>(() => [
   {
     id: 'output',
     label: '输出',
+    kind: 'items',
     items: [
       { type: 'item', id: 'copy-as-svg', label: '复制 SVG', title: '复制为 SVG', icon: 'mdi:content-copy', event: 'copy-as-svg' },
       { type: 'item', id: 'copy-as-png', label: '复制 PNG', title: '复制为 PNG', icon: 'mdi:image-multiple-outline', event: 'copy-as-png' },
@@ -202,6 +266,29 @@ function handleTopMenuShowChange(menuId: TopMenuId, show: boolean): void {
   if (openMenuId.value === menuId) {
     openMenuId.value = null
   }
+}
+
+/**
+ * 主动收起当前展开的顶栏菜单，供弹窗内插入动作和普通菜单项共用。
+ */
+function closeOpenMenu(): void {
+  openMenuId.value = null
+}
+
+/**
+ * 处理插入面板内不携带参数的命令事件；搜索这类需要连续操作的交互可选择保持弹窗展开。
+ */
+function handleInsertPanelCommand(eventName: string, closeMenu = true): void {
+  ;(emit as any)(eventName)
+  if (closeMenu) closeOpenMenu()
+}
+
+/**
+ * 处理中转自插入面板的值变更或带 payload 的插入命令，避免顶部弹窗重复实现一套业务逻辑。
+ */
+function handleInsertPanelValueChange(eventName: string, payload: unknown, closeMenu = true): void {
+  ;(emit as any)(eventName, payload)
+  if (closeMenu) closeOpenMenu()
 }
 
 /**
@@ -266,7 +353,7 @@ function runTopMenuItem(entry: TopMenuItem): void {
       break
   }
 
-  openMenuId.value = null
+  closeOpenMenu()
 }
 </script>
 
@@ -311,6 +398,16 @@ function runTopMenuItem(entry: TopMenuItem): void {
 
   :deep(.zt-popover__body--card) {
     padding: 6px;
+  }
+}
+.insert-menu-popover {
+  :deep(.zt-popover__content) {
+    min-width: min(72vw, 720px);
+    width: min(72vw, 720px);
+  }
+
+  :deep(.zt-popover__body--card) {
+    padding: 0;
   }
 }
 .top-menu-trigger {
