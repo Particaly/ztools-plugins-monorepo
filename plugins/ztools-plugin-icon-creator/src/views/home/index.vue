@@ -77,6 +77,8 @@
         :show-pixel-grid="editorSelectors.showPixelGrid"
         :snap-to-pixel-grid="editorSelectors.snapToPixelGrid"
         :keyline-active="editorSelectors.isKeylineActive"
+        :keyline-template="keylineTemplate"
+        :keyline-template-options="keylineTemplateOptions"
         :shortcut-drawer-open="editorSelectors.shortcutDrawerOpen"
         @undo="editorCommands.undo"
         @redo="editorCommands.redo"
@@ -86,6 +88,7 @@
         @toggle-pixel-grid="editorCommands.togglePixelGrid"
         @toggle-snap-to-pixel-grid="editorCommands.toggleSnapToPixelGrid"
         @toggle-keyline-overlay="editorCommands.toggleKeylineOverlay"
+        @set-keyline-template="setKeylineTemplate"
         @open-shortcut-drawer="editorCommands.openShortcutDrawer"
       />
 

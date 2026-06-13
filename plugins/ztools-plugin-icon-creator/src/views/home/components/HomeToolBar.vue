@@ -85,16 +85,42 @@
       >
         <Icon icon="mdi:magnet" />
       </ZButton>
-      <ZButton
-        size="small"
-        class="tool-btn"
-        :class="{ 'is-active': keylineActive }"
-        title="Keyline 与安全区参考线"
-        aria-label="Keyline 与安全区参考线"
-        @click="$emit('toggle-keyline-overlay')"
+      <ZPopover
+        class="tool-popover"
+        trigger="hover"
+        placement="right-start"
+        :to="false"
+        show-arrow
+        keep-alive-on-hover
       >
-        <Icon icon="mdi:vector-square" />
-      </ZButton>
+        <template #trigger>
+          <ZButton
+            size="small"
+            class="tool-btn"
+            :class="{ 'is-active': keylineActive }"
+            title="Keyline 与安全区参考线（悬浮可切换类型）"
+            aria-label="Keyline 与安全区参考线"
+            @click="$emit('toggle-keyline-overlay')"
+          >
+            <Icon icon="mdi:vector-square" />
+          </ZButton>
+        </template>
+        <div class="keyline-popover" role="menu" aria-label="参考线模板">
+          <button
+            v-for="option in keylineTemplateOptions"
+            :key="option.value"
+            type="button"
+            class="keyline-option"
+            :class="{ active: option.value === keylineTemplate }"
+            role="menuitemradio"
+            :aria-checked="option.value === keylineTemplate"
+            @click.stop="$emit('set-keyline-template', option.value)"
+          >
+            <span class="keyline-option-label">{{ option.label }}</span>
+            <Icon v-if="option.value === keylineTemplate" class="keyline-option-state" icon="mdi:check" />
+          </button>
+        </div>
+      </ZPopover>
     </div>
 
     <div class="tool-group tool-group-bottom" aria-label="帮助">
@@ -114,7 +140,13 @@
 
 <script setup lang="ts">
 import { Icon } from '@iconify/vue'
-import { ZButton } from 'ztools-ui'
+import { ZButton, ZPopover } from 'ztools-ui'
+import type { KeylineTemplate } from '../types'
+
+type KeylineTemplateOption = {
+  value: KeylineTemplate
+  label: string
+}
 
 defineProps<{
   canUndo: boolean
@@ -126,6 +158,8 @@ defineProps<{
   showPixelGrid: boolean
   snapToPixelGrid: boolean
   keylineActive: boolean
+  keylineTemplate: KeylineTemplate
+  keylineTemplateOptions: KeylineTemplateOption[]
   shortcutDrawerOpen: boolean
 }>()
 
@@ -138,6 +172,7 @@ defineEmits<{
   (event: 'toggle-pixel-grid'): void
   (event: 'toggle-snap-to-pixel-grid'): void
   (event: 'toggle-keyline-overlay'): void
+  (event: 'set-keyline-template', value: KeylineTemplate): void
   (event: 'open-shortcut-drawer'): void
 }>()
 </script>
@@ -173,6 +208,19 @@ defineEmits<{
   padding-bottom: 0;
   border-top: 1px solid rgba(128, 128, 128, 0.18);
   border-bottom: 0;
+}
+.tool-popover {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+
+  :deep(.zt-popover__content) {
+    min-width: 168px;
+  }
+
+  :deep(.zt-popover__body--card) {
+    padding: 6px;
+  }
 }
 .tool-btn {
   width: 32px;
@@ -212,5 +260,45 @@ defineEmits<{
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary-color), transparent 35%);
     color: var(--primary-color);
   }
+}
+.keyline-popover {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.keyline-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: #374151;
+  font-size: 12px;
+  text-align: left;
+  transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+
+  &:hover {
+    background: color-mix(in srgb, var(--primary-color), white 92%);
+    border-color: color-mix(in srgb, var(--primary-color), transparent 70%);
+    color: var(--primary-color);
+  }
+
+  &.active {
+    background: var(--primary-light-bg);
+    border-color: color-mix(in srgb, var(--primary-color), transparent 58%);
+    color: var(--primary-color);
+    font-weight: 600;
+  }
+}
+.keyline-option-label {
+  min-width: 0;
+}
+.keyline-option-state {
+  flex: 0 0 auto;
+  font-size: 14px;
 }
 </style>
