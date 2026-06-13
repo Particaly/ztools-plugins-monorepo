@@ -95,6 +95,7 @@ export type IconCreatorProjectCanvas = {
   snapToPixelGrid?: boolean
   keylineTemplate?: KeylineTemplate
   keylineMargin?: number
+  keylineOpacity?: number
 }
 
 export type IconCreatorProjectArtboard = {

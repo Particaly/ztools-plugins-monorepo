@@ -34,6 +34,7 @@ import {
   BITMAP_VECTOR_MAX_TRACE_SIDE,
   BITMAP_VECTOR_TRACE_MULTIPLIER,
   DEFAULT_KEYLINE_MARGIN,
+  DEFAULT_KEYLINE_OPACITY,
   DEFAULT_KEYLINE_TEMPLATE,
   DEFAULT_PIXEL_GRID_SIZE,
   EXPORT_PNG_SIZE_OPTIONS,
@@ -81,7 +82,7 @@ import type {
   UserAssetItem,
   UserStylePresets
 } from './types'
-import { isTransparentCanvasBg, normalizeCanvasBg, normalizeKeylineMargin, normalizeKeylineTemplate, normalizePixelGridSize } from './canvasSettings'
+import { isTransparentCanvasBg, normalizeCanvasBg, normalizeKeylineMargin, normalizeKeylineOpacity, normalizeKeylineTemplate, normalizePixelGridSize } from './canvasSettings'
 import { buildIconCheckIssues as buildIconCheckIssuesFromContext } from './iconChecks'
 import { commitNumericInput, commitPositiveNumericInput, formatNumericInputValue, normalizeInputValue } from './inputUtils'
 import { isBooleanCandidate, fabricObjectToPathKitWithApi, fabricStrokeToPathKitWithApi, type FabricBooleanStyleSnapshot } from './geometry/fabricToPathKit'
@@ -176,6 +177,7 @@ export function useHomeEditorRuntime() {
   const pixelGridSizeInput = ref(String(pixelGridSize.value))
   const keylineTemplate = ref<KeylineTemplate>(DEFAULT_KEYLINE_TEMPLATE)
   const keylineMargin = ref(DEFAULT_KEYLINE_MARGIN)
+  const keylineOpacity = ref(DEFAULT_KEYLINE_OPACITY)
   const keylineMarginInput = ref(String(keylineMargin.value))
   const zoom = ref(1)
   const spacePanReady = ref(false)
@@ -215,7 +217,8 @@ export function useHomeEditorRuntime() {
   })
   const keylineOverlayStyle = computed(() => ({
     width: `${canvasWidth.value * zoom.value}px`,
-    height: `${canvasHeight.value * zoom.value}px`
+    height: `${canvasHeight.value * zoom.value}px`,
+    opacity: keylineOpacity.value
   }))
   const keylineSafeArea = computed<KeylineSafeArea>(() => {
     const width = canvasWidth.value
@@ -557,7 +560,8 @@ export function useHomeEditorRuntime() {
     snapToPixelGrid,
     pixelGridSize,
     keylineTemplate,
-    keylineMargin
+    keylineMargin,
+    keylineOpacity
   }
   const homeWorkspace = createHomeWorkspaceModule({
     artboardIdSeed,
@@ -2864,6 +2868,12 @@ export function useHomeEditorRuntime() {
   // 同步安全区输入框显示，保证工程恢复和非法输入回退后仍展示真实生效值。
   function syncKeylineMarginInput() {
     keylineMarginInput.value = formatNumericInputValue(keylineMargin.value)
+  }
+
+  // 统一更新参考线透明度，供属性面板、工程恢复和画板切换复用，避免 overlay 留下越界透明值。
+  function setKeylineOpacity(value: number) {
+    keylineOpacity.value = normalizeKeylineOpacity(value)
+    scheduleDraftSave()
   }
 
   // 切换 Keyline / 安全区模板；Material / iOS / Favicon 使用内置规则，自定义模式使用用户边距。
@@ -6695,6 +6705,7 @@ export function useHomeEditorRuntime() {
     pixelGridSizeInput,
     keylineTemplate,
     keylineMarginInput,
+    keylineOpacity,
     spacePanReady,
     isSpacePanning,
     rulerCoordinateHintActive,
@@ -6808,6 +6819,7 @@ export function useHomeEditorRuntime() {
     setPixelGridSizeFromInput,
     setKeylineTemplate,
     setKeylineMarginFromInput,
+    setKeylineOpacity,
     selectIconCheckIssue,
     setKaleidoscopeCenterFromInput,
     setKaleidoscopeCountFromInput,

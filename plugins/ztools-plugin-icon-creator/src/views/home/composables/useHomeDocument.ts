@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 import { DRAFT_SAVE_DELAY, DRAFT_STORAGE_KEY, PROJECT_FILE_EXTENSION, PROJECT_SCHEMA_VERSION } from '../constants'
-import { normalizeKeylineMargin, normalizeKeylineTemplate, normalizePixelGridSize } from '../canvasSettings'
+import { normalizeKeylineMargin, normalizeKeylineOpacity, normalizeKeylineTemplate, normalizePixelGridSize } from '../canvasSettings'
 import { normalizeProjectCanvasSettings, parseProjectFileText, stringifyProjectFile } from '../projectFile'
 import type { IconCreatorDraftFile, IconCreatorProjectFile, SnapshotOptions } from '../types'
 import type { HistorySnapshot, UseHomeDocumentOptions, UseHomeDocumentReturn } from './contracts'
@@ -38,7 +38,7 @@ export function useHomeDocument(options: UseHomeDocumentOptions): UseHomeDocumen
     isTransparentCanvasBg
   } = options
 
-  const { canvasWidth, canvasHeight, canvasBg, lastOpaqueCanvasBg, showPixelGrid, snapToPixelGrid, pixelGridSize, keylineTemplate, keylineMargin } = canvasState
+  const { canvasWidth, canvasHeight, canvasBg, lastOpaqueCanvasBg, showPixelGrid, snapToPixelGrid, pixelGridSize, keylineTemplate, keylineMargin, keylineOpacity } = canvasState
   const { artboards, activeArtboardId, showArtboardList } = artboardState
 
   const undoStack: HistorySnapshot[] = []
@@ -90,7 +90,8 @@ export function useHomeDocument(options: UseHomeDocumentOptions): UseHomeDocumen
         showPixelGrid: showPixelGrid.value,
         snapToPixelGrid: snapToPixelGrid.value,
         keylineTemplate: keylineTemplate.value,
-        keylineMargin: keylineMargin.value
+        keylineMargin: keylineMargin.value,
+        keylineOpacity: keylineOpacity.value
       },
       fabric: serializeFabricCanvas(),
       layerOrder
@@ -133,6 +134,7 @@ export function useHomeDocument(options: UseHomeDocumentOptions): UseHomeDocumen
     snapToPixelGrid.value = settings.snapToPixelGrid === true
     keylineTemplate.value = normalizeKeylineTemplate(settings.keylineTemplate)
     keylineMargin.value = normalizeKeylineMargin(settings.keylineMargin)
+    keylineOpacity.value = normalizeKeylineOpacity(settings.keylineOpacity)
     syncPixelGridSizeInput()
     syncKeylineMarginInput()
     syncCanvasInteractionMode()

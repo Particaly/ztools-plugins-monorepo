@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 import { createEmptyArtboard, generateArtboardId, generateArtboardThumbnail } from '../artboardManager'
-import { normalizeKeylineMargin, normalizeKeylineTemplate, normalizePixelGridSize } from '../canvasSettings'
+import { normalizeKeylineMargin, normalizeKeylineOpacity, normalizeKeylineTemplate, normalizePixelGridSize } from '../canvasSettings'
 import { normalizeProjectCanvasSettings } from '../projectFile'
 import type { IconCreatorProjectArtboard } from '../types'
 import type { UseHomeArtboardsOptions, UseHomeArtboardsReturn } from './contracts'
@@ -36,7 +36,7 @@ export function useHomeArtboards(options: UseHomeArtboardsOptions): UseHomeArtbo
     markSmallPreviewsDirty
   } = options
 
-  const { canvasWidth, canvasHeight, canvasBg, lastOpaqueCanvasBg, showPixelGrid, snapToPixelGrid, pixelGridSize, keylineTemplate, keylineMargin } = canvasState
+  const { canvasWidth, canvasHeight, canvasBg, lastOpaqueCanvasBg, showPixelGrid, snapToPixelGrid, pixelGridSize, keylineTemplate, keylineMargin, keylineOpacity } = canvasState
 
   const artboards = ref<IconCreatorProjectArtboard[]>([])
   const activeArtboardId = ref('')
@@ -63,7 +63,8 @@ export function useHomeArtboards(options: UseHomeArtboardsOptions): UseHomeArtbo
         showPixelGrid: showPixelGrid.value,
         snapToPixelGrid: snapToPixelGrid.value,
         keylineTemplate: keylineTemplate.value,
-        keylineMargin: keylineMargin.value
+        keylineMargin: keylineMargin.value,
+        keylineOpacity: keylineOpacity.value
       },
       fabric: serializeFabricCanvas(),
       layerOrder,
@@ -87,6 +88,7 @@ export function useHomeArtboards(options: UseHomeArtboardsOptions): UseHomeArtbo
     snapToPixelGrid.value = settings.snapToPixelGrid === true
     keylineTemplate.value = normalizeKeylineTemplate(settings.keylineTemplate)
     keylineMargin.value = normalizeKeylineMargin(settings.keylineMargin)
+    keylineOpacity.value = normalizeKeylineOpacity(settings.keylineOpacity)
 
     syncPixelGridSizeInput()
     syncKeylineMarginInput()

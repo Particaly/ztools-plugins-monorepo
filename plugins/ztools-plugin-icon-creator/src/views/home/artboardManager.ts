@@ -3,6 +3,7 @@ import type { Canvas } from 'fabric'
 import type { IconCreatorProjectArtboard, IconCreatorProjectCanvas } from './types'
 import {
   DEFAULT_KEYLINE_MARGIN,
+  DEFAULT_KEYLINE_OPACITY,
   DEFAULT_KEYLINE_TEMPLATE,
   DEFAULT_PIXEL_GRID_SIZE
 } from './constants'
@@ -39,7 +40,8 @@ export function createEmptyArtboard(id: string, name: string): IconCreatorProjec
       showPixelGrid: false,
       snapToPixelGrid: false,
       keylineTemplate: DEFAULT_KEYLINE_TEMPLATE,
-      keylineMargin: DEFAULT_KEYLINE_MARGIN
+      keylineMargin: DEFAULT_KEYLINE_MARGIN,
+      keylineOpacity: DEFAULT_KEYLINE_OPACITY
     },
     fabric: { version: '6.0.0', objects: [] },
     layerOrder: []

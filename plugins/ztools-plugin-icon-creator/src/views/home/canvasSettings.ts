@@ -1,9 +1,12 @@
 import {
   DEFAULT_KEYLINE_MARGIN,
+  DEFAULT_KEYLINE_OPACITY,
   DEFAULT_PIXEL_GRID_SIZE,
   MAX_KEYLINE_MARGIN,
+  MAX_KEYLINE_OPACITY,
   MAX_PIXEL_GRID_SIZE,
   MIN_KEYLINE_MARGIN,
+  MIN_KEYLINE_OPACITY,
   MIN_PIXEL_GRID_SIZE
 } from './constants'
 import type { KeylineTemplate } from './types'
@@ -27,6 +30,13 @@ export function normalizeKeylineMargin(value: unknown) {
   const parsed = Number(value)
   if (!Number.isFinite(parsed)) return DEFAULT_KEYLINE_MARGIN
   return Math.min(MAX_KEYLINE_MARGIN, Math.max(MIN_KEYLINE_MARGIN, parsed))
+}
+
+// 统一限制参考线透明度范围，兼容旧工程缺省值并避免非法值导致 overlay 意外全隐或超出预期。
+export function normalizeKeylineOpacity(value: unknown) {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return DEFAULT_KEYLINE_OPACITY
+  return Math.min(MAX_KEYLINE_OPACITY, Math.max(MIN_KEYLINE_OPACITY, parsed))
 }
 
 // 判断画布背景是否等价于透明，兼容旧工程中的空字符串、none 和 transparent 写法。

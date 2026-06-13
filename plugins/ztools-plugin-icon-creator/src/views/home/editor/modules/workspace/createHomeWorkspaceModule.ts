@@ -2,6 +2,7 @@ import { nextTick, type Ref } from 'vue'
 import type { Canvas, FabricObject } from 'fabric'
 import {
   DEFAULT_KEYLINE_MARGIN,
+  DEFAULT_KEYLINE_OPACITY,
   DEFAULT_KEYLINE_TEMPLATE,
   DEFAULT_PIXEL_GRID_SIZE
 } from '../../../constants'
@@ -166,6 +167,7 @@ export function createHomeWorkspaceModule(
     options.canvasState.pixelGridSize.value = DEFAULT_PIXEL_GRID_SIZE
     options.canvasState.keylineTemplate.value = DEFAULT_KEYLINE_TEMPLATE
     options.canvasState.keylineMargin.value = DEFAULT_KEYLINE_MARGIN
+    options.canvasState.keylineOpacity.value = DEFAULT_KEYLINE_OPACITY
     options.syncPixelGridSizeInput()
     options.syncKeylineMarginInput()
     options.syncCanvasInteractionMode()

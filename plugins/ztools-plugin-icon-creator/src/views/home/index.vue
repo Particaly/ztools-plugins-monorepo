@@ -204,6 +204,7 @@
             :keyline-template="keylineTemplate"
             :keyline-template-options="keylineTemplateOptions"
             :keyline-margin-input="keylineMarginInput"
+            :keyline-opacity="keylineOpacity"
             :color-palette-groups="visibleColorPaletteGroups"
             :gradient-presets="visibleGradientPresets"
             :select-kaleidoscope-source-from-instance="selectKaleidoscopeSourceFromInstance"
@@ -273,6 +274,7 @@
             :set-pixel-grid-size-from-input="setPixelGridSizeFromInput"
             :set-keyline-template="setKeylineTemplate"
             :set-keyline-margin-from-input="setKeylineMarginFromInput"
+            :set-keyline-opacity="setKeylineOpacity"
             @update:align-popover-visible="alignPopoverVisible = $event"
             @update:canvas-width-input="canvasWidthInput = $event"
             @update:canvas-height-input="canvasHeightInput = $event"
@@ -437,6 +439,7 @@ const {
   pixelGridSizeInput,
   keylineTemplate,
   keylineMarginInput,
+  keylineOpacity,
   spacePanReady,
   isSpacePanning,
   rulerCoordinateHintActive,
@@ -550,6 +553,7 @@ const {
   setPixelGridSizeFromInput,
   setKeylineTemplate,
   setKeylineMarginFromInput,
+  setKeylineOpacity,
   selectIconCheckIssue,
   setKaleidoscopeCenterFromInput,
   setKaleidoscopeCountFromInput,

@@ -32,6 +32,7 @@ export interface HomeCanvasStateRefs {
   pixelGridSize: Ref<number>
   keylineTemplate: Ref<KeylineTemplate>
   keylineMargin: Ref<number>
+  keylineOpacity: Ref<number>
 }
 
 export interface HomeArtboardStateRefs {

@@ -1,5 +1,5 @@
-import { DEFAULT_KEYLINE_MARGIN, DEFAULT_PIXEL_GRID_SIZE, PROJECT_SCHEMA_VERSION } from './constants'
-import { normalizeCanvasBg, normalizeKeylineMargin, normalizeKeylineTemplate, normalizePixelGridSize } from './canvasSettings'
+import { DEFAULT_KEYLINE_MARGIN, DEFAULT_KEYLINE_OPACITY, DEFAULT_PIXEL_GRID_SIZE, PROJECT_SCHEMA_VERSION } from './constants'
+import { normalizeCanvasBg, normalizeKeylineMargin, normalizeKeylineOpacity, normalizeKeylineTemplate, normalizePixelGridSize } from './canvasSettings'
 import type { IconCreatorDraftFile, IconCreatorProjectArtboard, IconCreatorProjectCanvas, IconCreatorProjectFile, ParsedProjectFileResult } from './types'
 
 // 读取工程画布与辅助设置，过滤无效值，避免损坏文件把画布或网格恢复成不可用状态。
@@ -15,7 +15,8 @@ export function normalizeProjectCanvasSettings(value: unknown): IconCreatorProje
     showPixelGrid: source.showPixelGrid === true,
     snapToPixelGrid: source.snapToPixelGrid === true,
     keylineTemplate: normalizeKeylineTemplate(source.keylineTemplate),
-    keylineMargin: normalizeKeylineMargin(source.keylineMargin ?? DEFAULT_KEYLINE_MARGIN)
+    keylineMargin: normalizeKeylineMargin(source.keylineMargin ?? DEFAULT_KEYLINE_MARGIN),
+    keylineOpacity: normalizeKeylineOpacity(source.keylineOpacity ?? DEFAULT_KEYLINE_OPACITY)
   }
 }
 

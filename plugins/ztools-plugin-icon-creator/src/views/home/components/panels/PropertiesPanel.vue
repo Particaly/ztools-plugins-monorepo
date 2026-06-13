@@ -699,6 +699,18 @@
           @change="setKeylineMarginFromInput"
         />
       </div>
+      <div v-if="keylineTemplate !== 'none'" class="prop-group rotation-row">
+        <label>透明度</label>
+        <ZSlider
+          :model-value="keylineOpacity"
+          :min="0"
+          :max="1"
+          :step="0.01"
+          :formatter="(value) => `${Math.round(Number(value) * 100)}%`"
+          @change="setKeylineOpacity"
+        />
+        <span class="val-label">{{ `${Math.round(keylineOpacity * 100)}%` }}</span>
+      </div>
     </template>
   </div>
 </template>
@@ -762,6 +774,7 @@ const props = defineProps<{
   keylineTemplate: KeylineTemplate
   keylineTemplateOptions: SelectOption[]
   keylineMarginInput: string
+  keylineOpacity: number
   colorPaletteGroups: ColorPaletteGroup[]
   gradientPresets: GradientPresetItem[]
   selectKaleidoscopeSourceFromInstance: AnyFn
@@ -831,6 +844,7 @@ const props = defineProps<{
   setPixelGridSizeFromInput: AnyFn
   setKeylineTemplate: AnyFn
   setKeylineMarginFromInput: AnyFn
+  setKeylineOpacity: AnyFn
 }>()
 
 const emit = defineEmits<{
