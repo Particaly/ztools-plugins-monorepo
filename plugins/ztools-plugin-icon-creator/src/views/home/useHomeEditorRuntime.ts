@@ -181,6 +181,7 @@ export function useHomeEditorRuntime() {
   const artboardIdSeed = ref(0)
 
   const leftTab = ref<LeftPanelTab>('shape')
+  const leftPanelCollapsed = ref(false)
   const activeRightTab = ref<RightPanelTab>('properties')
   const showRuler = ref(true)
   const showPixelGrid = ref(false)
@@ -6550,6 +6551,11 @@ export function useHomeEditorRuntime() {
     snapshot()
   }
 
+  // 切换左侧插入面板显隐；仅调整壳层布局，不重置标签状态，确保当前插入分类在再次展开后保持原样。
+  function toggleLeftPanel() {
+    leftPanelCollapsed.value = !leftPanelCollapsed.value
+  }
+
   // 在画布对象上打开与图层面板复用的快捷菜单；空白区忽略，命中对象时自动同步到当前选择。
   function openCanvasObjectContextMenu(event: MouseEvent) {
     if (!fabricCanvas) return
@@ -7010,6 +7016,7 @@ export function useHomeEditorRuntime() {
     svgInputRef,
     imgInputRef,
     projectInputRef,
+    leftPanelCollapsed,
     leftTab,
     activeRightTab,
     showPixelGrid,
@@ -7204,6 +7211,7 @@ export function useHomeEditorRuntime() {
     svgPreviewSource,
     setPreviewBackgroundMode,
     setCanvasViewMode,
+    toggleLeftPanel,
     deleteObject,
     lockObject,
     groupObjects,

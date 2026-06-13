@@ -64,6 +64,7 @@
     <div class="editor-body">
       <!-- 左栏 -->
       <LeftPanel
+        :collapsed="leftPanelCollapsed"
         :active-tab="leftTab"
         :basic-shapes="basicShapes"
         :shape-preview-paths="shapePreviewPaths"
@@ -102,6 +103,7 @@
         :keyline-template="keylineTemplate"
         :keyline-template-options="keylineTemplateOptions"
         :shortcut-drawer-open="editorSelectors.shortcutDrawerOpen"
+        :left-panel-collapsed="leftPanelCollapsed"
         @undo="editorCommands.undo"
         @redo="editorCommands.redo"
         @set-selection-mode="editorCommands.setSelectionMode"
@@ -112,6 +114,7 @@
         @toggle-keyline-overlay="editorCommands.toggleKeylineOverlay"
         @set-keyline-template="setKeylineTemplate"
         @open-shortcut-drawer="editorCommands.openShortcutDrawer"
+        @toggle-left-panel="toggleLeftPanel"
       />
 
       <!-- 画板列表 -->
@@ -127,7 +130,7 @@
       />
 
       <!-- 中间画布区 -->
-      <div class="canvas-frame" :class="[{ 'with-ruler': editorSelectors.showRuler }, `mode-${canvasViewMode}`]">
+      <div class="canvas-frame" :class="[{ 'with-ruler': editorSelectors.showRuler }, { 'is-left-panel-collapsed': leftPanelCollapsed }, `mode-${canvasViewMode}`]">
         <main
           class="canvas-area"
           ref="canvasAreaRef"
@@ -508,6 +511,7 @@ const {
   spacePanReady,
   isSpacePanning,
   rulerCoordinateHintActive,
+  leftPanelCollapsed,
   canvasWidth,
   canvasHeight,
   canvasWidthInput,
@@ -689,6 +693,7 @@ const {
   svgPreviewSource,
   setPreviewBackgroundMode,
   setCanvasViewMode,
+  toggleLeftPanel,
   deleteObject,
   lockObject,
   groupObjects,
