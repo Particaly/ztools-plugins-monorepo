@@ -6,7 +6,7 @@ import type { FillGradientStop, FillGradientType } from './fabric/objectMetadata
 export type FabricControls = Record<string, Control>
 
 export type LeftPanelTab = 'shape' | 'text' | 'assets' | 'iconify' | 'templates'
-export type RightPanelTab = 'properties' | 'layers' | 'history' | 'preview' | 'checks'
+export type RightPanelTab = 'properties' | 'layers' | 'history'
 
 export type BooleanPreviewHiddenObject = {
   object: FabricObject
@@ -52,7 +52,7 @@ export type StylePresetSettings = {
   colorPaletteGroups: ColorPaletteGroup[]
   gradientPresets: GradientPresetItem[]
   colorColumns: number
-  gradientPresetVisibleCount: number
+  gradientPresetRows: number
 }
 
 export type UserStylePresets = {
@@ -94,6 +94,9 @@ export type ExportFormat = 'svg' | 'png'
 export type PreviewBackgroundMode = 'transparent' | 'light' | 'dark'
 export type KeylineTemplate = 'none' | 'material' | 'ios' | 'favicon' | 'custom'
 
+export type IconCreatorProjectViewMode = 'canvas' | 'svg'
+export type IconCreatorProjectSvgPreviewMode = 'graphic' | 'code'
+
 export type IconCreatorProjectCanvas = {
   width: number
   height: number
@@ -104,6 +107,17 @@ export type IconCreatorProjectCanvas = {
   keylineTemplate?: KeylineTemplate
   keylineMargin?: number
   keylineOpacity?: number
+}
+
+export type IconCreatorProjectViewport = {
+  zoom: number
+  panX: number
+  panY: number
+}
+
+export type IconCreatorProjectViewState = IconCreatorProjectViewport & {
+  viewMode: IconCreatorProjectViewMode
+  svgPreviewMode: IconCreatorProjectSvgPreviewMode
 }
 
 export type IconCreatorProjectArtboard = {
@@ -153,8 +167,8 @@ export type SpacePanStart = {
   pointerId: number
   x: number
   y: number
-  scrollLeft: number
-  scrollTop: number
+  panX: number
+  panY: number
 }
 
 export type EndpointAttachmentEdge = 'left' | 'right' | 'top' | 'bottom'

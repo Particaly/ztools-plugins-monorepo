@@ -35,7 +35,6 @@
           <div class="preview-size-label">{{ item.size }}px</div>
         </div>
       </div>
-      <div class="preview-hint">编辑后自动刷新，透明背景使用棋盘格辅助判断边缘。</div>
     </div>
   </div>
 </template>
@@ -142,6 +141,8 @@ defineEmits<{
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  min-width: 300px;
+  padding: 5px 10px 10px;
 }
 .section-title {
   font-weight: 700;

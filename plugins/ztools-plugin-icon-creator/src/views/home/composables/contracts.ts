@@ -14,6 +14,12 @@ export interface HistorySnapshot {
   timestamp: number
 }
 
+export interface HistoryState {
+  undoStack: HistorySnapshot[]
+  redoStack: HistorySnapshot[]
+  historyIndex: number
+}
+
 export type HomeToastType = 'success' | 'error' | 'info' | 'warning'
 export type HomeShowToast = (message: string, type?: HomeToastType, duration?: number) => void
 
@@ -107,6 +113,8 @@ export interface UseHomeDocumentReturn {
   canRedo: Ref<boolean>
   snapshot: (options?: SnapshotOptions) => void
   createProjectFile: () => IconCreatorProjectFile
+  captureHistoryState: () => HistoryState
+  restoreHistoryState: (state: HistoryState) => void
   resetHistoryToCurrentCanvas: () => void
   loadProjectFile: (project: IconCreatorProjectFile, options?: ProjectLoadOptions) => Promise<void>
   scheduleDraftSave: () => void

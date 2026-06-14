@@ -42,11 +42,12 @@ import {
   DEFAULT_KEYLINE_TEMPLATE,
   DEFAULT_PIXEL_GRID_SIZE,
   EXPORT_PNG_SIZE_OPTIONS,
+  GRADIENT_PRESET_GRID_COLUMNS,
   ICONIFY_SEARCH_LIMIT,
   MAX_COLOR_PALETTE_COLUMNS,
-  MAX_GRADIENT_PRESET_VISIBLE_COUNT,
+  MAX_GRADIENT_PRESET_ROWS,
   MIN_COLOR_PALETTE_COLUMNS,
-  MIN_GRADIENT_PRESET_VISIBLE_COUNT,
+  MIN_GRADIENT_PRESET_ROWS,
   MIN_PIXEL_GRID_VISIBLE_STEP,
   SMALL_PREVIEW_SIZE_OPTIONS,
   STYLE_PRESET_STORAGE_SCHEMA_VERSION,
@@ -74,6 +75,9 @@ import type {
   FabricControls,
   FillModeOption,
   GradientPresetItem,
+  IconCreatorProjectFile,
+  IconCreatorProjectSvgPreviewMode,
+  IconCreatorProjectViewMode,
   IconCheckIssue,
   IconifySearchResponse,
   KeylineSafeArea,
@@ -101,6 +105,7 @@ import { applyBooleanOperation, computeBooleanResult } from './geometry/booleanO
 import type { BooleanOperation, SubtractDirection } from './geometry/booleanOps'
 import { pathKitToEditablePathObject, pathKitToFabricPath } from './geometry/pathKitToFabric'
 import { getPathKit, peekPathKit } from './geometry/pathkit'
+import type { HistoryState } from './composables/contracts'
 import { createHomeWorkspaceModule } from './editor/modules/workspace/createHomeWorkspaceModule'
 import { createHomeCanvasKernelModule } from './editor/modules/canvas/createHomeCanvasKernelModule'
 import { createHomeAssetsImportModule } from './editor/modules/assets-import/createHomeAssetsImportModule'
@@ -180,6 +185,7 @@ export function useHomeEditorRuntime() {
   const artboardIdSeed = ref(0)
 
   const leftTab = ref<LeftPanelTab>('shape')
+  const leftPanelCollapsed = ref(false)
   const activeRightTab = ref<RightPanelTab>('properties')
   const showRuler = ref(true)
   const showPixelGrid = ref(false)
@@ -191,6 +197,8 @@ export function useHomeEditorRuntime() {
   const keylineOpacity = ref(DEFAULT_KEYLINE_OPACITY)
   const keylineMarginInput = ref(String(keylineMargin.value))
   const zoom = ref(1)
+  const canvasPanX = ref(20)
+  const canvasPanY = ref(20)
   const spacePanReady = ref(false)
   const isSpacePanning = ref(false)
   const rulerModifierKeys = reactive({ shift: false, ctrl: false, alt: false, meta: false })
@@ -230,6 +238,9 @@ export function useHomeEditorRuntime() {
     width: `${canvasWidth.value * zoom.value}px`,
     height: `${canvasHeight.value * zoom.value}px`,
     opacity: keylineOpacity.value
+  }))
+  const canvasWrapperStyle = computed(() => ({
+    transform: `translate(${canvasPanX.value}px, ${canvasPanY.value}px)`
   }))
   const keylineSafeArea = computed<KeylineSafeArea>(() => {
     const width = canvasWidth.value
@@ -406,6 +417,8 @@ export function useHomeEditorRuntime() {
     canvasBg,
     lastOpaqueCanvasBg,
     zoom,
+    panX: canvasPanX,
+    panY: canvasPanY,
     sizeRatioLocked,
     selectionMode,
     snapToPixelGrid,
@@ -434,6 +447,7 @@ export function useHomeEditorRuntime() {
     getStrokeOutlineUnsupportedReason,
     isBitmapObject: (obj) => obj instanceof FabricImage,
     isKaleidoscopeObject,
+    isKaleidoscopeInstance,
     isTextObject: (obj) => obj instanceof Textbox,
     isBooleanCandidate,
     bitmapTraceBusy,
@@ -542,7 +556,10 @@ export function useHomeEditorRuntime() {
       stops: preset.stops.map((stop) => ({ ...stop }))
     })),
     colorColumns: DEFAULT_COLOR_PALETTE_COLUMNS,
-    gradientPresetVisibleCount: defaultGradientPresets.length
+    gradientPresetRows: Math.max(
+      MIN_GRADIENT_PRESET_ROWS,
+      Math.ceil(defaultGradientPresets.length / GRADIENT_PRESET_GRID_COLUMNS)
+    )
   })
   const stylePresetManagerState = reactive<{
     show: boolean
@@ -621,7 +638,8 @@ export function useHomeEditorRuntime() {
     isTransparentCanvasBg,
     endSpacePan,
     cancelSmallPreviewsRefresh,
-    projectInputRef
+    projectInputRef,
+    afterInitialDocumentReady: initializeProjectTabs
   })
   const {
     artboards,
@@ -634,6 +652,7 @@ export function useHomeEditorRuntime() {
   } = homeWorkspace.controller.state
   const {
     addArtboard,
+    captureHistoryState,
     clearStoredDraft,
     deleteArtboard,
     duplicateArtboard,
@@ -645,6 +664,7 @@ export function useHomeEditorRuntime() {
     redo,
     renameArtboard,
     resetHistoryToCurrentCanvas,
+    restoreHistoryState,
     saveProject,
     scheduleDraftSave,
     snapshot,
@@ -669,23 +689,58 @@ export function useHomeEditorRuntime() {
     { value: 'light', label: '浅色' },
     { value: 'dark', label: '深色' }
   ]
+  const svgPreviewModeOptions: Array<{ value: 'graphic' | 'code'; label: string; description: string; icon: string }> = [
+    { value: 'graphic', label: '图形模式', description: '以图形方式预览当前 SVG 输出结果。', icon: 'mdi:image-outline' },
+    { value: 'code', label: '代码模式', description: '只读查看 SVG 源码，并提供语法高亮。', icon: 'mdi:code-tags' }
+  ]
   const previewBackgroundMode = ref<PreviewBackgroundMode>('transparent')
-  const canvasViewMode = ref<'canvas' | 'svg'>('canvas')
+  const canvasViewMode = ref<IconCreatorProjectViewMode>('canvas')
+  const svgPreviewMode = ref<IconCreatorProjectSvgPreviewMode>('graphic')
   const previewItems = shallowRef<PreviewItem[]>([])
+  const previewPopoverVisible = ref(false)
   const previewDirty = ref(true)
   let previewRenderTimer: ReturnType<typeof window.setTimeout> | null = null
+
+  type ProjectTabState = {
+    id: string
+    name: string
+    project: IconCreatorProjectFile
+    selectedObjectIds: string[]
+    zoom: number
+    panX: number
+    panY: number
+    viewMode: IconCreatorProjectViewMode
+    svgPreviewMode: IconCreatorProjectSvgPreviewMode
+    history: HistoryState
+    dirty: boolean
+  }
+
+  const projectTabs = ref<ProjectTabState[]>([])
+  const activeProjectTabId = ref('')
+  let projectTabSeed = 0
+  let switchingProjectTab = false
+  let projectTabSnapshotReady = false
+  let suppressProjectTabAutoSave = false
+  const hasMultipleProjectTabs = computed(() => projectTabs.value.length > 1)
+  const activeProjectTab = computed(() => projectTabs.value.find((tab) => tab.id === activeProjectTabId.value) ?? null)
   const visibleColorPaletteGroups = computed(() => stylePresetSettings.colorPaletteGroups)
   const visibleGradientPresets = computed(() => {
-    const count = Math.min(stylePresetSettings.gradientPresetVisibleCount, stylePresetSettings.gradientPresets.length)
-    return stylePresetSettings.gradientPresets.slice(0, Math.max(0, count))
+    const maxCount = Math.max(
+      GRADIENT_PRESET_GRID_COLUMNS,
+      stylePresetSettings.gradientPresetRows * GRADIENT_PRESET_GRID_COLUMNS
+    )
+    return stylePresetSettings.gradientPresets.slice(0, maxCount)
   })
   const stylePresetColorColumns = computed(() => stylePresetSettings.colorColumns)
   const stylePresetGradientPresets = computed(() => stylePresetSettings.gradientPresets)
-  const stylePresetGradientVisibleCount = computed(() => stylePresetSettings.gradientPresetVisibleCount)
+  const stylePresetGradientRows = computed(() => stylePresetSettings.gradientPresetRows)
   const defaultStylePresetColorPaletteGroups = computed(() => cloneManagedColorPaletteGroups(defaultColorPaletteGroups))
   const defaultStylePresetGradientPresets = computed(() => cloneManagedGradientPresets(defaultGradientPresets))
   const defaultStylePresetColorColumns = DEFAULT_COLOR_PALETTE_COLUMNS
-  const defaultStylePresetGradientVisibleCount = defaultGradientPresets.length
+  const defaultStylePresetGradientRows = Math.max(
+    MIN_GRADIENT_PRESET_ROWS,
+    Math.ceil(defaultGradientPresets.length / GRADIENT_PRESET_GRID_COLUMNS)
+  )
   function refreshLayers() {
     selectionCommands.refreshLayers()
   }
@@ -2140,6 +2195,280 @@ export function useHomeEditorRuntime() {
     return createCanvasSVGPreview(false)
   })
 
+  const svgPreviewDataUrl = computed(() => (
+    svgPreviewSource.value ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgPreviewSource.value)}` : ''
+  ))
+
+  // 将 SVG 源码转成分段高亮的 HTML，保持代码模式只读展示且不执行源码中的 SVG 内容。
+  function highlightSvgSource(source: string) {
+    const escapeHtml = (value: string) => value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+
+    const tagPattern = /<\/?[\w:-]+(?:\s+[\w:-]+(?:=(?:"[^"]*"|'[^']*'|[^\s>]+))?)*\s*\/?>/g
+    let highlighted = ''
+    let lastIndex = 0
+    for (const match of source.matchAll(tagPattern)) {
+      const tagSource = match[0]
+      const index = match.index ?? 0
+      highlighted += escapeHtml(source.slice(lastIndex, index))
+      const escapedTag = escapeHtml(tagSource)
+      const highlightedAttrs = escapedTag.replace(
+        /([\w:-]+)(=)("[^"]*"|'[^']*'|[^\s]+)/g,
+        '<span class="svg-code-attr">$1</span>$2<span class="svg-code-string">$3</span>'
+      )
+      highlighted += highlightedAttrs
+        .replace(/^(&lt;\/?)([\w:-]+)/, '<span class="svg-code-bracket">$1</span><span class="svg-code-tag">$2</span>')
+        .replace(/(\/??&gt;)$/, '<span class="svg-code-bracket">$1</span>')
+      lastIndex = index + tagSource.length
+    }
+    highlighted += escapeHtml(source.slice(lastIndex))
+    return highlighted
+  }
+
+  const highlightedSvgPreviewSource = computed(() => highlightSvgSource(svgPreviewSource.value))
+
+  const svgModeTooltipTitle = computed(() => svgPreviewMode.value === 'graphic' ? 'SVG 图形模式' : 'SVG 代码模式')
+  const svgModeTooltipDetail = computed(() => (
+    svgPreviewMode.value === 'graphic'
+      ? '悬浮可切换为代码模式；当前以图形方式预览导出结果。'
+      : '悬浮可切换为图形模式；当前只读查看带高亮的 SVG 源码。'
+  ))
+
+  // 切换 SVG 二级预览模式；该状态只影响 SVG 页签下的展示方式，不修改画布或导出内容。
+  function setSvgPreviewMode(mode: IconCreatorProjectSvgPreviewMode) {
+    svgPreviewMode.value = mode
+    canvasViewMode.value = 'svg'
+  }
+
+  // 生成项目标签的本地唯一 id，标签只在当前编辑会话内隔离不同项目状态。
+  function createProjectTabId() {
+    projectTabSeed += 1
+    return `project-tab-${projectTabSeed}-${Date.now()}`
+  }
+
+  // 使用顺序编号生成默认项目名，避免多个未保存标签都显示成难以区分的空名称。
+  function createProjectTabName() {
+    return `项目 ${projectTabs.value.length + 1}`
+  }
+
+  // 深拷贝工程对象，避免 inactive 标签与当前画布恢复流程共享可变引用。
+  function cloneProjectFile(project: IconCreatorProjectFile): IconCreatorProjectFile {
+    return JSON.parse(JSON.stringify(project)) as IconCreatorProjectFile
+  }
+
+  // 收集当前选区对象 id，切换回标签时尽量恢复用户离开前的选择上下文。
+  function captureSelectedObjectIds() {
+    if (!fabricCanvas) return []
+    return fabricCanvas.getActiveObjects()
+      .filter((obj) => !isBooleanPreviewObject(obj))
+      .map((obj) => ensureEditorObjectId(obj))
+      .filter(Boolean)
+  }
+
+  // 根据保存的对象 id 恢复标签选区；对象已删除或无法恢复时自动退化为空选择。
+  function restoreSelectedObjectsByIds(ids: string[]) {
+    if (!fabricCanvas || !ids.length) {
+      fabricCanvas?.discardActiveObject()
+      syncActiveObject(null)
+      fabricCanvas?.requestRenderAll()
+      return
+    }
+    const idSet = new Set(ids)
+    const targets = fabricCanvas.getObjects()
+      .filter((obj) => !isBooleanPreviewObject(obj) && idSet.has(String((obj as AnyFabricObject).editorObjectId || '')))
+    applyActiveObjectsSelection(targets)
+  }
+
+  // 捕获指定项目标签的完整编辑现场，包括工程内容、选择态、视口、视图模式和历史栈。
+  function captureCurrentProjectTabState(tab: ProjectTabState) {
+    if (!fabricCanvas) return
+    tab.project = cloneProjectFile(createProjectFile())
+    tab.selectedObjectIds = captureSelectedObjectIds()
+    tab.zoom = zoom.value
+    tab.panX = canvasPanX.value
+    tab.panY = canvasPanY.value
+    tab.viewMode = canvasViewMode.value
+    tab.svgPreviewMode = svgPreviewMode.value
+    tab.history = captureHistoryState()
+  }
+
+  // 在离开当前标签前保存现场，确保再次切换回来时不会丢失编辑状态。
+  function persistActiveProjectTabState() {
+    const tab = activeProjectTab.value
+    if (!tab || !fabricCanvas) return
+    captureCurrentProjectTabState(tab)
+  }
+
+  // 将标签中保存的完整项目状态恢复到当前 Fabric 画布，并还原独立历史与视口。
+  async function loadProjectTabState(tab: ProjectTabState) {
+    if (!fabricCanvas) return
+    switchingProjectTab = true
+    try {
+      activeProjectTabId.value = tab.id
+      await loadProjectFile(cloneProjectFile(tab.project), { keepDraft: true, resetHistory: false })
+      restoreHistoryState(tab.history)
+      canvasViewMode.value = tab.viewMode
+      svgPreviewMode.value = tab.svgPreviewMode
+      setZoom(tab.zoom)
+      canvasPanX.value = tab.panX
+      canvasPanY.value = tab.panY
+      restoreSelectedObjectsByIds(tab.selectedObjectIds)
+      markSmallPreviewsDirty()
+    } finally {
+      switchingProjectTab = false
+    }
+  }
+
+  // 初始化第一个项目标签，将当前启动后的画布包装成可切换项目。
+  function initializeProjectTabs() {
+    if (projectTabs.value.length || !fabricCanvas) return
+    const id = createProjectTabId()
+    const tab: ProjectTabState = {
+      id,
+      name: createProjectTabName(),
+      project: cloneProjectFile(createProjectFile()),
+      selectedObjectIds: captureSelectedObjectIds(),
+      zoom: zoom.value,
+      panX: canvasPanX.value,
+      panY: canvasPanY.value,
+      viewMode: canvasViewMode.value,
+      svgPreviewMode: svgPreviewMode.value,
+      history: captureHistoryState(),
+      dirty: false
+    }
+    projectTabs.value = [tab]
+    activeProjectTabId.value = id
+    projectTabSnapshotReady = true
+  }
+
+  // 新建独立项目标签，并把画布重置为新的空项目现场。
+  async function addProjectTab() {
+    if (!fabricCanvas) return
+    if (!projectTabs.value.length) initializeProjectTabs()
+    persistActiveProjectTabState()
+    const id = createProjectTabId()
+    const name = createProjectTabName()
+    switchingProjectTab = true
+    suppressProjectTabAutoSave = true
+    try {
+      newDoc()
+      canvasViewMode.value = 'canvas'
+      svgPreviewMode.value = 'graphic'
+      fitCanvasInView()
+      const tab: ProjectTabState = {
+        id,
+        name,
+        project: cloneProjectFile(createProjectFile()),
+        selectedObjectIds: [],
+        zoom: zoom.value,
+        panX: canvasPanX.value,
+        panY: canvasPanY.value,
+        viewMode: canvasViewMode.value,
+        svgPreviewMode: svgPreviewMode.value,
+        history: captureHistoryState(),
+        dirty: false
+      }
+      projectTabs.value = [...projectTabs.value, tab]
+      activeProjectTabId.value = id
+      showToast('已新建项目标签', 'success')
+    } finally {
+      suppressProjectTabAutoSave = false
+      switchingProjectTab = false
+    }
+  }
+
+  // 切换到目标项目标签；当前标签会先保存现场，目标标签再恢复自己的项目、历史与视图状态。
+  async function switchProjectTab(tabId: string) {
+    if (switchingProjectTab || tabId === activeProjectTabId.value) return
+    const target = projectTabs.value.find((tab) => tab.id === tabId)
+    if (!target) return
+    persistActiveProjectTabState()
+    await loadProjectTabState(target)
+  }
+
+  // 关闭项目标签；关闭含未保存提示的标签前做轻量确认，至少保留一个项目标签。
+  async function closeProjectTab(tabId: string) {
+    if (projectTabs.value.length <= 1) return
+    const index = projectTabs.value.findIndex((tab) => tab.id === tabId)
+    if (index < 0) return
+    const target = projectTabs.value[index]
+    if (target.dirty && !window.confirm(`项目“${target.name}”存在未保存修改，确定关闭吗？`)) return
+    const wasActive = tabId === activeProjectTabId.value
+    const nextTab = wasActive
+      ? projectTabs.value[index + 1] ?? projectTabs.value[index - 1]
+      : null
+    projectTabs.value = projectTabs.value.filter((tab) => tab.id !== tabId)
+    if (wasActive && nextTab) await loadProjectTabState(nextTab)
+  }
+
+  watch(historyIndex, () => {
+    if (!projectTabSnapshotReady || switchingProjectTab || suppressProjectTabAutoSave) return
+    const tab = activeProjectTab.value
+    if (tab) tab.dirty = true
+  })
+
+  watch([canvasViewMode, svgPreviewMode, zoom, canvasPanX, canvasPanY], () => {
+    if (switchingProjectTab) return
+    const tab = activeProjectTab.value
+    if (!tab) return
+    tab.viewMode = canvasViewMode.value
+    tab.svgPreviewMode = svgPreviewMode.value
+    tab.zoom = zoom.value
+    tab.panX = canvasPanX.value
+    tab.panY = canvasPanY.value
+  })
+
+  // 顶栏“新建”命令在当前标签内重置项目内容，并同步更新该标签保存的初始历史。
+  function resetActiveProjectTabDocument() {
+    newDoc()
+    canvasViewMode.value = 'canvas'
+    svgPreviewMode.value = 'graphic'
+    const tab = activeProjectTab.value
+    if (!tab || !fabricCanvas) return
+    captureCurrentProjectTabState(tab)
+    tab.dirty = false
+  }
+
+  // 保存当前项目标签并清除未保存提示；实际文件落盘仍复用既有工程保存流程。
+  function saveActiveProjectTab() {
+    saveProject()
+    const tab = activeProjectTab.value
+    if (!tab || !fabricCanvas) return
+    captureCurrentProjectTabState(tab)
+    tab.dirty = false
+  }
+
+  // 打开工程入口会先保存当前标签现场，再复用文件选择器加载到当前项目标签。
+  function openProjectForActiveTab() {
+    persistActiveProjectTabState()
+    openProject()
+  }
+
+  async function onProjectFileChosenForActiveTab(event: Event) {
+    await onProjectFileChosen(event)
+    const tab = activeProjectTab.value
+    if (!tab || !fabricCanvas) return
+    tab.name = '导入项目'
+    captureCurrentProjectTabState(tab)
+    tab.dirty = false
+  }
+
+  const iconCheckSummary = computed(() => {
+    const count = iconCheckIssues.value.length
+    if (!count) {
+      return {
+        title: '当前没有检测到问题',
+        detail: '检查结果会根据画布、安全区、颜色和小尺寸表现自动刷新。'
+      }
+    }
+    return {
+      title: `检测到 ${count} 项问题`,
+      detail: '悬浮查看问题列表，点击具体问题可直接定位到关联对象。'
+    }
+  })
+
   const activeKaleidoscopeInstance = computed(() => {
     const obj = activeObject.value
     return obj && isKaleidoscopeInstance(obj) ? obj : null
@@ -2221,15 +2550,15 @@ export function useHomeEditorRuntime() {
     insertIconTemplate: assetsImportCommands.insertIconTemplate,
     insertIconifyIcon: assetsImportCommands.insertIconifyIcon,
     insertUserAsset: assetsImportCommands.insertUserAsset,
-    newDoc,
+    newDoc: resetActiveProjectTabDocument,
     openCreateUserAssetDialog: assetsImportCommands.openCreateUserAssetDialog,
     openExportDialog,
     openPasteSVGDialog: assetsImportCommands.openPasteSVGDialog,
-    openProject,
+    openProject: openProjectForActiveTab,
     openRenameUserAssetDialog: assetsImportCommands.openRenameUserAssetDialog,
     openShortcutDrawer,
     redo,
-    saveProject,
+    saveProject: saveActiveProjectTab,
     searchIconifyIcons: assetsImportCommands.searchIconifyIcons,
     setSelectionMode,
     setZoom,
@@ -2503,11 +2832,20 @@ export function useHomeEditorRuntime() {
     return Math.min(MAX_COLOR_PALETTE_COLUMNS, Math.max(MIN_COLOR_PALETTE_COLUMNS, parsed))
   }
 
-  // 将渐变展示条数收敛为正整数，既兼容手输配置，也避免属性面板出现无意义的超长列表。
-  function normalizeGradientPresetVisibleCount(value: unknown, fallback = defaultGradientPresets.length) {
+  // 将渐变展示行数限制在合理范围内，结合固定两列布局控制右侧面板露出的预设数量。
+  function normalizeGradientPresetRows(
+    value: unknown,
+    fallback = Math.ceil(defaultGradientPresets.length / GRADIENT_PRESET_GRID_COLUMNS)
+  ) {
     const parsed = Math.round(Number(value))
     if (!Number.isFinite(parsed)) return fallback
-    return Math.min(MAX_GRADIENT_PRESET_VISIBLE_COUNT, Math.max(MIN_GRADIENT_PRESET_VISIBLE_COUNT, parsed))
+    return Math.min(MAX_GRADIENT_PRESET_ROWS, Math.max(MIN_GRADIENT_PRESET_ROWS, parsed))
+  }
+
+  // 按固定两列网格把预设数量折算为展示行数，兼容默认值计算和旧版“展示条数”配置迁移。
+  function getGradientPresetRowsFromCount(count: unknown) {
+    const parsed = Math.max(0, Math.round(Number(count) || 0))
+    return normalizeGradientPresetRows(Math.ceil(parsed / GRADIENT_PRESET_GRID_COLUMNS))
   }
 
   // 读取本地颜色预设时执行最小校验，过滤空颜色并为旧数据补齐名称和 id。
@@ -2579,7 +2917,10 @@ export function useHomeEditorRuntime() {
     stylePresetSettings.colorPaletteGroups = cloneManagedColorPaletteGroups(defaultColorPaletteGroups)
     stylePresetSettings.gradientPresets = cloneManagedGradientPresets(defaultGradientPresets)
     stylePresetSettings.colorColumns = DEFAULT_COLOR_PALETTE_COLUMNS
-    stylePresetSettings.gradientPresetVisibleCount = defaultGradientPresets.length
+    stylePresetSettings.gradientPresetRows = Math.max(
+      MIN_GRADIENT_PRESET_ROWS,
+      Math.ceil(defaultGradientPresets.length / GRADIENT_PRESET_GRID_COLUMNS)
+    )
   }
 
   // 旧版本仅保存“我的颜色/渐变”，迁移时把颜色合并成独立分组并追加到系统预设后面。
@@ -2621,9 +2962,11 @@ export function useHomeEditorRuntime() {
         stylePresetSettings.colorPaletteGroups = groups
         stylePresetSettings.gradientPresets = presets
         stylePresetSettings.colorColumns = normalizeColorPaletteColumns(parsed.colorColumns)
-        stylePresetSettings.gradientPresetVisibleCount = normalizeGradientPresetVisibleCount(
-          parsed.gradientPresetVisibleCount,
-          presets.length || defaultGradientPresets.length
+        stylePresetSettings.gradientPresetRows = normalizeGradientPresetRows(
+          parsed.gradientPresetRows,
+          Object.prototype.hasOwnProperty.call(parsed, 'gradientPresetVisibleCount')
+            ? getGradientPresetRowsFromCount(parsed.gradientPresetVisibleCount)
+            : Math.ceil((presets.length || defaultGradientPresets.length) / GRADIENT_PRESET_GRID_COLUMNS)
         )
         return
       }
@@ -2644,9 +2987,9 @@ export function useHomeEditorRuntime() {
         ...legacyGradients
       ]
       stylePresetSettings.colorColumns = DEFAULT_COLOR_PALETTE_COLUMNS
-      stylePresetSettings.gradientPresetVisibleCount = normalizeGradientPresetVisibleCount(
-        parsed.gradientPresetVisibleCount,
-        stylePresetSettings.gradientPresets.length || defaultGradientPresets.length
+      stylePresetSettings.gradientPresetRows = normalizeGradientPresetRows(
+        parsed.gradientPresetRows,
+        getGradientPresetRowsFromCount(parsed.gradientPresetVisibleCount)
       )
     } catch (error) {
       console.warn('读取样式预设失败', error)
@@ -2662,7 +3005,7 @@ export function useHomeEditorRuntime() {
         colorPaletteGroups: stylePresetSettings.colorPaletteGroups,
         gradientPresets: stylePresetSettings.gradientPresets,
         colorColumns: stylePresetSettings.colorColumns,
-        gradientPresetVisibleCount: stylePresetSettings.gradientPresetVisibleCount
+        gradientPresetRows: stylePresetSettings.gradientPresetRows
       }))
     } catch (error) {
       console.warn('保存样式预设失败', error)
@@ -2724,9 +3067,9 @@ export function useHomeEditorRuntime() {
           .filter((item): item is GradientPresetItem => !!item)
         : cloneManagedGradientPresets(defaultGradientPresets)
       stylePresetSettings.colorColumns = normalizeColorPaletteColumns(next.colorColumns)
-      stylePresetSettings.gradientPresetVisibleCount = normalizeGradientPresetVisibleCount(
-        next.gradientPresetVisibleCount,
-        stylePresetSettings.gradientPresets.length || defaultGradientPresets.length
+      stylePresetSettings.gradientPresetRows = normalizeGradientPresetRows(
+        next.gradientPresetRows,
+        Math.ceil((stylePresetSettings.gradientPresets.length || defaultGradientPresets.length) / GRADIENT_PRESET_GRID_COLUMNS)
       )
       saveUserStylePresets()
       stylePresetManagerState.show = false
@@ -3147,7 +3490,7 @@ export function useHomeEditorRuntime() {
   // 点击检查项时定位到关联对象，方便用户直接调整越界、描边过细或非整数坐标问题。
   function selectIconCheckIssue(issue: IconCheckIssue) {
     if (!issue.target || !fabricCanvas) return
-    activeRightTab.value = 'properties'
+    previewPopoverVisible.value = false
     applyActiveObjectsSelection([issue.target])
   }
 
@@ -3967,9 +4310,9 @@ export function useHomeEditorRuntime() {
     return { hasSelection: true, mixed, value }
   }
 
-  // 切换到预览 Tab 时立即刷新过期缩略图，保持隐藏状态下不做额外渲染。
-  watch(activeRightTab, (tab) => {
-    if (tab === 'preview' && previewDirty.value) refreshSmallPreviews()
+  // 预览浮层展开时立即刷新过期缩略图；关闭后保留 dirty 标记，等下次查看时再补齐。
+  watch(previewPopoverVisible, (show) => {
+    if (show && previewDirty.value) refreshSmallPreviews()
   })
 
   // 保留多对象选择结果，让图层面板可以批量选中万花筒实例后执行脱离、隐藏、锁定等操作。
@@ -5878,10 +6221,10 @@ export function useHomeEditorRuntime() {
     previewDirty.value = false
   }
 
-  // 在预览 Tab 可见时立即补齐过期缩略图；隐藏时只记录 dirty，避免后台频繁生成 dataURL。
+  // 在预览浮层可见时立即补齐过期缩略图；关闭时只记录 dirty，避免后台频繁生成 dataURL。
   function markSmallPreviewsDirty() {
     previewDirty.value = true
-    if (activeRightTab.value === 'preview') scheduleSmallPreviewsRefresh()
+    if (previewPopoverVisible.value) scheduleSmallPreviewsRefresh()
   }
 
   // ── 对象操作 ──
@@ -6519,11 +6862,27 @@ export function useHomeEditorRuntime() {
     snapshot()
   }
 
-  // 在画布对象上打开与图层面板复用的快捷菜单；空白区忽略，命中对象时自动同步到当前选择。
+  // 切换左侧插入面板显隐；仅调整壳层布局，不重置标签状态，确保当前插入分类在再次展开后保持原样。
+  function toggleLeftPanel() {
+    leftPanelCollapsed.value = !leftPanelCollapsed.value
+  }
+
+  // 切换底部轻量预览浮层显隐；展开时触发预览更新，收起时合并掉等待中的刷新计时器。
+  function handlePreviewPopoverShowChange(show: boolean) {
+    previewPopoverVisible.value = show
+    if (!show) cancelSmallPreviewsRefresh()
+  }
+
+  // 在画布对象上打开与图层面板复用的快捷菜单；兼容 Fabric 命中结果，空白区或预览对象不触发菜单。
   function openCanvasObjectContextMenu(event: MouseEvent) {
     if (!fabricCanvas) return
-    const targetInfo = fabricCanvas.findTarget(event)
-    const target = targetInfo.target
+    const targetInfo = fabricCanvas.findTarget(event) as unknown
+    const foundTarget = targetInfo && typeof targetInfo === 'object' && 'target' in targetInfo
+      ? (targetInfo as { target?: FabricObject | ActiveSelection | null }).target
+      : targetInfo as FabricObject | ActiveSelection | null | undefined
+    const target = foundTarget instanceof ActiveSelection
+      ? fabricCanvas.getActiveObjects().find((obj) => !isBooleanPreviewObject(obj))
+      : foundTarget
     if (!target || isBooleanPreviewObject(target)) return
     openLayerContextMenu(target, event)
   }
@@ -6564,7 +6923,7 @@ export function useHomeEditorRuntime() {
     return null
   }
 
-  // 在画布区域按住 Ctrl + 滚轮时，以指针位置为锚点缩放并同步滚动偏移，避免浏览器接管页面缩放。
+  // 在画布区域按住 Ctrl + 滚轮时，以指针位置为锚点缩放并同步平移偏移，避免浏览器接管页面缩放。
   function handleCanvasAreaWheel(event: WheelEvent) {
     if (!event.ctrlKey || !canvasAreaRef.value) return
     event.preventDefault()
@@ -6572,17 +6931,15 @@ export function useHomeEditorRuntime() {
     const rect = area.getBoundingClientRect()
     const pointerOffsetX = event.clientX - rect.left
     const pointerOffsetY = event.clientY - rect.top
-    const contentX = area.scrollLeft + pointerOffsetX
-    const contentY = area.scrollTop + pointerOffsetY
     const currentZoom = zoom.value
-    const nextZoom = currentZoom * Math.exp(-event.deltaY * 0.002)
-    const logicalX = contentX / currentZoom
-    const logicalY = contentY / currentZoom
-    setZoom(nextZoom)
-    area.scrollLeft = logicalX * zoom.value - pointerOffsetX
-    area.scrollTop = logicalY * zoom.value - pointerOffsetY
+    const logicalX = (pointerOffsetX - canvasPanX.value) / currentZoom
+    const logicalY = (pointerOffsetY - canvasPanY.value) / currentZoom
+    setZoom(currentZoom * Math.exp(-event.deltaY * 0.002))
+    canvasPanX.value = pointerOffsetX - logicalX * zoom.value
+    canvasPanY.value = pointerOffsetY - logicalY * zoom.value
   }
 
+  // 仅在空格平移模式下接管指针并记录起始偏移，保证任意缩放级别都能拖动画板。
   function handleCanvasAreaPointerDown(event: PointerEvent) {
     if (!spacePanReady.value || !canvasAreaRef.value) return
     event.preventDefault()
@@ -6593,8 +6950,8 @@ export function useHomeEditorRuntime() {
       pointerId: event.pointerId,
       x: event.clientX,
       y: event.clientY,
-      scrollLeft: area.scrollLeft,
-      scrollTop: area.scrollTop
+      panX: canvasPanX.value,
+      panY: canvasPanY.value
     }
     isSpacePanning.value = true
     window.addEventListener('pointermove', handleSpacePanPointerMove, true)
@@ -6602,11 +6959,12 @@ export function useHomeEditorRuntime() {
     window.addEventListener('pointercancel', handleSpacePanPointerEnd, true)
   }
 
+  // 按指针位移直接更新画布包裹层平移量，避免依赖容器滚动条才能看到拖动画布结果。
   function handleSpacePanPointerMove(event: PointerEvent) {
-    if (!spacePanStart || !canvasAreaRef.value || event.pointerId !== spacePanStart.pointerId) return
+    if (!spacePanStart || event.pointerId !== spacePanStart.pointerId) return
     event.preventDefault()
-    canvasAreaRef.value.scrollLeft = spacePanStart.scrollLeft - (event.clientX - spacePanStart.x)
-    canvasAreaRef.value.scrollTop = spacePanStart.scrollTop - (event.clientY - spacePanStart.y)
+    canvasPanX.value = spacePanStart.panX + (event.clientX - spacePanStart.x)
+    canvasPanY.value = spacePanStart.panY + (event.clientY - spacePanStart.y)
   }
 
   function handleSpacePanPointerEnd(event?: PointerEvent) {
@@ -6980,6 +7338,7 @@ export function useHomeEditorRuntime() {
     svgInputRef,
     imgInputRef,
     projectInputRef,
+    leftPanelCollapsed,
     leftTab,
     activeRightTab,
     showPixelGrid,
@@ -7002,8 +7361,10 @@ export function useHomeEditorRuntime() {
     canvasBgPickerValue,
     pixelGridOverlayStyle,
     keylineOverlayStyle,
+    canvasWrapperStyle,
     keylineSafeArea,
     iconCheckIssues,
+    iconCheckSummary,
     booleanBusy,
     strokeOutlineBusy,
     textOutlineBusy,
@@ -7042,6 +7403,12 @@ export function useHomeEditorRuntime() {
     toggleLock,
     toggleVisible,
     toast,
+    projectTabs,
+    activeProjectTabId,
+    hasMultipleProjectTabs,
+    addProjectTab,
+    switchProjectTab,
+    closeProjectTab,
     artboards,
     activeArtboardId,
     undoStack,
@@ -7050,24 +7417,26 @@ export function useHomeEditorRuntime() {
     deleteArtboard,
     duplicateArtboard,
     jumpToHistory,
-    onProjectFileChosen,
+    onProjectFileChosen: onProjectFileChosenForActiveTab,
     renameArtboard,
     switchArtboard,
     keylineTemplateOptions,
     previewBackgroundOptions,
+    svgPreviewModeOptions,
     previewBackgroundMode,
     canvasViewMode,
+    previewPopoverVisible,
     previewItems,
     visibleColorPaletteGroups,
     visibleGradientPresets,
     stylePresetManagerState,
     stylePresetColorColumns,
     stylePresetGradientPresets,
-    stylePresetGradientVisibleCount,
+    stylePresetGradientRows,
     defaultStylePresetColorPaletteGroups,
     defaultStylePresetGradientPresets,
     defaultStylePresetColorColumns,
-    defaultStylePresetGradientVisibleCount,
+    defaultStylePresetGradientRows,
     stylePresetCurrentFillColor,
     stylePresetCurrentStrokeColor,
     stylePresetCurrentGradientPreset,
@@ -7171,8 +7540,16 @@ export function useHomeEditorRuntime() {
     applyCanvasPreset,
     previewStageClass,
     svgPreviewSource,
+    svgPreviewDataUrl,
+    highlightedSvgPreviewSource,
+    svgPreviewMode,
+    svgModeTooltipTitle,
+    svgModeTooltipDetail,
     setPreviewBackgroundMode,
     setCanvasViewMode,
+    setSvgPreviewMode,
+    handlePreviewPopoverShowChange,
+    toggleLeftPanel,
     deleteObject,
     lockObject,
     groupObjects,

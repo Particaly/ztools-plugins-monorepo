@@ -11,7 +11,6 @@
     <div class="style-preset-manager-dialog">
       <div class="style-preset-manager-header">
         <div class="style-preset-manager-title">样式预设管理</div>
-        <div class="style-preset-manager-desc">统一管理色板分类、渐变预设和属性面板展示数量，确认后会保存到本地。</div>
         <div class="style-preset-manager-tabs">
           <button
             class="style-preset-manager-tab"
@@ -43,7 +42,6 @@
               <ZButton size="small" @click="resetColorsToDefault">重置色板</ZButton>
             </div>
           </div>
-          <div class="manager-hint">拖动分类或颜色可调整顺序；每个分类都可以直接收录当前对象的填充色和描边色。</div>
           <div v-if="!localColorGroups.length" class="manager-empty">
             <div>当前还没有色板分类。</div>
             <ZButton size="small" type="primary" @click="addColorGroup">新增第一个分类</ZButton>
@@ -119,13 +117,13 @@
         <template v-else>
           <div class="manager-toolbar">
             <label class="manager-inline-field">
-              <span>展示条数</span>
+              <span>展示行数</span>
               <ZInput
                 size="small"
                 type="text"
-                :model-value="gradientVisibleCountInput"
-                @update:model-value="gradientVisibleCountInput = String($event)"
-                @change="commitGradientVisibleCountInput"
+                :model-value="gradientRowsInput"
+                @update:model-value="gradientRowsInput = String($event)"
+                @change="commitGradientRowsInput"
               />
             </label>
             <div class="manager-toolbar-actions">
@@ -134,7 +132,6 @@
               <ZButton size="small" @click="resetGradientsToDefault">重置渐变</ZButton>
             </div>
           </div>
-          <div class="manager-hint">拖动卡片可调整预设顺序；每条渐变支持修改名称、类型、色标位置和几何参数。</div>
           <div v-if="!localGradientPresets.length" class="manager-empty">
             <div>当前还没有渐变预设。</div>
             <div class="manager-toolbar-actions compact">
@@ -282,9 +279,9 @@ import { Icon } from '@iconify/vue'
 import {
   DEFAULT_COLOR_PALETTE_COLUMNS,
   MAX_COLOR_PALETTE_COLUMNS,
-  MAX_GRADIENT_PRESET_VISIBLE_COUNT,
+  MAX_GRADIENT_PRESET_ROWS,
   MIN_COLOR_PALETTE_COLUMNS,
-  MIN_GRADIENT_PRESET_VISIBLE_COUNT
+  MIN_GRADIENT_PRESET_ROWS
 } from '../../constants'
 import {
   DEFAULT_FILL_GRADIENT_ANGLE,
@@ -319,8 +316,8 @@ const props = defineProps<{
   defaultGradientPresets: GradientPresetItem[]
   colorColumns: number
   defaultColorColumns: number
-  gradientVisibleCount: number
-  defaultGradientVisibleCount: number
+  gradientRows: number
+  defaultGradientRows: number
   currentFillColor: string
   currentStrokeColor: string
   currentGradientPreset: GradientPresetItem | null
@@ -333,7 +330,7 @@ const emit = defineEmits<{
 
 const activeTab = ref<StylePresetManagerTab>('colors')
 const colorColumnsInput = ref(String(DEFAULT_COLOR_PALETTE_COLUMNS))
-const gradientVisibleCountInput = ref(String(MIN_GRADIENT_PRESET_VISIBLE_COUNT))
+const gradientRowsInput = ref(String(MIN_GRADIENT_PRESET_ROWS))
 const localColorGroups = ref<ColorPaletteGroup[]>([])
 const localGradientPresets = ref<EditableGradientPreset[]>([])
 
@@ -367,7 +364,7 @@ function cloneGradientPresets(presets: GradientPresetItem[]): EditableGradientPr
 function resetLocalState() {
   activeTab.value = props.initialTab
   colorColumnsInput.value = String(props.colorColumns)
-  gradientVisibleCountInput.value = String(props.gradientVisibleCount)
+  gradientRowsInput.value = String(props.gradientRows)
   localColorGroups.value = cloneColorPaletteGroups(props.colorPaletteGroups)
   localGradientPresets.value = cloneGradientPresets(props.gradientPresets)
 }
@@ -379,20 +376,20 @@ function normalizeColorColumns(value: unknown, fallback = props.defaultColorColu
   return Math.min(MAX_COLOR_PALETTE_COLUMNS, Math.max(MIN_COLOR_PALETTE_COLUMNS, parsed))
 }
 
-// 将展示条数限制为正整数，既兼容手输输入，也保证右侧渐变列表始终可预期。
-function normalizeGradientVisibleCount(value: unknown, fallback = props.defaultGradientVisibleCount) {
+// 将展示行数限制为正整数，既兼容手输输入，也保证右侧渐变列表始终可预期。
+function normalizeGradientRows(value: unknown, fallback = props.defaultGradientRows) {
   const parsed = Math.round(Number(value))
   if (!Number.isFinite(parsed)) return fallback
-  return Math.min(MAX_GRADIENT_PRESET_VISIBLE_COUNT, Math.max(MIN_GRADIENT_PRESET_VISIBLE_COUNT, parsed))
+  return Math.min(MAX_GRADIENT_PRESET_ROWS, Math.max(MIN_GRADIENT_PRESET_ROWS, parsed))
 }
 
 // 点击保存前统一收敛本地草稿，过滤空名称并把 stop id 剥离成运行时真正需要的结构。
 function buildSubmitPayload(): StylePresetSettings {
   const colorColumns = normalizeColorColumns(colorColumnsInput.value)
-  const gradientPresetVisibleCount = normalizeGradientVisibleCount(gradientVisibleCountInput.value)
+  const gradientPresetRows = normalizeGradientRows(gradientRowsInput.value)
   return {
     colorColumns,
-    gradientPresetVisibleCount,
+    gradientPresetRows,
     colorPaletteGroups: localColorGroups.value.map((group, groupIndex) => ({
       id: group.id || createLocalId('palette-group'),
       name: group.name.trim() || `分类 ${groupIndex + 1}`,
@@ -575,12 +572,12 @@ function resetColorsToDefault() {
   colorColumnsInput.value = String(props.defaultColorColumns)
 }
 
-// 渐变重置回系统基线，同时恢复默认展示条数，保证右侧面板和管理弹窗回到一致状态。
+// 渐变重置回系统基线，同时恢复默认展示行数，保证右侧面板和管理弹窗回到一致状态。
 function resetGradientsToDefault() {
   const confirmed = window.confirm('确定将渐变预设恢复为系统默认列表吗？未保存的弹窗修改会被覆盖。')
   if (!confirmed) return
   localGradientPresets.value = cloneGradientPresets(props.defaultGradientPresets)
-  gradientVisibleCountInput.value = String(props.defaultGradientVisibleCount)
+  gradientRowsInput.value = String(props.defaultGradientRows)
 }
 
 // 列数输入在失焦或回车时统一纠正格式，避免保留非法字符串影响下次打开弹窗。
@@ -588,15 +585,15 @@ function commitColorColumnsInput() {
   colorColumnsInput.value = String(normalizeColorColumns(colorColumnsInput.value))
 }
 
-// 展示条数输入同样做提交时纠正，保证右侧只会收到受控的正整数配置。
-function commitGradientVisibleCountInput() {
-  gradientVisibleCountInput.value = String(normalizeGradientVisibleCount(gradientVisibleCountInput.value))
+// 展示行数输入同样做提交时纠正，保证右侧只会收到受控的正整数配置。
+function commitGradientRowsInput() {
+  gradientRowsInput.value = String(normalizeGradientRows(gradientRowsInput.value))
 }
 
 // 发送前先把本地输入收敛成正式结构，让父层只处理最终可持久化的配置对象。
 function emitConfirm() {
   commitColorColumnsInput()
-  commitGradientVisibleCountInput()
+  commitGradientRowsInput()
   emit('confirm', buildSubmitPayload())
 }
 
@@ -656,12 +653,6 @@ const currentGradientPreset = computed(() => props.currentGradientPreset)
   font-size: 16px;
   font-weight: 700;
   color: var(--text-color, #333);
-}
-.style-preset-manager-desc {
-  margin-top: 6px;
-  font-size: 12px;
-  line-height: 1.5;
-  color: #6b7280;
 }
 .style-preset-manager-tabs {
   display: flex;
@@ -733,12 +724,6 @@ const currentGradientPreset = computed(() => props.currentGradientPreset)
     width: 84px;
   }
 }
-.manager-hint {
-  margin-top: 10px;
-  color: #6b7280;
-  font-size: 12px;
-  line-height: 1.5;
-}
 .manager-empty {
   display: flex;
   flex-direction: column;
@@ -759,11 +744,16 @@ const currentGradientPreset = computed(() => props.currentGradientPreset)
     margin-top: 10px;
   }
 }
-.color-group-list,
-.gradient-card-list {
+.color-group-list {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  margin-top: 14px;
+}
+.gradient-card-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
   margin-top: 14px;
 }
 .color-group-card,
@@ -772,6 +762,13 @@ const currentGradientPreset = computed(() => props.currentGradientPreset)
   border: 1px solid rgba(128, 128, 128, 0.18);
   border-radius: 10px;
   background: #fff;
+}
+.gradient-card {
+  display: flex;
+  flex: 1 1 330px;
+  flex-direction: column;
+  min-width: 330px;
+  max-width: 450px;
 }
 .color-group-head,
 .gradient-card-head {

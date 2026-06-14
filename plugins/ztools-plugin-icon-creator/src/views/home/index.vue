@@ -64,6 +64,7 @@
     <div class="editor-body">
       <!-- 左栏 -->
       <LeftPanel
+        :collapsed="leftPanelCollapsed"
         :active-tab="leftTab"
         :basic-shapes="basicShapes"
         :shape-preview-paths="shapePreviewPaths"
@@ -102,6 +103,7 @@
         :keyline-template="keylineTemplate"
         :keyline-template-options="keylineTemplateOptions"
         :shortcut-drawer-open="editorSelectors.shortcutDrawerOpen"
+        :left-panel-collapsed="leftPanelCollapsed"
         @undo="editorCommands.undo"
         @redo="editorCommands.redo"
         @set-selection-mode="editorCommands.setSelectionMode"
@@ -112,6 +114,7 @@
         @toggle-keyline-overlay="editorCommands.toggleKeylineOverlay"
         @set-keyline-template="setKeylineTemplate"
         @open-shortcut-drawer="editorCommands.openShortcutDrawer"
+        @toggle-left-panel="toggleLeftPanel"
       />
 
       <!-- 画板列表 -->
@@ -127,7 +130,37 @@
       />
 
       <!-- 中间画布区 -->
-      <div class="canvas-frame" :class="[{ 'with-ruler': editorSelectors.showRuler }, `mode-${canvasViewMode}`]">
+      <div class="canvas-frame" :class="[{ 'with-ruler': editorSelectors.showRuler }, { 'is-left-panel-collapsed': leftPanelCollapsed }, `mode-${canvasViewMode}`]">
+        <div class="project-tab-bar" role="tablist" aria-label="项目标签">
+          <div
+            v-for="tab in projectTabs"
+            :key="tab.id"
+            class="project-tab"
+            :class="{ active: tab.id === activeProjectTabId, dirty: tab.dirty }"
+            role="tab"
+            tabindex="0"
+            :aria-selected="tab.id === activeProjectTabId"
+            @click="switchProjectTab(tab.id)"
+            @keydown.enter.prevent="switchProjectTab(tab.id)"
+            @keydown.space.prevent="switchProjectTab(tab.id)"
+          >
+            <span class="project-tab-name">{{ tab.name }}</span>
+            <span v-if="tab.dirty" class="project-tab-dirty" title="未保存修改" aria-label="未保存修改"></span>
+            <button
+              v-if="hasMultipleProjectTabs"
+              type="button"
+              class="project-tab-close"
+              title="关闭项目"
+              aria-label="关闭项目"
+              @click.stop="closeProjectTab(tab.id)"
+            >
+              <Icon icon="mdi:close" />
+            </button>
+          </div>
+          <button type="button" class="project-tab-add" title="新建项目标签" aria-label="新建项目标签" @click="addProjectTab">
+            <Icon icon="mdi:plus" />
+          </button>
+        </div>
         <main
           class="canvas-area"
           ref="canvasAreaRef"
@@ -140,6 +173,7 @@
             class="canvas-wrapper"
             ref="canvasWrapperRef"
             :class="{ 'transparent-bg': isCanvasBgTransparent, 'is-hidden': canvasViewMode !== 'canvas' }"
+            :style="canvasWrapperStyle"
             @contextmenu.prevent="openCanvasObjectContextMenu"
           >
             <div
@@ -173,12 +207,33 @@
             </svg>
             <canvas ref="canvasElRef"></canvas>
           </div>
-          <section v-if="canvasViewMode === 'svg'" class="svg-preview-panel" aria-label="SVG 只读预览">
+          <section v-if="canvasViewMode === 'svg'" class="svg-preview-panel" :class="`svg-preview-${svgPreviewMode}`" aria-label="SVG 只读预览">
             <div class="svg-preview-head">
-              <div class="svg-preview-title">SVG 只读预览</div>
-              <div class="svg-preview-subtitle">当前画布实时导出的 SVG 文本</div>
+              <div>
+                <div class="svg-preview-title">SVG 只读预览</div>
+                <div class="svg-preview-subtitle">{{ svgPreviewMode === 'graphic' ? '当前画布实时导出的 SVG 图形' : '当前画布实时导出的 SVG 文本' }}</div>
+              </div>
+              <div class="svg-preview-tabs" role="tablist" aria-label="SVG 预览模式">
+                <button
+                  v-for="option in svgPreviewModeOptions"
+                  :key="option.value"
+                  type="button"
+                  class="svg-preview-tab"
+                  :class="{ active: svgPreviewMode === option.value }"
+                  role="tab"
+                  :aria-selected="svgPreviewMode === option.value"
+                  @click="setSvgPreviewMode(option.value)"
+                >
+                  <Icon :icon="option.icon" />
+                  <span>{{ option.label }}</span>
+                </button>
+              </div>
             </div>
-            <pre class="svg-preview-code">{{ svgPreviewSource }}</pre>
+            <div v-if="svgPreviewMode === 'graphic'" class="svg-preview-graphic" aria-label="SVG 图形模式预览">
+              <img v-if="svgPreviewDataUrl" class="svg-preview-image" :src="svgPreviewDataUrl" alt="当前 SVG 图形预览" draggable="false" />
+              <div v-else class="svg-preview-empty">暂无可预览的 SVG 内容</div>
+            </div>
+            <pre v-else class="svg-preview-code" aria-label="SVG 代码模式只读预览"><code v-html="highlightedSvgPreviewSource"></code></pre>
           </section>
         </main>
         <Ruler
@@ -188,9 +243,110 @@
           :zoom="editorSelectors.zoom"
           :coordinate-hint-active="rulerCoordinateHintActive"
         />
-        <div class="canvas-mode-switcher" role="group" aria-label="画布模式切换">
-          <button type="button" class="canvas-mode-btn" :class="{ active: canvasViewMode === 'canvas' }" @click="setCanvasViewMode('canvas')">Canvas</button>
-          <button type="button" class="canvas-mode-btn" :class="{ active: canvasViewMode === 'svg' }" @click="setCanvasViewMode('svg')">SVG</button>
+        <div
+          class="canvas-mode-switcher"
+          :class="{ 'is-collapsed': canvasModeSwitcherCollapsed }"
+          role="group"
+          aria-label="画布模式切换与状态"
+          :aria-expanded="!canvasModeSwitcherCollapsed"
+        >
+          <button
+            type="button"
+            class="canvas-mode-switcher__handle"
+            :title="canvasModeSwitcherCollapsed ? '展开画布模式切换器' : '收起画布模式切换器'"
+            :aria-label="canvasModeSwitcherCollapsed ? '展开画布模式切换器' : '收起画布模式切换器'"
+            @click="toggleCanvasModeSwitcherCollapsed"
+          >
+            <Icon :icon="canvasModeSwitcherCollapsed ? 'mdi:chevron-up' : 'mdi:chevron-down'" />
+          </button>
+          <div class="canvas-mode-switcher__body" :aria-hidden="canvasModeSwitcherCollapsed">
+            <ZPopover
+              :show="previewPopoverVisible"
+              trigger="hover"
+              placement="top"
+              show-arrow
+              keep-alive-on-hover
+              @update:show="handlePreviewPopoverShowChange"
+            >
+              <template #trigger>
+                <button type="button" class="canvas-mode-icon-btn" title="预览输出尺寸预览" aria-label="预览输出尺寸预览">
+                  <Icon icon="mdi:image-search-outline" />
+                </button>
+              </template>
+              <PreviewPanel
+                :background-options="previewBackgroundOptions"
+                :background-mode="previewBackgroundMode"
+                :items="previewItems"
+                :stage-class="previewStageClass"
+                @set-background-mode="setPreviewBackgroundMode"
+              />
+            </ZPopover>
+            <ZPopover
+              trigger="hover"
+              placement="top"
+              show-arrow
+              keep-alive-on-hover
+            >
+              <template #trigger>
+                <button
+                  type="button"
+                  class="canvas-mode-icon-btn"
+                  :class="{ 'has-issues': iconCheckIssues.length > 0 }"
+                  :title="iconCheckSummary.title"
+                  :aria-label="iconCheckSummary.title"
+                >
+                  <Icon :icon="iconCheckIssues.length > 0 ? 'mdi:alert-circle-outline' : 'mdi:check-circle-outline'" />
+                </button>
+              </template>
+              <IconChecksPanel
+                :issues="iconCheckIssues"
+                @select-issue="selectIconCheckIssue"
+              />
+            </ZPopover>
+            <button type="button" class="canvas-mode-btn" :class="{ active: canvasViewMode === 'canvas' }" @click="setCanvasViewMode('canvas')">Canvas</button>
+            <ZPopover
+              trigger="hover"
+              placement="top"
+              :to="false"
+              show-arrow
+              keep-alive-on-hover
+            >
+              <template #trigger>
+                <button
+                  type="button"
+                  class="canvas-mode-btn"
+                  :class="{ active: canvasViewMode === 'svg' }"
+                  :title="svgModeTooltipTitle"
+                  :aria-label="svgModeTooltipTitle"
+                  @click="setCanvasViewMode('svg')"
+                >
+                  SVG
+                </button>
+              </template>
+              <div class="svg-mode-tooltip" role="menu" aria-label="SVG 预览模式切换">
+                <div class="svg-mode-tooltip-head">
+                  <div class="svg-mode-tooltip-title">{{ svgModeTooltipTitle }}</div>
+                  <div class="svg-mode-tooltip-detail">{{ svgModeTooltipDetail }}</div>
+                </div>
+                <button
+                  v-for="option in svgPreviewModeOptions"
+                  :key="option.value"
+                  type="button"
+                  class="svg-mode-option"
+                  :class="{ active: svgPreviewMode === option.value }"
+                  role="menuitemradio"
+                  :aria-checked="svgPreviewMode === option.value"
+                  @click="setSvgPreviewMode(option.value)"
+                >
+                  <Icon :icon="option.icon" />
+                  <span>
+                    <strong>{{ option.label }}</strong>
+                    <small>{{ option.description }}</small>
+                  </span>
+                </button>
+              </div>
+            </ZPopover>
+          </div>
         </div>
       </div>
 
@@ -322,21 +478,6 @@
             @update:keyline-margin-input="keylineMarginInput = $event"
           />
         </template>
-        <template #preview>
-          <PreviewPanel
-            :background-options="previewBackgroundOptions"
-            :background-mode="previewBackgroundMode"
-            :items="previewItems"
-            :stage-class="previewStageClass"
-            @set-background-mode="setPreviewBackgroundMode"
-          />
-        </template>
-        <template #checks>
-          <IconChecksPanel
-            :issues="iconCheckIssues"
-            @select-issue="selectIconCheckIssue"
-          />
-        </template>
         <template #layers>
           <LayersPanel
             :filtered-layers="filteredLayers"
@@ -446,8 +587,8 @@
       :default-gradient-presets="defaultStylePresetGradientPresets"
       :color-columns="stylePresetColorColumns"
       :default-color-columns="defaultStylePresetColorColumns"
-      :gradient-visible-count="stylePresetGradientVisibleCount"
-      :default-gradient-visible-count="defaultStylePresetGradientVisibleCount"
+      :gradient-rows="stylePresetGradientRows"
+      :default-gradient-rows="defaultStylePresetGradientRows"
       :current-fill-color="stylePresetCurrentFillColor"
       :current-stroke-color="stylePresetCurrentStrokeColor"
       :current-gradient-preset="stylePresetCurrentGradientPreset"
@@ -466,7 +607,9 @@
 </template>
 
 <script setup lang="ts">
-import { ZContextMenu } from 'ztools-ui'
+import { ref } from 'vue'
+import { Icon } from '@iconify/vue'
+import { ZContextMenu, ZPopover } from 'ztools-ui'
 import HomeTopBar from './components/HomeTopBar.vue'
 import HomeToolBar from './components/HomeToolBar.vue'
 import LeftPanel from './components/LeftPanel.vue'
@@ -507,6 +650,7 @@ const {
   spacePanReady,
   isSpacePanning,
   rulerCoordinateHintActive,
+  leftPanelCollapsed,
   canvasWidth,
   canvasHeight,
   canvasWidthInput,
@@ -518,6 +662,7 @@ const {
   canvasBgPickerValue,
   pixelGridOverlayStyle,
   keylineOverlayStyle,
+  canvasWrapperStyle,
   keylineSafeArea,
   iconCheckIssues,
   booleanBusy,
@@ -558,6 +703,12 @@ const {
   toggleLock,
   toggleVisible,
   toast,
+  projectTabs,
+  activeProjectTabId,
+  hasMultipleProjectTabs,
+  addProjectTab,
+  switchProjectTab,
+  closeProjectTab,
   artboards,
   activeArtboardId,
   undoStack,
@@ -571,19 +722,22 @@ const {
   switchArtboard,
   keylineTemplateOptions,
   previewBackgroundOptions,
+  svgPreviewModeOptions,
   previewBackgroundMode,
   canvasViewMode,
+  previewPopoverVisible,
   previewItems,
+  iconCheckSummary,
   visibleColorPaletteGroups,
   visibleGradientPresets,
   stylePresetManagerState,
   stylePresetColorColumns,
   stylePresetGradientPresets,
-  stylePresetGradientVisibleCount,
+  stylePresetGradientRows,
   defaultStylePresetColorPaletteGroups,
   defaultStylePresetGradientPresets,
   defaultStylePresetColorColumns,
-  defaultStylePresetGradientVisibleCount,
+  defaultStylePresetGradientRows,
   stylePresetCurrentFillColor,
   stylePresetCurrentStrokeColor,
   stylePresetCurrentGradientPreset,
@@ -685,8 +839,16 @@ const {
   applyCanvasPreset,
   previewStageClass,
   svgPreviewSource,
+  svgPreviewDataUrl,
+  highlightedSvgPreviewSource,
+  svgPreviewMode,
+  svgModeTooltipTitle,
+  svgModeTooltipDetail,
   setPreviewBackgroundMode,
   setCanvasViewMode,
+  setSvgPreviewMode,
+  handlePreviewPopoverShowChange,
+  toggleLeftPanel,
   deleteObject,
   lockObject,
   groupObjects,
@@ -704,6 +866,15 @@ const {
   handleCanvasAreaPointerDown,
   handleCanvasAreaWheel
 } = useHomeEditorRuntime()
+
+const canvasModeSwitcherCollapsed = ref(false)
+
+// 切换底部画布模式切换器的收纳状态；收起时同步关闭受控预览浮层，避免隐藏控件后残留预览面板。
+function toggleCanvasModeSwitcherCollapsed() {
+  const nextCollapsed = !canvasModeSwitcherCollapsed.value
+  canvasModeSwitcherCollapsed.value = nextCollapsed
+  if (nextCollapsed) handlePreviewPopoverShowChange(false)
+}
 </script>
 
 <style lang="scss" scoped>
@@ -711,6 +882,7 @@ const {
 $topbar-h: 44px;
 $left-w: 270px;
 $right-w: 240px;
+$project-tab-h: 34px;
 $border: 1px solid rgba(128, 128, 128, 0.18);
 $bg: #f5f5f5;
 $panel-bg: #fff;
@@ -719,7 +891,8 @@ $panel-bg: #fff;
 .editor-root {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: 100%;
+  min-height: 0;
   background: $bg;
   font-size: 13px;
   color: #333;
@@ -742,6 +915,7 @@ $panel-bg: #fff;
 .editor-body {
   display: flex;
   flex: 1;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -751,10 +925,106 @@ $panel-bg: #fff;
   min-width: 0;
   min-height: 0;
   display: flex;
+  flex-direction: column;
   position: relative;
+}
+.project-tab-bar {
+  flex: 0 0 $project-tab-h;
+  min-width: 0;
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  padding: 4px 10px 0;
+  border-bottom: $border;
+  background: color-mix(in srgb, #f5f5f5, #ffffff 45%);
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.project-tab {
+  height: 30px;
+  max-width: 220px;
+  min-width: 96px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 8px 0 12px;
+  border: $border;
+  border-bottom-color: transparent;
+  border-radius: 8px 8px 0 0;
+  background: rgba(255, 255, 255, 0.58);
+  color: #4b5563;
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.82);
+    color: #1f2937;
+  }
+
+  &.active {
+    background: #fff;
+    color: #111827;
+    box-shadow: 0 -1px 8px rgba(15, 23, 42, 0.08);
+  }
+}
+.project-tab-name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+.project-tab-dirty {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #f97316;
+  box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.14);
+}
+.project-tab-close,
+.project-tab-add {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: #6b7280;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+
+  :deep(svg) {
+    width: 16px;
+    height: 16px;
+  }
+
+  &:hover {
+    background: rgba(30, 111, 255, 0.10);
+    color: #1e40af;
+  }
+}
+.project-tab-close {
+  width: 20px;
+  height: 20px;
+}
+.project-tab-add {
+  width: 28px;
+  height: 28px;
+  margin-bottom: 1px;
+  border: $border;
+  background: rgba(255, 255, 255, 0.62);
 }
 .canvas-frame .canvas-area {
   flex: 1;
+}
+.canvas-frame.with-ruler :deep(.ruler-overlay) {
+  top: $project-tab-h;
+  bottom: 0;
+  height: auto;
 }
 .canvas-frame.with-ruler .canvas-area {
   padding-top: 24px;
@@ -763,13 +1033,15 @@ $panel-bg: #fff;
 .canvas-area {
   flex: 1;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: auto;
+  align-items: flex-start;
+  justify-content: flex-start;
+  overflow: hidden;
   background: #e0e0e0;
 }
 .canvas-wrapper {
   position: relative;
+  flex: 0 0 auto;
+  transform-origin: top left;
   box-shadow: 0 2px 12px rgba(0,0,0,0.15);
   background: #fff;
   &.is-hidden {
@@ -842,6 +1114,10 @@ $panel-bg: #fff;
   overflow: hidden;
 }
 .svg-preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
   padding: 12px 14px;
   border-bottom: $border;
   background: color-mix(in srgb, #ffffff, #f3f4f6 70%);
@@ -856,6 +1132,79 @@ $panel-bg: #fff;
   font-size: 12px;
   color: #6b7280;
 }
+.svg-preview-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid #e5e7eb;
+  border-radius: 999px;
+  background: #f9fafb;
+}
+.svg-preview-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: none;
+  border-radius: 999px;
+  padding: 5px 9px;
+  background: transparent;
+  color: #4b5563;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+
+  :deep(svg) {
+    width: 15px;
+    height: 15px;
+  }
+
+  &:hover {
+    color: #1e40af;
+    background: rgba(30, 111, 255, 0.08);
+  }
+
+  &.active {
+    color: #fff;
+    background: var(--primary-color);
+    box-shadow: 0 2px 8px rgba(30, 111, 255, 0.22);
+  }
+}
+.svg-preview-graphic {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background-color: #fff;
+  background-image:
+    linear-gradient(45deg, rgba(0, 0, 0, 0.055) 25%, transparent 25%, transparent 75%, rgba(0, 0, 0, 0.055) 75%, rgba(0, 0, 0, 0.055)),
+    linear-gradient(45deg, rgba(0, 0, 0, 0.055) 25%, transparent 25%, transparent 75%, rgba(0, 0, 0, 0.055) 75%, rgba(0, 0, 0, 0.055));
+  background-position: 0 0, 10px 10px;
+  background-size: 20px 20px;
+}
+.svg-preview-image {
+  display: block;
+  max-width: min(100%, 560px);
+  max-height: min(100%, 560px);
+  width: auto;
+  height: auto;
+  padding: 24px;
+  border: 1px solid rgba(17, 24, 39, 0.08);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.14);
+}
+.svg-preview-empty {
+  padding: 12px 16px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.9);
+  color: #6b7280;
+  font-size: 13px;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.10);
+}
 .svg-preview-code {
   flex: 1;
   min-height: 0;
@@ -868,13 +1217,51 @@ $panel-bg: #fff;
   line-height: 1.6;
   color: #1f2937;
   background: #fbfbfc;
+
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  }
+
+  :deep(.svg-code-bracket) {
+    color: #64748b;
+  }
+
+  :deep(.svg-code-tag) {
+    color: #2563eb;
+    font-weight: 700;
+  }
+
+  :deep(.svg-code-attr) {
+    color: #9333ea;
+  }
+
+  :deep(.svg-code-string) {
+    color: #c2410c;
+  }
 }
 .canvas-mode-switcher {
   position: absolute;
   right: 12px;
   bottom: 12px;
   z-index: 20;
+  transition: transform 0.18s ease;
+
+  &.is-collapsed {
+    transform: translateY(calc(100% + 12px));
+  }
+
+  &.is-collapsed .canvas-mode-switcher__body {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  &.is-collapsed .canvas-mode-switcher__handle {
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.16);
+  }
+}
+.canvas-mode-switcher__body {
   display: inline-flex;
+  align-items: center;
   padding: 4px;
   gap: 4px;
   border: $border;
@@ -882,7 +1269,150 @@ $panel-bg: #fff;
   background: rgba(255, 255, 255, 0.92);
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
   backdrop-filter: blur(8px);
+  transition: opacity 0.15s ease;
+
+  :deep(.zt-popover__content) {
+    max-width: min(420px, calc(100vw - 32px));
+  }
+
+  :deep(.zt-popover__body--card) {
+    padding: 0;
+    border-radius: 12px;
+    overflow: hidden;
+  }
 }
+.canvas-mode-switcher__handle {
+  position: absolute;
+  top: -12px;
+  left: 50%;
+  width: 34px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: $border;
+  border-radius: 999px 999px 0 0;
+  background: rgba(255, 255, 255, 0.94);
+  color: #4b5563;
+  cursor: pointer;
+  transform: translateX(-50%);
+  transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+
+  :deep(svg) {
+    width: 16px;
+    height: 16px;
+  }
+
+  &:hover {
+    background: rgba(30, 111, 255, 0.10);
+    color: #1e40af;
+  }
+}
+.canvas-mode-icon-btn {
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: #4b5563;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+
+  :deep(svg) {
+    width: 18px;
+    height: 18px;
+  }
+
+  &:hover {
+    background: rgba(30, 111, 255, 0.08);
+    color: #1e40af;
+  }
+
+  &.has-issues {
+    color: #c2410c;
+  }
+}
+.svg-mode-tooltip {
+  width: 280px;
+  padding: 10px;
+}
+.svg-mode-tooltip-head {
+  padding: 2px 2px 10px;
+}
+.svg-mode-tooltip-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #374151;
+}
+.svg-mode-tooltip-detail {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #6b7280;
+}
+.svg-mode-option {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  border: none;
+  border-radius: 10px;
+  padding: 9px;
+  background: transparent;
+  color: #4b5563;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+
+  :deep(svg) {
+    flex: 0 0 auto;
+    width: 18px;
+    height: 18px;
+    margin-top: 1px;
+  }
+
+  strong,
+  small {
+    display: block;
+  }
+
+  strong {
+    font-size: 12px;
+    color: #374151;
+  }
+
+  small {
+    margin-top: 3px;
+    font-size: 11px;
+    line-height: 1.4;
+    color: #6b7280;
+  }
+
+  &:hover,
+  &.active {
+    background: rgba(30, 111, 255, 0.08);
+    color: #1e40af;
+  }
+
+  &.active strong {
+    color: #1e40af;
+  }
+}
+:global(.zt-popover__panel:has(.right-panel-scroll) .zt-popover__content) {
+  max-width: min(420px, calc(100vw - 32px));
+}
+:global(.zt-popover__panel:has(.right-panel-scroll) .zt-popover__body--card) {
+  padding: 0;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
 .canvas-mode-btn {
   border: none;
   border-radius: 999px;

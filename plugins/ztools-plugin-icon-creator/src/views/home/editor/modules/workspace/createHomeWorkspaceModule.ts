@@ -37,6 +37,7 @@ export interface CreateHomeWorkspaceModuleOptions extends HomeCanvasRestoreCallb
   endSpacePan: () => void
   cancelSmallPreviewsRefresh: () => void
   projectInputRef: Ref<HTMLInputElement | null>
+  afterInitialDocumentReady?: () => void
 }
 
 export interface CreateHomeWorkspaceModuleResult {
@@ -204,6 +205,7 @@ export function createHomeWorkspaceModule(
 
   const commands: HomeWorkspaceCommands = {
     addArtboard: homeArtboards.addArtboard,
+    captureHistoryState: homeDocument.captureHistoryState,
     clearStoredDraft: homeDocument.clearStoredDraft,
     deleteArtboard: homeArtboards.deleteArtboard,
     duplicateArtboard: homeArtboards.duplicateArtboard,
@@ -217,6 +219,7 @@ export function createHomeWorkspaceModule(
     redo: homeDocument.redo,
     renameArtboard: homeArtboards.renameArtboard,
     resetHistoryToCurrentCanvas: homeDocument.resetHistoryToCurrentCanvas,
+    restoreHistoryState: homeDocument.restoreHistoryState,
     saveProject: homeDocument.saveProject,
     scheduleDraftSave: homeDocument.scheduleDraftSave,
     snapshot: homeDocument.snapshot,
@@ -227,11 +230,12 @@ export function createHomeWorkspaceModule(
   const module: EditorModule = {
     name: 'home-workspace',
     onDocumentReady(context) {
-      nextTick(() => {
+      void nextTick(async () => {
         if (context.getPhase() === 'disposed' || !context.getCanvas()) return
         options.fitCanvasInView()
         commands.snapshot({ autoSave: false })
-        void commands.promptRestoreDraft()
+        await commands.promptRestoreDraft()
+        options.afterInitialDocumentReady?.()
       })
     },
     onDispose() {

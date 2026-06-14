@@ -3,7 +3,7 @@ import { DRAFT_SAVE_DELAY, DRAFT_STORAGE_KEY, PROJECT_FILE_EXTENSION, PROJECT_SC
 import { normalizeKeylineMargin, normalizeKeylineOpacity, normalizeKeylineTemplate, normalizePixelGridSize } from '../canvasSettings'
 import { normalizeProjectCanvasSettings, parseProjectFileText, stringifyProjectFile } from '../projectFile'
 import type { IconCreatorDraftFile, IconCreatorProjectFile, SnapshotOptions } from '../types'
-import type { HistorySnapshot, UseHomeDocumentOptions, UseHomeDocumentReturn } from './contracts'
+import type { HistorySnapshot, HistoryState, UseHomeDocumentOptions, UseHomeDocumentReturn } from './contracts'
 
 export function useHomeDocument(options: UseHomeDocumentOptions): UseHomeDocumentReturn {
   const {
@@ -109,6 +109,30 @@ export function useHomeDocument(options: UseHomeDocumentOptions): UseHomeDocumen
     }
 
     return projectFile
+  }
+
+  /**
+   * 捕获当前文档历史栈的可序列化副本，供项目标签切换时隔离每个项目的撤销 / 重做记录。
+   */
+  function captureHistoryState(): HistoryState {
+    return {
+      undoStack: undoStack.map((item) => ({ ...item })),
+      redoStack: redoStack.map((item) => ({ ...item })),
+      historyIndex: historyIndex.value
+    }
+  }
+
+  /**
+   * 恢复指定项目标签保存的历史状态，并同步撤销 / 重做按钮可用性。
+   */
+  function restoreHistoryState(state: HistoryState) {
+    undoStack.length = 0
+    redoStack.length = 0
+    undoStack.push(...state.undoStack.map((item) => ({ ...item })))
+    redoStack.push(...state.redoStack.map((item) => ({ ...item })))
+    historyIndex.value = Math.min(Math.max(0, state.historyIndex), Math.max(0, undoStack.length - 1))
+    canUndo.value = undoStack.length > 1
+    canRedo.value = redoStack.length > 0
   }
 
   function resetHistoryToCurrentCanvas() {
@@ -349,6 +373,8 @@ export function useHomeDocument(options: UseHomeDocumentOptions): UseHomeDocumen
     canRedo,
     snapshot,
     createProjectFile,
+    captureHistoryState,
+    restoreHistoryState,
     resetHistoryToCurrentCanvas,
     loadProjectFile,
     scheduleDraftSave,

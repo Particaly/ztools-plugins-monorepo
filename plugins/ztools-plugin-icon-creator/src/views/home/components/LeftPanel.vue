@@ -1,30 +1,32 @@
 <template>
-  <aside class="left-panel">
-    <InsertPanelContent
-      variant="sidebar"
-      :active-tab="activeTab"
-      :basic-shapes="basicShapes"
-      :shape-preview-paths="shapePreviewPaths"
-      :text-presets="textPresets"
-      :icon-templates="iconTemplates"
-      :user-assets="userAssets"
-      :iconify-search="iconifySearch"
-      :filtered-iconify-results="filteredIconifyResults"
-      :iconify-collection-options="iconifyCollectionOptions"
-      @update:active-tab="$emit('update:active-tab', $event)"
-      @add-shape="$emit('add-shape', $event)"
-      @add-text="$emit('add-text', $event)"
-      @insert-template="$emit('insert-template', $event)"
-      @apply-template-as-document="$emit('apply-template-as-document', $event)"
-      @insert-user-asset="$emit('insert-user-asset', $event)"
-      @rename-user-asset="$emit('rename-user-asset', $event)"
-      @delete-user-asset="$emit('delete-user-asset', $event)"
-      @update:iconify-query="$emit('update:iconify-query', $event)"
-      @search-iconify-icons="$emit('search-iconify-icons')"
-      @load-more-iconify-browse-results="$emit('load-more-iconify-browse-results')"
-      @update:iconify-collection-filter="$emit('update:iconify-collection-filter', $event)"
-      @insert-iconify-icon="$emit('insert-iconify-icon', $event)"
-    />
+  <aside class="left-panel" :class="{ 'is-collapsed': collapsed }">
+    <div class="left-panel__content" :aria-hidden="collapsed ? 'true' : 'false'" :inert="collapsed">
+      <InsertPanelContent
+        variant="sidebar"
+        :active-tab="activeTab"
+        :basic-shapes="basicShapes"
+        :shape-preview-paths="shapePreviewPaths"
+        :text-presets="textPresets"
+        :icon-templates="iconTemplates"
+        :user-assets="userAssets"
+        :iconify-search="iconifySearch"
+        :filtered-iconify-results="filteredIconifyResults"
+        :iconify-collection-options="iconifyCollectionOptions"
+        @update:active-tab="$emit('update:active-tab', $event)"
+        @add-shape="$emit('add-shape', $event)"
+        @add-text="$emit('add-text', $event)"
+        @insert-template="$emit('insert-template', $event)"
+        @apply-template-as-document="$emit('apply-template-as-document', $event)"
+        @insert-user-asset="$emit('insert-user-asset', $event)"
+        @rename-user-asset="$emit('rename-user-asset', $event)"
+        @delete-user-asset="$emit('delete-user-asset', $event)"
+        @update:iconify-query="$emit('update:iconify-query', $event)"
+        @search-iconify-icons="$emit('search-iconify-icons')"
+        @load-more-iconify-browse-results="$emit('load-more-iconify-browse-results')"
+        @update:iconify-collection-filter="$emit('update:iconify-collection-filter', $event)"
+        @insert-iconify-icon="$emit('insert-iconify-icon', $event)"
+      />
+    </div>
   </aside>
 </template>
 
@@ -39,6 +41,7 @@ type SelectOption = {
 }
 
 defineProps<{
+  collapsed: boolean
   activeTab: LeftPanelTab
   basicShapes: ShapeLibraryItem[]
   shapePreviewPaths: Record<ShapeId, string>
@@ -77,6 +80,30 @@ defineEmits<{
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
+  min-width: 0;
   min-height: 0;
+  overflow: hidden;
+  transition: width 0.22s ease, border-color 0.22s ease;
+
+  &.is-collapsed {
+    width: 0;
+    border-right-color: transparent;
+  }
+}
+
+.left-panel__content {
+  width: $left-w;
+  min-width: $left-w;
+  flex: 0 0 auto;
+  min-height: 0;
+  opacity: 1;
+  transform: translateX(0);
+  transition: opacity 0.16s ease, transform 0.22s ease;
+}
+
+.left-panel.is-collapsed .left-panel__content {
+  opacity: 0;
+  transform: translateX(-14px);
+  pointer-events: none;
 }
 </style>

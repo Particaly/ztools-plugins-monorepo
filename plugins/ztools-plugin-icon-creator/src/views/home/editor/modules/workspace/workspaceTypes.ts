@@ -1,6 +1,6 @@
 import type { Ref } from 'vue'
 import type { IconCreatorProjectArtboard, IconCreatorProjectFile, ProjectLoadOptions, SnapshotOptions } from '../../../types'
-import type { HistorySnapshot, HomeArtboardStateRefs } from '../../../composables/contracts'
+import type { HistorySnapshot, HistoryState, HomeArtboardStateRefs } from '../../../composables/contracts'
 
 export interface HomeWorkspaceState extends HomeArtboardStateRefs {
   undoStack: HistorySnapshot[]
@@ -11,6 +11,7 @@ export interface HomeWorkspaceState extends HomeArtboardStateRefs {
 
 export interface HomeWorkspaceCommands {
   addArtboard: () => Promise<void>
+  captureHistoryState: () => HistoryState
   clearStoredDraft: () => void
   deleteArtboard: (artboardId: string) => Promise<void>
   duplicateArtboard: (artboardId: string) => void
@@ -24,6 +25,7 @@ export interface HomeWorkspaceCommands {
   redo: () => void
   renameArtboard: (artboardId: string) => void
   resetHistoryToCurrentCanvas: () => void
+  restoreHistoryState: (state: HistoryState) => void
   saveProject: () => void
   scheduleDraftSave: () => void
   snapshot: (options?: SnapshotOptions) => void

@@ -123,7 +123,16 @@
       </ZPopover>
     </div>
 
-    <div class="tool-group tool-group-bottom" aria-label="帮助">
+    <div class="tool-group tool-group-bottom" aria-label="工作台控制与帮助">
+      <ZButton
+        size="small"
+        class="tool-btn"
+        :title="leftPanelCollapsed ? '展开左侧面板' : '收起左侧面板'"
+        :aria-label="leftPanelCollapsed ? '展开左侧面板' : '收起左侧面板'"
+        @click="$emit('toggle-left-panel')"
+      >
+        <Icon :icon="leftPanelCollapsed ? 'mdi:chevron-double-right' : 'mdi:chevron-double-left'" />
+      </ZButton>
       <ZButton
         size="small"
         class="tool-btn"
@@ -161,6 +170,7 @@ defineProps<{
   keylineTemplate: KeylineTemplate
   keylineTemplateOptions: KeylineTemplateOption[]
   shortcutDrawerOpen: boolean
+  leftPanelCollapsed: boolean
 }>()
 
 defineEmits<{
@@ -174,6 +184,7 @@ defineEmits<{
   (event: 'toggle-keyline-overlay'): void
   (event: 'set-keyline-template', value: KeylineTemplate): void
   (event: 'open-shortcut-drawer'): void
+  (event: 'toggle-left-panel'): void
 }>()
 </script>
 

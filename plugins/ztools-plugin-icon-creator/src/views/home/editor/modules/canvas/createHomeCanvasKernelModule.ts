@@ -31,6 +31,8 @@ export interface CreateHomeCanvasKernelModuleOptions {
   canvasBg: Ref<string>
   lastOpaqueCanvasBg: Ref<string>
   zoom: Ref<number>
+  panX: Ref<number>
+  panY: Ref<number>
   sizeRatioLocked: Ref<boolean>
   selectionMode: Ref<HomeCanvasSelectionMode>
   snapToPixelGrid: Ref<boolean>
@@ -140,7 +142,7 @@ export function createHomeCanvasKernelModule(
   }
 
   /**
-   * 按当前画布尺寸和容器可视区域计算适配缩放，并复用统一的 zoom 更新逻辑。
+   * 按当前画布尺寸和容器可视区域计算适配缩放，并把画布重置到容器中心附近作为新的初始视图。
    */
   function fitInView() {
     const canvas = options.getCanvas()
@@ -149,6 +151,10 @@ export function createHomeCanvasKernelModule(
     const scaleX = (area.clientWidth - 40) / options.canvasWidth.value
     const scaleY = (area.clientHeight - 40) / options.canvasHeight.value
     setZoom(Math.min(scaleX, scaleY, 1))
+    const centeredX = Math.max(20, (area.clientWidth - options.canvasWidth.value * options.zoom.value) / 2)
+    const centeredY = Math.max(20, (area.clientHeight - options.canvasHeight.value * options.zoom.value) / 2)
+    options.panX.value = centeredX
+    options.panY.value = centeredY
   }
 
   /**

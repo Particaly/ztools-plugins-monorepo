@@ -19,7 +19,6 @@
       </button>
     </div>
     <div v-else class="icon-check-empty">未发现明显规范问题。</div>
-    <div class="preview-hint">检查会根据当前画布、安全区、颜色和小尺寸比例自动刷新；点击对象问题可定位图层。</div>
   </div>
 </template>
 
@@ -40,6 +39,8 @@ defineEmits<{
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  min-width: 300px;
+  padding: 5px 10px 20px;
 }
 .section-title-row {
   display: flex;
