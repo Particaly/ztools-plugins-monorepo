@@ -34,6 +34,7 @@ export interface CreateHomeSelectionModuleOptions {
   getStrokeOutlineUnsupportedReason: (obj: FabricObject) => string | null
   isBitmapObject: (obj: FabricObject) => boolean
   isKaleidoscopeObject: (obj: FabricObject | null | undefined) => boolean
+  isKaleidoscopeInstance: (obj: FabricObject | null | undefined) => boolean
   isTextObject: (obj: FabricObject) => boolean
   isBooleanCandidate: (obj: FabricObject) => boolean
   bitmapTraceBusy: Ref<boolean>
@@ -62,6 +63,8 @@ export function createHomeSelectionModule(
 
   const hasKaleidoscopeSelection = computed(() => selectedObjects.value.some((obj) => options.isKaleidoscopeObject(obj)))
 
+  const hasKaleidoscopeInstanceSelection = computed(() => selectedObjects.value.some((obj) => options.isKaleidoscopeInstance(obj)))
+
   const canGroup = computed(() => {
     const obj = options.activeObject.value
     return obj instanceof ActiveSelection && (obj as ActiveSelection).size() > 1
@@ -86,7 +89,7 @@ export function createHomeSelectionModule(
 
   const canBoolean = computed(() => {
     return !options.booleanBusy.value
-      && !hasKaleidoscopeSelection.value
+      && !hasKaleidoscopeInstanceSelection.value
       && selectedObjects.value.length >= 2
       && selectedObjects.value.every((obj) => options.isBooleanCandidate(obj))
   })

@@ -447,6 +447,7 @@ export function useHomeEditorRuntime() {
     getStrokeOutlineUnsupportedReason,
     isBitmapObject: (obj) => obj instanceof FabricImage,
     isKaleidoscopeObject,
+    isKaleidoscopeInstance,
     isTextObject: (obj) => obj instanceof Textbox,
     isBooleanCandidate,
     bitmapTraceBusy,
