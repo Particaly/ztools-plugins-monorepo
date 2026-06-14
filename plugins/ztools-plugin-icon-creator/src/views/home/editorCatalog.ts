@@ -294,6 +294,52 @@ export const iconTemplates: IconTemplateItem[] = [
 </svg>`
   },
   {
+    id: 'icon-editor-ie-app-icon',
+    name: 'IE 应用图标模板',
+    category: 'App Icon',
+    description: '以 App Icon 圆角底板为原型，搭配 IE 字母标识和柔和高光，适合作为当前应用图标。',
+    width: 512,
+    height: 512,
+    background: 'transparent',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="ie-app-bg" x1="96" y1="72" x2="416" y2="440" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#67e8f9" />
+      <stop offset="0.48" stop-color="#3b82f6" />
+      <stop offset="1" stop-color="#312e81" />
+    </linearGradient>
+    <linearGradient id="ie-mark" x1="168" y1="148" x2="352" y2="356" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffffff" />
+      <stop offset="0.58" stop-color="#eff6ff" />
+      <stop offset="1" stop-color="#bfdbfe" />
+    </linearGradient>
+  </defs>
+  <rect x="72" y="72" width="368" height="368" rx="92" fill="url(#ie-app-bg)" />
+  <circle cx="352" cy="156" r="42" fill="#ffffff" opacity="0.22" />
+  <circle cx="150" cy="360" r="72" fill="#22d3ee" opacity="0.18" />
+  <path d="M112 168 C148 104 232 92 308 116 C378 138 412 202 398 272 C388 324 350 378 290 400 C218 426 132 400 108 322 C92 270 88 212 112 168 Z" fill="#ffffff" opacity="0.08" />
+  <rect x="88" y="88" width="336" height="336" rx="82" fill="none" stroke="#ffffff" stroke-width="6" opacity="0.2" />
+  <g opacity="0.16" transform="translate(0 12)" fill="#0f172a">
+    <rect x="154" y="160" width="78" height="30" rx="15" />
+    <rect x="178" y="164" width="30" height="184" rx="15" />
+    <rect x="154" y="322" width="78" height="30" rx="15" />
+    <rect x="248" y="160" width="32" height="192" rx="16" />
+    <rect x="248" y="160" width="124" height="30" rx="15" />
+    <rect x="248" y="241" width="104" height="30" rx="15" />
+    <rect x="248" y="322" width="124" height="30" rx="15" />
+  </g>
+  <g fill="url(#ie-mark)">
+    <rect x="154" y="160" width="78" height="30" rx="15" />
+    <rect x="178" y="164" width="30" height="184" rx="15" />
+    <rect x="154" y="322" width="78" height="30" rx="15" />
+    <rect x="248" y="160" width="32" height="192" rx="16" />
+    <rect x="248" y="160" width="124" height="30" rx="15" />
+    <rect x="248" y="241" width="104" height="30" rx="15" />
+    <rect x="248" y="322" width="124" height="30" rx="15" />
+  </g>
+</svg>`
+  },
+  {
     id: 'favicon-letter-mark',
     name: 'Favicon 字母标识',
     category: 'Favicon',
