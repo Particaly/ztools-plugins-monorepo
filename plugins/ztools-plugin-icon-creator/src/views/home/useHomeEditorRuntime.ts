@@ -6872,11 +6872,16 @@ export function useHomeEditorRuntime() {
     if (!show) cancelSmallPreviewsRefresh()
   }
 
-  // 在画布对象上打开与图层面板复用的快捷菜单；空白区忽略，命中对象时自动同步到当前选择。
+  // 在画布对象上打开与图层面板复用的快捷菜单；兼容 Fabric 命中结果，空白区或预览对象不触发菜单。
   function openCanvasObjectContextMenu(event: MouseEvent) {
     if (!fabricCanvas) return
-    const targetInfo = fabricCanvas.findTarget(event)
-    const target = targetInfo.target
+    const targetInfo = fabricCanvas.findTarget(event) as unknown
+    const foundTarget = targetInfo && typeof targetInfo === 'object' && 'target' in targetInfo
+      ? (targetInfo as { target?: FabricObject | ActiveSelection | null }).target
+      : targetInfo as FabricObject | ActiveSelection | null | undefined
+    const target = foundTarget instanceof ActiveSelection
+      ? fabricCanvas.getActiveObjects().find((obj) => !isBooleanPreviewObject(obj))
+      : foundTarget
     if (!target || isBooleanPreviewObject(target)) return
     openLayerContextMenu(target, event)
   }

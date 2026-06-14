@@ -243,95 +243,110 @@
           :zoom="editorSelectors.zoom"
           :coordinate-hint-active="rulerCoordinateHintActive"
         />
-        <div class="canvas-mode-switcher" role="group" aria-label="画布模式切换与状态">
-          <ZPopover
-            :show="previewPopoverVisible"
-            trigger="hover"
-            placement="top"
-            :to="false"
-            show-arrow
-            keep-alive-on-hover
-            @update:show="handlePreviewPopoverShowChange"
+        <div
+          class="canvas-mode-switcher"
+          :class="{ 'is-collapsed': canvasModeSwitcherCollapsed }"
+          role="group"
+          aria-label="画布模式切换与状态"
+          :aria-expanded="!canvasModeSwitcherCollapsed"
+        >
+          <button
+            type="button"
+            class="canvas-mode-switcher__handle"
+            :title="canvasModeSwitcherCollapsed ? '展开画布模式切换器' : '收起画布模式切换器'"
+            :aria-label="canvasModeSwitcherCollapsed ? '展开画布模式切换器' : '收起画布模式切换器'"
+            @click="toggleCanvasModeSwitcherCollapsed"
           >
-            <template #trigger>
-              <button type="button" class="canvas-mode-icon-btn" title="预览输出尺寸预览" aria-label="预览输出尺寸预览">
-                <Icon icon="mdi:image-search-outline" />
-              </button>
-            </template>
-            <PreviewPanel
-              :background-options="previewBackgroundOptions"
-              :background-mode="previewBackgroundMode"
-              :items="previewItems"
-              :stage-class="previewStageClass"
-              @set-background-mode="setPreviewBackgroundMode"
-            />
-          </ZPopover>
-          <ZPopover
-            trigger="hover"
-            placement="top"
-            :to="false"
-            show-arrow
-            keep-alive-on-hover
-          >
-            <template #trigger>
-              <button
-                type="button"
-                class="canvas-mode-icon-btn"
-                :class="{ 'has-issues': iconCheckIssues.length > 0 }"
-                :title="iconCheckSummary.title"
-                :aria-label="iconCheckSummary.title"
-              >
-                <Icon :icon="iconCheckIssues.length > 0 ? 'mdi:alert-circle-outline' : 'mdi:check-circle-outline'" />
-              </button>
-            </template>
-            <IconChecksPanel
-              :issues="iconCheckIssues"
-              @select-issue="selectIconCheckIssue"
-            />
-          </ZPopover>
-          <button type="button" class="canvas-mode-btn" :class="{ active: canvasViewMode === 'canvas' }" @click="setCanvasViewMode('canvas')">Canvas</button>
-          <ZPopover
-            trigger="hover"
-            placement="top"
-            :to="false"
-            show-arrow
-            keep-alive-on-hover
-          >
-            <template #trigger>
-              <button
-                type="button"
-                class="canvas-mode-btn"
-                :class="{ active: canvasViewMode === 'svg' }"
-                :title="svgModeTooltipTitle"
-                :aria-label="svgModeTooltipTitle"
-                @click="setCanvasViewMode('svg')"
-              >
-                SVG
-              </button>
-            </template>
-            <div class="svg-mode-tooltip" role="menu" aria-label="SVG 预览模式切换">
-              <div class="svg-mode-tooltip-head">
-                <div class="svg-mode-tooltip-title">{{ svgModeTooltipTitle }}</div>
-                <div class="svg-mode-tooltip-detail">{{ svgModeTooltipDetail }}</div>
+            <Icon :icon="canvasModeSwitcherCollapsed ? 'mdi:chevron-up' : 'mdi:chevron-down'" />
+          </button>
+          <div class="canvas-mode-switcher__body" :aria-hidden="canvasModeSwitcherCollapsed">
+            <ZPopover
+              :show="previewPopoverVisible"
+              trigger="hover"
+              placement="top"
+              show-arrow
+              keep-alive-on-hover
+              @update:show="handlePreviewPopoverShowChange"
+            >
+              <template #trigger>
+                <button type="button" class="canvas-mode-icon-btn" title="预览输出尺寸预览" aria-label="预览输出尺寸预览">
+                  <Icon icon="mdi:image-search-outline" />
+                </button>
+              </template>
+              <PreviewPanel
+                :background-options="previewBackgroundOptions"
+                :background-mode="previewBackgroundMode"
+                :items="previewItems"
+                :stage-class="previewStageClass"
+                @set-background-mode="setPreviewBackgroundMode"
+              />
+            </ZPopover>
+            <ZPopover
+              trigger="hover"
+              placement="top"
+              show-arrow
+              keep-alive-on-hover
+            >
+              <template #trigger>
+                <button
+                  type="button"
+                  class="canvas-mode-icon-btn"
+                  :class="{ 'has-issues': iconCheckIssues.length > 0 }"
+                  :title="iconCheckSummary.title"
+                  :aria-label="iconCheckSummary.title"
+                >
+                  <Icon :icon="iconCheckIssues.length > 0 ? 'mdi:alert-circle-outline' : 'mdi:check-circle-outline'" />
+                </button>
+              </template>
+              <IconChecksPanel
+                :issues="iconCheckIssues"
+                @select-issue="selectIconCheckIssue"
+              />
+            </ZPopover>
+            <button type="button" class="canvas-mode-btn" :class="{ active: canvasViewMode === 'canvas' }" @click="setCanvasViewMode('canvas')">Canvas</button>
+            <ZPopover
+              trigger="hover"
+              placement="top"
+              :to="false"
+              show-arrow
+              keep-alive-on-hover
+            >
+              <template #trigger>
+                <button
+                  type="button"
+                  class="canvas-mode-btn"
+                  :class="{ active: canvasViewMode === 'svg' }"
+                  :title="svgModeTooltipTitle"
+                  :aria-label="svgModeTooltipTitle"
+                  @click="setCanvasViewMode('svg')"
+                >
+                  SVG
+                </button>
+              </template>
+              <div class="svg-mode-tooltip" role="menu" aria-label="SVG 预览模式切换">
+                <div class="svg-mode-tooltip-head">
+                  <div class="svg-mode-tooltip-title">{{ svgModeTooltipTitle }}</div>
+                  <div class="svg-mode-tooltip-detail">{{ svgModeTooltipDetail }}</div>
+                </div>
+                <button
+                  v-for="option in svgPreviewModeOptions"
+                  :key="option.value"
+                  type="button"
+                  class="svg-mode-option"
+                  :class="{ active: svgPreviewMode === option.value }"
+                  role="menuitemradio"
+                  :aria-checked="svgPreviewMode === option.value"
+                  @click="setSvgPreviewMode(option.value)"
+                >
+                  <Icon :icon="option.icon" />
+                  <span>
+                    <strong>{{ option.label }}</strong>
+                    <small>{{ option.description }}</small>
+                  </span>
+                </button>
               </div>
-              <button
-                v-for="option in svgPreviewModeOptions"
-                :key="option.value"
-                type="button"
-                class="svg-mode-option"
-                :class="{ active: svgPreviewMode === option.value }"
-                role="menuitemradio"
-                :aria-checked="svgPreviewMode === option.value"
-                @click="setSvgPreviewMode(option.value)"
-              >
-                <Icon :icon="option.icon" />
-                <span>
-                  <strong>{{ option.label }}</strong>
-                  <small>{{ option.description }}</small>
-                </span>
-              </button>
-            </div>
-          </ZPopover>
+            </ZPopover>
+          </div>
         </div>
       </div>
 
@@ -592,6 +607,7 @@
 </template>
 
 <script setup lang="ts">
+import { ref } from 'vue'
 import { Icon } from '@iconify/vue'
 import { ZContextMenu, ZPopover } from 'ztools-ui'
 import HomeTopBar from './components/HomeTopBar.vue'
@@ -850,6 +866,15 @@ const {
   handleCanvasAreaPointerDown,
   handleCanvasAreaWheel
 } = useHomeEditorRuntime()
+
+const canvasModeSwitcherCollapsed = ref(false)
+
+// 切换底部画布模式切换器的收纳状态；收起时同步关闭受控预览浮层，避免隐藏控件后残留预览面板。
+function toggleCanvasModeSwitcherCollapsed() {
+  const nextCollapsed = !canvasModeSwitcherCollapsed.value
+  canvasModeSwitcherCollapsed.value = nextCollapsed
+  if (nextCollapsed) handlePreviewPopoverShowChange(false)
+}
 </script>
 
 <style lang="scss" scoped>
@@ -857,6 +882,7 @@ const {
 $topbar-h: 44px;
 $left-w: 270px;
 $right-w: 240px;
+$project-tab-h: 34px;
 $border: 1px solid rgba(128, 128, 128, 0.18);
 $bg: #f5f5f5;
 $panel-bg: #fff;
@@ -865,7 +891,8 @@ $panel-bg: #fff;
 .editor-root {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: 100%;
+  min-height: 0;
   background: $bg;
   font-size: 13px;
   color: #333;
@@ -888,6 +915,7 @@ $panel-bg: #fff;
 .editor-body {
   display: flex;
   flex: 1;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -901,7 +929,7 @@ $panel-bg: #fff;
   position: relative;
 }
 .project-tab-bar {
-  flex: 0 0 34px;
+  flex: 0 0 $project-tab-h;
   min-width: 0;
   display: flex;
   align-items: flex-end;
@@ -992,6 +1020,11 @@ $panel-bg: #fff;
 }
 .canvas-frame .canvas-area {
   flex: 1;
+}
+.canvas-frame.with-ruler :deep(.ruler-overlay) {
+  top: $project-tab-h;
+  bottom: 0;
+  height: auto;
 }
 .canvas-frame.with-ruler .canvas-area {
   padding-top: 24px;
@@ -1211,6 +1244,22 @@ $panel-bg: #fff;
   right: 12px;
   bottom: 12px;
   z-index: 20;
+  transition: transform 0.18s ease;
+
+  &.is-collapsed {
+    transform: translateY(calc(100% + 12px));
+  }
+
+  &.is-collapsed .canvas-mode-switcher__body {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  &.is-collapsed .canvas-mode-switcher__handle {
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.16);
+  }
+}
+.canvas-mode-switcher__body {
   display: inline-flex;
   align-items: center;
   padding: 4px;
@@ -1220,6 +1269,7 @@ $panel-bg: #fff;
   background: rgba(255, 255, 255, 0.92);
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
   backdrop-filter: blur(8px);
+  transition: opacity 0.15s ease;
 
   :deep(.zt-popover__content) {
     max-width: min(420px, calc(100vw - 32px));
@@ -1229,6 +1279,34 @@ $panel-bg: #fff;
     padding: 0;
     border-radius: 12px;
     overflow: hidden;
+  }
+}
+.canvas-mode-switcher__handle {
+  position: absolute;
+  top: -12px;
+  left: 50%;
+  width: 34px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: $border;
+  border-radius: 999px 999px 0 0;
+  background: rgba(255, 255, 255, 0.94);
+  color: #4b5563;
+  cursor: pointer;
+  transform: translateX(-50%);
+  transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+
+  :deep(svg) {
+    width: 16px;
+    height: 16px;
+  }
+
+  &:hover {
+    background: rgba(30, 111, 255, 0.10);
+    color: #1e40af;
   }
 }
 .canvas-mode-icon-btn {
@@ -1325,6 +1403,14 @@ $panel-bg: #fff;
   &.active strong {
     color: #1e40af;
   }
+}
+:global(.zt-popover__panel:has(.right-panel-scroll) .zt-popover__content) {
+  max-width: min(420px, calc(100vw - 32px));
+}
+:global(.zt-popover__panel:has(.right-panel-scroll) .zt-popover__body--card) {
+  padding: 0;
+  border-radius: 12px;
+  overflow: hidden;
 }
 
 .canvas-mode-btn {
