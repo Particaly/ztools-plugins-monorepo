@@ -18,6 +18,9 @@ import {
 import type { EditorModule } from '../../runtime/editorTypes'
 import type { AnyFabricObject } from '../../../fabric/objectMetadata'
 import { ensureOptimizedSVGRoot, stripFabricSVGNoise, svgEscapeText, trimSVGWhitespace } from '../../../exportUtils'
+import { fabricStrokeToPathKitWithApi, type FabricBooleanStyleSnapshot } from '../../../geometry/fabricToPathKit'
+import { getPathKit, type PathKitApi } from '../../../geometry/pathkit'
+import { pathKitToFabricPath } from '../../../geometry/pathKitToFabric'
 import type { ExportDialogState, ExportFormat, IconCreatorProjectArtboard, InternalClipboard } from '../../../types'
 import type {
   HomeExportDeliveryClipboardOptions,
@@ -142,30 +145,134 @@ export function createHomeExportDeliveryModule(
     return `<rect width="100%" height="100%" fill="${svgEscapeText(options.exportWorkflow.canvasBg.value)}"/>`
   }
 
-  /**
-   * 将 Fabric 原始 SVG 输出压缩为更适合交付的图标资源：规范根节点、viewBox、可选背景并移除冗余元数据。
-   */
-  function createOptimizedSVG(includeBackground = false) {
-    const fabricCanvas = options.exportWorkflow.getFabricCanvas()
-    if (!fabricCanvas) return ''
-    const currentBg = fabricCanvas.backgroundColor
+  function isVisiblePaint(value: unknown) {
+    if (value == null) return false
+    if (typeof value !== 'string') return true
+    const normalized = value.trim().toLowerCase()
+    return normalized !== '' && normalized !== 'none' && normalized !== 'transparent'
+  }
+
+  function isStrokeEnabled(obj: FabricObject) {
+    return isVisiblePaint(obj.stroke) && Number(obj.strokeWidth || 0) > 0
+  }
+
+  function normalizeStrokeDashArray(value: unknown) {
+    if (!Array.isArray(value)) return null
+    const numeric = value
+      .map((item) => Number(item))
+      .filter((item) => Number.isFinite(item) && item > 0)
+    if (!numeric.length) return null
+    return [numeric[0], numeric[1] ?? numeric[0]]
+  }
+
+  function createStrokeOutlineStyle(style: FabricBooleanStyleSnapshot): FabricBooleanStyleSnapshot {
+    const fill = typeof style.stroke === 'string' && isVisiblePaint(style.stroke)
+      ? style.stroke
+      : style.lastStroke || '#000000'
+    return {
+      ...style,
+      fill,
+      stroke: 'transparent',
+      strokeWidth: 0,
+      strokeDashArray: null,
+      lastFill: fill,
+      fillMode: 'solid',
+      fillGradientType: undefined,
+      fillGradientStops: undefined,
+      fillGradientAngle: undefined,
+      fillGradientCenterX: undefined,
+      fillGradientCenterY: undefined,
+      fillGradientRadius: undefined
+    }
+  }
+
+  function shouldKeepFilledSource(obj: FabricObject) {
+    return obj.type !== 'line' && isVisiblePaint(obj.fill)
+  }
+
+  async function cloneCanvasForSVG(sourceCanvas: Canvas, width: number, height: number) {
+    const tempCanvas = new Canvas(null as unknown as HTMLCanvasElement, {
+      width,
+      height,
+      backgroundColor: ''
+    })
+    const sourceObjects = sourceCanvas.getObjects()
+      .filter((obj) => !(obj as AnyFabricObject).excludeFromExport)
+    const clones = await Promise.all(sourceObjects.map((obj) => obj.clone())) as FabricObject[]
+    clones.forEach((clone) => tempCanvas.add(clone as AnyFabricObject))
+    return tempCanvas
+  }
+
+  function tryReplaceObjectStrokeWithOutline(canvas: Canvas, pathKit: PathKitApi, obj: FabricObject) {
+    if (!canvas.getObjects().includes(obj)) return
+    if (!isStrokeEnabled(obj) || normalizeStrokeDashArray(obj.strokeDashArray)?.length) return
+    const converted = fabricStrokeToPathKitWithApi(pathKit, obj)
+    if (converted.error || !converted.path || !converted.style) return
     try {
-      fabricCanvas.backgroundColor = ''
-      const rawSvg = fabricCanvas.toSVG({
+      const sourceIndex = Math.max(0, canvas.getObjects().indexOf(obj))
+      const outline = pathKitToFabricPath(converted.path, {
+        name: `${String((obj as AnyFabricObject).name || obj.type || '对象')} 轮廓`,
+        shapeId: 'stroke-outline',
+        style: createStrokeOutlineStyle(converted.style),
+        sourceCornerRadius: null
+      })
+      if (!outline) return
+      if (shouldKeepFilledSource(obj)) {
+        obj.set({ stroke: 'transparent', strokeWidth: 0, strokeDashArray: null })
+        ;(obj as AnyFabricObject).lastStroke = converted.style.lastStroke
+        ;(obj as AnyFabricObject).lastStrokeWidth = converted.style.lastStrokeWidth
+        obj.dirty = true
+        obj.setCoords()
+        canvas.insertAt(Math.min(sourceIndex + 1, canvas.getObjects().length), outline as AnyFabricObject)
+      } else {
+        canvas.remove(obj as AnyFabricObject)
+        canvas.insertAt(Math.min(sourceIndex, canvas.getObjects().length), outline as AnyFabricObject)
+      }
+    } finally {
+      converted.path.delete()
+    }
+  }
+
+  async function outlineSVGCanvasStrokes(canvas: Canvas) {
+    const pathKit = await getPathKit()
+    const objects = [...canvas.getObjects()]
+    objects.forEach((obj) => tryReplaceObjectStrokeWithOutline(canvas, pathKit, obj))
+  }
+
+  async function createOptimizedSVGFromCanvas(sourceCanvas: Canvas, width: number, height: number, backgroundMarkup = '') {
+    const tempCanvas = await cloneCanvasForSVG(sourceCanvas, width, height)
+    try {
+      await outlineSVGCanvasStrokes(tempCanvas)
+      tempCanvas.requestRenderAll()
+      const rawSvg = tempCanvas.toSVG({
         suppressPreamble: true,
-        viewBox: { x: 0, y: 0, width: options.exportWorkflow.canvasWidth.value, height: options.exportWorkflow.canvasHeight.value },
-        width: String(options.exportWorkflow.canvasWidth.value),
-        height: String(options.exportWorkflow.canvasHeight.value)
+        viewBox: { x: 0, y: 0, width, height },
+        width: String(width),
+        height: String(height)
       })
       return trimSVGWhitespace(ensureOptimizedSVGRoot(
         stripFabricSVGNoise(rawSvg),
-        options.exportWorkflow.canvasWidth.value,
-        options.exportWorkflow.canvasHeight.value,
-        getOptimizedSVGBackgroundMarkup(includeBackground)
+        width,
+        height,
+        backgroundMarkup
       ))
     } finally {
-      fabricCanvas.backgroundColor = currentBg
+      tempCanvas.dispose()
     }
+  }
+
+  /**
+   * 将 Fabric 原始 SVG 输出压缩为更适合交付的图标资源：规范根节点、viewBox、可选背景并移除冗余元数据。
+   */
+  async function createOptimizedSVG(includeBackground = false) {
+    const fabricCanvas = options.exportWorkflow.getFabricCanvas()
+    if (!fabricCanvas) return ''
+    return createOptimizedSVGFromCanvas(
+      fabricCanvas,
+      options.exportWorkflow.canvasWidth.value,
+      options.exportWorkflow.canvasHeight.value,
+      getOptimizedSVGBackgroundMarkup(includeBackground)
+    )
   }
 
   /**
@@ -248,11 +355,11 @@ export function createHomeExportDeliveryModule(
   ) {
     const artboardName = sanitizeExportEntryName(artboard.name, `artboard-${index + 1}`)
     const folderName = `${String(index + 1).padStart(2, '0')}-${artboardName}`
-    await withLoadedArtboardForExport(artboard, () => {
+    await withLoadedArtboardForExport(artboard, async () => {
       if (exportDialog.svgEnabled) {
         zip.file(
           createUniqueZipEntryName(`${folderName}/${prefix}.svg`, usedNames),
-          createOptimizedSVG(exportDialog.svgIncludeBg)
+          await createOptimizedSVG(exportDialog.svgIncludeBg)
         )
       }
       if (exportDialog.pngEnabled) {
@@ -328,10 +435,10 @@ export function createHomeExportDeliveryModule(
   /**
    * 导出优化后的 SVG 到下载目录，支持导出面板传入自定义文件名和是否保留画布背景。
    */
-  function exportSVG(fileName?: string, includeBackground = false) {
+  async function exportSVG(fileName?: string, includeBackground = false) {
     if (!options.exportWorkflow.getFabricCanvas()) return ''
     options.exportWorkflow.clearBooleanPreview()
-    return window.services?.writeSvgFile?.(createOptimizedSVG(includeBackground), fileName) || ''
+    return window.services?.writeSvgFile?.(await createOptimizedSVG(includeBackground), fileName) || ''
   }
 
   /**
@@ -410,23 +517,12 @@ export function createHomeExportDeliveryModule(
         return
       }
       try {
-        const rawSvg = tempCanvas.toSVG({
-          suppressPreamble: true,
-          viewBox: { x: 0, y: 0, width: tempCanvas.width!, height: tempCanvas.height! },
-          width: String(tempCanvas.width),
-          height: String(tempCanvas.height)
-        })
-        svgContent = trimSVGWhitespace(ensureOptimizedSVGRoot(
-          stripFabricSVGNoise(rawSvg),
-          tempCanvas.width!,
-          tempCanvas.height!,
-          ''
-        ))
+        svgContent = await createOptimizedSVGFromCanvas(tempCanvas, tempCanvas.width!, tempCanvas.height!, '')
       } finally {
         tempCanvas.dispose()
       }
     } else {
-      svgContent = createOptimizedSVG(false)
+      svgContent = await createOptimizedSVG(false)
     }
     if (!svgContent) {
       options.shortcut.showToast('生成 SVG 失败', 'error')
@@ -499,7 +595,7 @@ export function createHomeExportDeliveryModule(
         if (path) paths.push(path)
       } else {
         if (exportDialog.svgEnabled) {
-          const path = exportSVG(`${prefix}.svg`, exportDialog.svgIncludeBg)
+          const path = await exportSVG(`${prefix}.svg`, exportDialog.svgIncludeBg)
           if (path) paths.push(path)
         }
         if (exportDialog.pngEnabled) {

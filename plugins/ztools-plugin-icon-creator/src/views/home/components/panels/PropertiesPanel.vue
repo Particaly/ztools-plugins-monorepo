@@ -556,25 +556,6 @@
             </div>
           </template>
         </div>
-        <div v-if="canVectorizeBitmapSelection" class="prop-section">
-          <div class="prop-group style-toggle-row">
-            <label>图片追踪</label>
-            <div class="trace-mode-picker">
-              <button class="tb-btn sm" :class="{ active: objProps.bitmapTraceMode === 'alpha' }" title="按透明度追踪非透明区域" @click="setBitmapTraceMode('alpha')">透明</button>
-              <button class="tb-btn sm" :class="{ active: objProps.bitmapTraceMode === 'luminance' }" title="按亮度阈值追踪深色区域" @click="setBitmapTraceMode('luminance')">黑白</button>
-            </div>
-          </div>
-          <div v-if="objProps.bitmapTraceMode === 'luminance'" class="prop-group style-color-row">
-            <label>阈值</label>
-            <ZInput
-              size="small"
-              type="text"
-              :model-value="objProps.bitmapTraceThresholdInput"
-              @update:model-value="objProps.bitmapTraceThresholdInput = String($event)"
-              @change="setBitmapTraceThresholdFromInput"
-            />
-          </div>
-        </div>
         <div class="prop-actions boolean-actions">
           <button class="tb-btn" @mouseenter="showBooleanPreview('union')" @mouseleave="clearBooleanPreview" @click="runBooleanOperation('union')" :disabled="!canBoolean">并集</button>
           <button class="tb-btn" @mouseenter="showBooleanPreview('intersect')" @mouseleave="clearBooleanPreview" @click="runBooleanOperation('intersect')" :disabled="!canBoolean">交集</button>
@@ -607,9 +588,6 @@
         <div class="prop-actions">
           <button class="tb-btn" @click="groupObjects" :disabled="!canGroup">成组</button>
           <button class="tb-btn" @click="ungroupObject" :disabled="!canUngroup">解组</button>
-          <button class="tb-btn" @click="convertSelectionStrokeToOutline" :disabled="!canConvertStrokeSelection || strokeOutlineBusy">{{ strokeOutlineBusy ? '转换中...' : '描边转轮廓' }}</button>
-          <button class="tb-btn" @click="convertSelectionTextToOutline" :disabled="!canConvertTextSelection || textOutlineBusy">{{ textOutlineBusy ? '转换中...' : '文字转轮廓' }}</button>
-          <button class="tb-btn" @click="vectorizeSelectionBitmap" :disabled="!canVectorizeBitmapSelection || bitmapTraceBusy">{{ bitmapTraceBusy ? '转换中...' : '图片转矢量' }}</button>
           <button class="tb-btn" @click="lockObject">{{ activeObject.lockMovementX ? '解锁' : '锁定' }}</button>
           <button class="tb-btn danger" @click="deleteObject">删除</button>
         </div>
@@ -757,12 +735,6 @@ const props = defineProps<{
   canUngroup: boolean
   canAlignSelection: boolean
   canDistributeSelection: boolean
-  canConvertStrokeSelection: boolean
-  strokeOutlineBusy: boolean
-  canConvertTextSelection: boolean
-  textOutlineBusy: boolean
-  canVectorizeBitmapSelection: boolean
-  bitmapTraceBusy: boolean
   canvasPresetValue: string
   canvasPresetOptions: SelectOption[]
   canvasWidthInput: string
@@ -829,11 +801,6 @@ const props = defineProps<{
   ungroupObject: AnyFn
   alignSelection: AnyFn
   distributeSelection: AnyFn
-  convertSelectionStrokeToOutline: AnyFn
-  convertSelectionTextToOutline: AnyFn
-  vectorizeSelectionBitmap: AnyFn
-  setBitmapTraceMode: AnyFn
-  setBitmapTraceThresholdFromInput: AnyFn
   lockObject: AnyFn
   deleteObject: AnyFn
   applyCanvasPreset: AnyFn

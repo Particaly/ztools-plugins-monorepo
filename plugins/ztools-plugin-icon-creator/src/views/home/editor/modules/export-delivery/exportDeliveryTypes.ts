@@ -44,10 +44,10 @@ export interface HomeExportDeliveryCommands {
 
 export interface HomeExportDeliveryHelpers {
   copySelectionToInternalClipboard: () => boolean
-  createCanvasSVGPreview: (includeBackground?: boolean) => string
+  createCanvasSVGPreview: (includeBackground?: boolean) => Promise<string>
   duplicateSelection: () => Promise<boolean>
   exportPNG: (size?: number, fileName?: string, transparentBackground?: boolean) => string
-  exportSVG: (fileName?: string, includeBackground?: boolean) => string
+  exportSVG: (fileName?: string, includeBackground?: boolean) => Promise<string>
   pasteInternalClipboard: (clipboard?: InternalClipboard | null) => Promise<boolean>
   renderPNGDataUrl: (size: number, transparentBackground: boolean) => string
 }

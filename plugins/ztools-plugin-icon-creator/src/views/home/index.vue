@@ -382,12 +382,6 @@
             :can-ungroup="canUngroup"
             :can-align-selection="canAlignSelection"
             :can-distribute-selection="canDistributeSelection"
-            :can-convert-stroke-selection="canConvertStrokeSelection"
-            :stroke-outline-busy="strokeOutlineBusy"
-            :can-convert-text-selection="canConvertTextSelection"
-            :text-outline-busy="textOutlineBusy"
-            :can-vectorize-bitmap-selection="canVectorizeBitmapSelection"
-            :bitmap-trace-busy="bitmapTraceBusy"
             :canvas-preset-value="canvasPresetValue"
             :canvas-preset-options="canvasPresetOptions"
             :canvas-width-input="canvasWidthInput"
@@ -455,11 +449,6 @@
             :ungroup-object="ungroupObject"
             :align-selection="alignSelection"
             :distribute-selection="distributeSelection"
-            :convert-selection-stroke-to-outline="convertSelectionStrokeToOutline"
-            :convert-selection-text-to-outline="convertSelectionTextToOutline"
-            :vectorize-selection-bitmap="vectorizeSelectionBitmap"
-            :set-bitmap-trace-mode="setBitmapTraceMode"
-            :set-bitmap-trace-threshold-from-input="setBitmapTraceThresholdFromInput"
             :lock-object="lockObject"
             :delete-object="deleteObject"
             :apply-canvas-preset="applyCanvasPreset"
@@ -666,9 +655,6 @@ const {
   keylineSafeArea,
   iconCheckIssues,
   booleanBusy,
-  strokeOutlineBusy,
-  textOutlineBusy,
-  bitmapTraceBusy,
   booleanError,
   subtractPopoverVisible,
   objProps,
@@ -676,13 +662,10 @@ const {
   hasSelectedPoint,
   canAlignSelection,
   canBoolean,
-  canConvertStrokeSelection,
-  canConvertTextSelection,
   canDirectionalSubtract,
   canDistributeSelection,
   canGroup,
   canUngroup,
-  canVectorizeBitmapSelection,
   filteredLayers,
   isLayerDragDisabled,
   isLayerDragging,
@@ -854,11 +837,6 @@ const {
   groupObjects,
   ungroupObject,
   runBooleanOperation,
-  convertSelectionStrokeToOutline,
-  convertSelectionTextToOutline,
-  setBitmapTraceMode,
-  setBitmapTraceThresholdFromInput,
-  vectorizeSelectionBitmap,
   layerUp,
   layerDown,
   layerTop,

@@ -2190,14 +2190,28 @@ export function useHomeEditorRuntime() {
     renderPNGDataUrl
   } = exportDeliveryHelpers
 
-  const svgPreviewSource = computed(() => {
-    if (canvasViewMode.value !== 'svg') return ''
-    void layerVersion.value
-    void canvasWidth.value
-    void canvasHeight.value
-    void canvasBg.value
-    return createCanvasSVGPreview(false)
-  })
+  let svgPreviewRequestId = 0
+  const svgPreviewSource = ref('')
+
+  async function refreshSvgPreviewSource() {
+    const requestId = ++svgPreviewRequestId
+    if (canvasViewMode.value !== 'svg') {
+      svgPreviewSource.value = ''
+      return
+    }
+    try {
+      const source = await createCanvasSVGPreview(false)
+      if (requestId === svgPreviewRequestId && canvasViewMode.value === 'svg') {
+        svgPreviewSource.value = source
+      }
+    } catch {
+      if (requestId === svgPreviewRequestId) svgPreviewSource.value = ''
+    }
+  }
+
+  watch([canvasViewMode, layerVersion, canvasWidth, canvasHeight, canvasBg], () => {
+    void refreshSvgPreviewSource()
+  }, { immediate: true })
 
   const svgPreviewDataUrl = computed(() => (
     svgPreviewSource.value ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgPreviewSource.value)}` : ''
