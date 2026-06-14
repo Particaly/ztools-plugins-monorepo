@@ -182,6 +182,7 @@ export function useHomeEditorRuntime() {
   let fabricCanvas: Canvas | null = null
   let editorRuntime: EditorRuntime | null = null
   let spacePanStart: SpacePanStart | null = null
+  const fabricCanvasVersion = ref(0)
   const artboardIdSeed = ref(0)
 
   const leftTab = ref<LeftPanelTab>('shape')
@@ -409,7 +410,10 @@ export function useHomeEditorRuntime() {
 
   const homeCanvasKernel = createHomeCanvasKernelModule({
     getCanvas: () => fabricCanvas,
-    setCanvas: (canvas) => { fabricCanvas = canvas },
+    setCanvas: (canvas) => {
+      fabricCanvas = canvas
+      fabricCanvasVersion.value += 1
+    },
     canvasElRef,
     canvasAreaRef,
     canvasWidth,
@@ -3472,8 +3476,9 @@ export function useHomeEditorRuntime() {
 
   // 汇总当前画布状态并委托纯检查模块生成规范问题，选择定位等副作用仍留在编辑器壳层。
   function buildIconCheckIssues(): IconCheckIssue[] {
-    if (!fabricCanvas) return []
+    void fabricCanvasVersion.value
     void layerVersion.value
+    if (!fabricCanvas) return []
     return buildIconCheckIssuesFromContext({
       canvasBg: canvasBg.value,
       canvasWidth: canvasWidth.value,
