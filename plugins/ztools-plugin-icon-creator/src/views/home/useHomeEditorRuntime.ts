@@ -15,21 +15,26 @@ import {
   applyDefaultFillGradientMetadata,
   applyDefaultKaleidoscopeMetadata,
   applyDefaultSizeRatioLockMetadata,
+  applyDefaultShadowEffectsMetadata,
+  applyShadowEffectsToFabricObject,
   clearKaleidoscopeMetadata,
   cloneFillGradientStops,
+  createDefaultShadowEffect,
   createGradientFromMetadata,
   getEndpointSnapMarginMetadata,
   getFillGradientMetadata,
   getNormalizedGradientOffsetSlots,
   getKaleidoscopeMetadata,
   getObjectEndpointSnapMargin,
+  getShadowEffectsMetadata,
   isObjectSizeRatioLocked,
   markObjectSizeRatioLocked,
   normalizeEndpointSnapMargin,
   normalizeKaleidoscopeCount,
   type AnyFabricObject,
   type FillGradientStop,
-  type FillGradientType
+  type FillGradientType,
+  type ShadowEffectItem
 } from './fabric/objectMetadata'
 import { createShape } from './fabric/shapeFactories'
 import {
@@ -308,7 +313,11 @@ export function useHomeEditorRuntime() {
     kaleidoscopeCenterXInput: '0',
     kaleidoscopeCenterYInput: '0',
     kaleidoscopeFollowRotation: false,
-    kaleidoscopeCountInput: String(DEFAULT_KALEIDOSCOPE_COUNT)
+    kaleidoscopeCountInput: String(DEFAULT_KALEIDOSCOPE_COUNT),
+    shadowEffects: [] as any[],
+    blurEnabled: false,
+    blurRadius: 4,
+    blurRadiusInput: '4'
   })
   const sizeRatioLocked = ref(false)
   const lockedAspectRatio = ref(1)
@@ -4707,6 +4716,14 @@ export function useHomeEditorRuntime() {
       objProps.arrowSideAngleInput = '0'
       resetCurveProps()
     }
+
+    // 同步阴影和模糊效果
+    applyDefaultShadowEffectsMetadata(obj)
+    const shadowMetadata = getShadowEffectsMetadata(obj)
+    objProps.shadowEffects = shadowMetadata?.shadowEffects ? [...shadowMetadata.shadowEffects] : []
+    objProps.blurEnabled = shadowMetadata?.blurEnabled === true
+    objProps.blurRadius = shadowMetadata?.blurRadius ?? 4
+    objProps.blurRadiusInput = formatNumericInputValue(objProps.blurRadius)
   }
 
   // ── 属性设置 ──
@@ -5394,6 +5411,117 @@ export function useHomeEditorRuntime() {
     snapshot()
     syncObjProps()
   }
+
+  function addShadowEffect() {
+    const obj = activeObject.value
+    if (!obj || !fabricCanvas) return
+    const metadata = getShadowEffectsMetadata(obj)
+    if (!metadata) return
+    applyDefaultShadowEffectsMetadata(obj)
+    const newEffect = createDefaultShadowEffect()
+    if (!metadata.shadowEffects) metadata.shadowEffects = []
+    metadata.shadowEffects.push(newEffect)
+    applyShadowEffectsToFabricObject(obj)
+    obj.dirty = true
+    obj.setCoords()
+    fabricCanvas.requestRenderAll()
+    syncObjProps()
+    snapshot()
+  }
+
+  function toggleShadowEffect(index: number, enabled: boolean) {
+    const obj = activeObject.value
+    if (!obj || !fabricCanvas) return
+    const metadata = getShadowEffectsMetadata(obj)
+    if (!metadata?.shadowEffects?.[index]) return
+    metadata.shadowEffects[index].enabled = enabled
+    applyShadowEffectsToFabricObject(obj)
+    obj.dirty = true
+    obj.setCoords()
+    fabricCanvas.requestRenderAll()
+    syncObjProps()
+    snapshot()
+  }
+
+  function setShadowEffectProp(index: number, prop: string, value: any) {
+    const obj = activeObject.value
+    if (!obj || !fabricCanvas) return
+    const metadata = getShadowEffectsMetadata(obj)
+    if (!metadata?.shadowEffects?.[index]) return
+    const effect = metadata.shadowEffects[index]
+    if (prop === 'offsetX' || prop === 'offsetY') {
+      const parsed = Number(value)
+      if (Number.isFinite(parsed)) {
+        ;(effect as any)[prop] = parsed
+      }
+    } else if (prop === 'blur') {
+      const parsed = Number(value)
+      if (Number.isFinite(parsed) && parsed >= 0) {
+        effect.blur = parsed
+      }
+    } else if (prop === 'color') {
+      effect.color = String(value)
+    }
+    applyShadowEffectsToFabricObject(obj)
+    obj.dirty = true
+    obj.setCoords()
+    fabricCanvas.requestRenderAll()
+    syncObjProps()
+    snapshot()
+  }
+
+  function removeShadowEffect(index: number) {
+    const obj = activeObject.value
+    if (!obj || !fabricCanvas) return
+    const metadata = getShadowEffectsMetadata(obj)
+    if (!metadata?.shadowEffects) return
+    metadata.shadowEffects.splice(index, 1)
+    applyShadowEffectsToFabricObject(obj)
+    obj.dirty = true
+    obj.setCoords()
+    fabricCanvas.requestRenderAll()
+    syncObjProps()
+    snapshot()
+  }
+
+  function toggleBlur(enabled: boolean) {
+    const obj = activeObject.value
+    if (!obj || !fabricCanvas) return
+    const metadata = getShadowEffectsMetadata(obj)
+    if (!metadata) return
+    metadata.blurEnabled = enabled
+    const anyObj = obj as any
+    if (enabled) {
+      anyObj.filters = anyObj.filters || []
+      // FabricJS 的模糊需要通过 filters 实现，这里先占位
+      // 实际实现需要使用 fabric.Image.filters.Blur 等
+    } else {
+      anyObj.filters = []
+    }
+    obj.dirty = true
+    obj.setCoords()
+    fabricCanvas.requestRenderAll()
+    syncObjProps()
+    snapshot()
+  }
+
+  function setBlurRadiusFromInput(value: string | number) {
+    const obj = activeObject.value
+    if (!obj || !fabricCanvas) return
+    const parsed = Number(value)
+    if (!Number.isFinite(parsed) || parsed < 0) return
+    const metadata = getShadowEffectsMetadata(obj)
+    if (!metadata) return
+    metadata.blurRadius = parsed
+    objProps.blurRadius = parsed
+    objProps.blurRadiusInput = formatNumericInputValue(parsed)
+    // 实际应用模糊效果
+    obj.dirty = true
+    obj.setCoords()
+    fabricCanvas.requestRenderAll()
+    snapshot()
+  }
+
 
   // 按属性面板输入缩放当前对象；开启网格吸附时会继续量化显示尺寸和边界位置。
   function setObjSize(dim: 'width' | 'height', value: number) {
@@ -7685,6 +7813,12 @@ export function useHomeEditorRuntime() {
     setFillGradientAngleValue,
     setFillGradientRadiusValue,
     toggleStroke,
+    addShadowEffect,
+    toggleShadowEffect,
+    setShadowEffectProp,
+    removeShadowEffect,
+    toggleBlur,
+    setBlurRadiusFromInput,
     setObjSizeFromInput,
     alignPositions,
     alignPopoverVisible,

@@ -365,6 +365,78 @@
             <span class="val-label">{{ Math.round(objProps.opacity * 100) }}%</span>
           </div>
         </div>
+        <div class="prop-section">
+          <div class="prop-group style-toggle-row">
+            <label>阴影效果</label>
+            <button class="tb-btn sm" @click="addShadowEffect">添加</button>
+          </div>
+          <div v-if="objProps.shadowEffects && objProps.shadowEffects.length > 0" class="shadow-effects-list">
+            <div
+              v-for="(shadow, index) in objProps.shadowEffects"
+              :key="shadow.id"
+              class="shadow-effect-item"
+            >
+              <div class="prop-group style-toggle-row shadow-header">
+                <label>{{ shadow.type === 'drop' ? '投影' : '内阴影' }} #{{ index + 1 }}</label>
+                <ZSwitch size="small" :model-value="shadow.enabled" @change="toggleShadowEffect(index, $event)" />
+              </div>
+              <template v-if="shadow.enabled">
+                <div class="prop-group style-color-row">
+                  <label>颜色</label>
+                  <ZColorPicker
+                    size="small"
+                    show-alpha
+                    :model-value="shadow.color"
+                    @change="setShadowEffectProp(index, 'color', String($event))"
+                  />
+                </div>
+                <div class="prop-group bezier-group-row">
+                  <label>偏移</label>
+                  <ZInput
+                    size="small"
+                    type="text"
+                    :model-value="shadow.offsetX"
+                    @change="setShadowEffectProp(index, 'offsetX', $event)"
+                  />
+                  <ZInput
+                    size="small"
+                    type="text"
+                    :model-value="shadow.offsetY"
+                    @change="setShadowEffectProp(index, 'offsetY', $event)"
+                  />
+                </div>
+                <div class="prop-group style-color-row">
+                  <label>模糊</label>
+                  <ZInput
+                    size="small"
+                    type="text"
+                    :model-value="shadow.blur"
+                    @change="setShadowEffectProp(index, 'blur', $event)"
+                  />
+                </div>
+                <div class="prop-group" style="justify-content: flex-end; padding-top: 0;">
+                  <button class="tb-btn sm danger" @click="removeShadowEffect(index)">删除</button>
+                </div>
+              </template>
+            </div>
+          </div>
+        </div>
+        <div class="prop-section">
+          <div class="prop-group style-toggle-row">
+            <label>模糊</label>
+            <ZSwitch size="small" :model-value="objProps.blurEnabled" @change="toggleBlur" />
+          </div>
+          <div v-if="objProps.blurEnabled" class="prop-group style-color-row">
+            <label>半径</label>
+            <ZInput
+              size="small"
+              type="text"
+              :model-value="objProps.blurRadiusInput"
+              @update:model-value="objProps.blurRadiusInput = String($event)"
+              @change="setBlurRadiusFromInput"
+            />
+          </div>
+        </div>
         <div v-if="hasEditablePoints" class="prop-section">
           <div v-if="!hasSelectedPoint" class="prop-group style-color-row">
             <label>圆角</label>
@@ -813,6 +885,12 @@ const props = defineProps<{
   setKeylineMarginFromInput: AnyFn
   setKeylineOpacity: AnyFn
   openStylePresetManager: (tab: StylePresetManagerTab) => void
+  addShadowEffect: AnyFn
+  toggleShadowEffect: AnyFn
+  setShadowEffectProp: AnyFn
+  removeShadowEffect: AnyFn
+  toggleBlur: AnyFn
+  setBlurRadiusFromInput: AnyFn
 }>()
 
 const emit = defineEmits<{
@@ -1391,4 +1469,20 @@ const keylineMarginInput = computed({
 }
 .boolean-status { color: #666; }
 .boolean-error { color: #c00; }
+
+.shadow-effects-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 8px 8px;
+}
+.shadow-effect-item {
+  border: 1px solid rgba(128, 128, 128, 0.2);
+  border-radius: 6px;
+  padding: 4px 8px;
+  background: #fafafa;
+}
+.shadow-header {
+  padding: 4px 0 !important;
+}
 </style>

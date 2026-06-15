@@ -462,6 +462,12 @@
             :set-keyline-template="setKeylineTemplate"
             :set-keyline-margin-from-input="setKeylineMarginFromInput"
             :set-keyline-opacity="setKeylineOpacity"
+            :add-shadow-effect="addShadowEffect"
+            :toggle-shadow-effect="toggleShadowEffect"
+            :set-shadow-effect-prop="setShadowEffectProp"
+            :remove-shadow-effect="removeShadowEffect"
+            :toggle-blur="toggleBlur"
+            :set-blur-radius-from-input="setBlurRadiusFromInput"
             @update:align-popover-visible="alignPopoverVisible = $event"
             @update:canvas-width-input="canvasWidthInput = $event"
             @update:canvas-height-input="canvasHeightInput = $event"
@@ -822,6 +828,12 @@ const {
   setFillGradientAngleValue,
   setFillGradientRadiusValue,
   toggleStroke,
+  addShadowEffect,
+  toggleShadowEffect,
+  setShadowEffectProp,
+  removeShadowEffect,
+  toggleBlur,
+  setBlurRadiusFromInput,
   setObjSizeFromInput,
   alignPositions,
   alignPopoverVisible,

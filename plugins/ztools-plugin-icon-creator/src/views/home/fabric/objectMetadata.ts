@@ -38,6 +38,23 @@ export type SizeRatioLockMetadata = {
   sizeRatioLocked?: boolean
 }
 
+export type ShadowEffectItem = {
+  id: string
+  enabled: boolean
+  type: 'drop' | 'inner'
+  offsetX: number
+  offsetY: number
+  blur: number
+  spread: number
+  color: string
+}
+
+export type ShadowEffectsMetadata = {
+  shadowEffects?: ShadowEffectItem[]
+  blurEnabled?: boolean
+  blurRadius?: number
+}
+
 export const DEFAULT_KALEIDOSCOPE_COUNT = 6
 export const MIN_KALEIDOSCOPE_COUNT = 1
 export const MAX_KALEIDOSCOPE_COUNT = 36
@@ -85,7 +102,10 @@ export const SERIALIZED_OBJECT_PROPS = [
   'kaleidoscopeManaged',
   'kaleidoscopeInstanceOf',
   'kaleidoscopeInstanceIndex',
-  'sizeRatioLocked'
+  'sizeRatioLocked',
+  'shadowEffects',
+  'blurEnabled',
+  'blurRadius'
 ] as const
 
 function cloneGradientStops(stops: FillGradientStop[]) {
@@ -441,4 +461,74 @@ export function markObjectSizeRatioLocked(obj: FabricObject | null | undefined, 
 export function isObjectSizeRatioLocked(obj: FabricObject | null | undefined) {
   applyDefaultSizeRatioLockMetadata(obj)
   return getSizeRatioLockMetadata(obj)?.sizeRatioLocked === true
+}
+
+export function getShadowEffectsMetadata(obj: FabricObject | null | undefined) {
+  return obj ? (obj as AnyFabricObject & ShadowEffectsMetadata) : null
+}
+
+function normalizeShadowEffect(effect: any): ShadowEffectItem | null {
+  if (!effect || typeof effect !== 'object') return null
+  return {
+    id: typeof effect.id === 'string' && effect.id ? effect.id : String(Date.now() + Math.random()),
+    enabled: effect.enabled !== false,
+    type: effect.type === 'inner' ? 'inner' : 'drop',
+    offsetX: normalizeFiniteNumber(effect.offsetX, 0),
+    offsetY: normalizeFiniteNumber(effect.offsetY, 4),
+    blur: Math.max(0, normalizeFiniteNumber(effect.blur, 8)),
+    spread: normalizeFiniteNumber(effect.spread, 0),
+    color: typeof effect.color === 'string' && effect.color.trim() ? effect.color : 'rgba(0, 0, 0, 0.25)'
+  }
+}
+
+export function applyDefaultShadowEffectsMetadata(obj: FabricObject | null | undefined) {
+  const target = getShadowEffectsMetadata(obj)
+  if (!target) return
+
+  if (Array.isArray(target.shadowEffects)) {
+    target.shadowEffects = target.shadowEffects
+      .map(normalizeShadowEffect)
+      .filter((item): item is ShadowEffectItem => item !== null)
+  } else {
+    target.shadowEffects = []
+  }
+
+  target.blurEnabled = target.blurEnabled === true
+  target.blurRadius = Math.max(0, normalizeFiniteNumber(target.blurRadius, 4))
+}
+
+export function applyShadowEffectsToFabricObject(obj: FabricObject | null | undefined) {
+  const target = getShadowEffectsMetadata(obj)
+  if (!target) return
+
+  applyDefaultShadowEffectsMetadata(target)
+
+  const enabledEffects = (target.shadowEffects ?? []).filter(effect => effect.enabled && effect.type === 'drop')
+
+  if (enabledEffects.length > 0) {
+    const firstEffect = enabledEffects[0]
+    const anyObj = obj as any
+    anyObj.shadow = {
+      color: firstEffect.color,
+      blur: firstEffect.blur,
+      offsetX: firstEffect.offsetX,
+      offsetY: firstEffect.offsetY
+    }
+  } else {
+    const anyObj = obj as any
+    anyObj.shadow = null
+  }
+}
+
+export function createDefaultShadowEffect(): ShadowEffectItem {
+  return {
+    id: String(Date.now() + Math.random()),
+    enabled: true,
+    type: 'drop',
+    offsetX: 0,
+    offsetY: 4,
+    blur: 8,
+    spread: 0,
+    color: 'rgba(0, 0, 0, 0.25)'
+  }
 }
