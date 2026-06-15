@@ -128,6 +128,7 @@ export function createHomeWorkspaceModule(
     artboards: homeArtboards.artboards,
     activeArtboardId: homeArtboards.activeArtboardId,
     showArtboardList: homeArtboards.showArtboardList,
+    artboardRenameDialog: homeArtboards.artboardRenameDialog,
     undoStack: homeDocument.undoStack,
     historyIndex: homeDocument.historyIndex,
     canUndo: homeDocument.canUndo,
@@ -224,7 +225,9 @@ export function createHomeWorkspaceModule(
     scheduleDraftSave: homeDocument.scheduleDraftSave,
     snapshot: homeDocument.snapshot,
     switchArtboard: homeArtboards.switchArtboard,
-    undo: homeDocument.undo
+    undo: homeDocument.undo,
+    confirmArtboardRename: homeArtboards.confirmArtboardRename,
+    handleArtboardRenameDialogShowChange: homeArtboards.handleArtboardRenameDialogShowChange
   }
 
   const module: EditorModule = {

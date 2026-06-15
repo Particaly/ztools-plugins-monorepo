@@ -81,12 +81,15 @@ export interface UseHomeArtboardsOptions extends HomeCanvasRestoreCallbacks {
 }
 
 export interface UseHomeArtboardsReturn extends HomeArtboardStateRefs {
+  artboardRenameDialog: Ref<{ show: boolean; value: string; targetId: string }>
   captureCurrentArtboard: () => IconCreatorProjectArtboard
   loadArtboardContent: (artboard: IconCreatorProjectArtboard) => Promise<void>
   switchArtboard: (artboardId: string) => Promise<void>
   addArtboard: () => Promise<void>
   duplicateArtboard: (artboardId: string) => void
   renameArtboard: (artboardId: string) => void
+  confirmArtboardRename: () => void
+  handleArtboardRenameDialogShowChange: (show: boolean) => void
   deleteArtboard: (artboardId: string) => Promise<void>
 }
 

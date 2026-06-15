@@ -41,6 +41,12 @@ export function useHomeArtboards(options: UseHomeArtboardsOptions): UseHomeArtbo
   const artboards = ref<IconCreatorProjectArtboard[]>([])
   const activeArtboardId = ref('')
   const showArtboardList = ref(false)
+  // 画板重命名弹窗状态：show 控制显隐、value 双向绑定输入框、targetId 记录待重命名的画板 id。
+  const artboardRenameDialog = ref({
+    show: false,
+    value: '',
+    targetId: ''
+  })
 
   function createArtboardName(index = artboards.value.length + 1) {
     return `画板 ${index}`
@@ -178,11 +184,44 @@ export function useHomeArtboards(options: UseHomeArtboardsOptions): UseHomeArtbo
   function renameArtboard(artboardId: string) {
     const artboard = artboards.value.find((item) => item.id === artboardId)
     if (!artboard) return
+    // 打开 ztools-ui 弹窗代替原生 window.prompt，复用 ArtboardRenameModal 进行输入与确认。
+    artboardRenameDialog.value = {
+      show: true,
+      value: artboard.name,
+      targetId: artboardId
+    }
+  }
 
-    const newName = window.prompt('请输入新名称:', artboard.name)
-    if (newName && newName.trim()) {
-      artboard.name = newName.trim()
-      showToast('重命名成功', 'success')
+  /**
+   * 确认画板重命名：校验新名称非空且与原值不同后落盘，并触发草稿快照持久化，最后关闭弹窗。
+   */
+  function confirmArtboardRename() {
+    const { targetId, value } = artboardRenameDialog.value
+    const artboard = artboards.value.find((item) => item.id === targetId)
+    if (!artboard) {
+      handleArtboardRenameDialogShowChange(false)
+      return
+    }
+    const trimmed = value.trim()
+    if (!trimmed || trimmed === artboard.name) {
+      handleArtboardRenameDialogShowChange(false)
+      return
+    }
+    artboard.name = trimmed
+    markSmallPreviewsDirty()
+    snapshot({ description: `重命名画板: ${trimmed}`, autoSave: true })
+    showToast('重命名成功', 'success')
+    handleArtboardRenameDialogShowChange(false)
+  }
+
+  /**
+   * 同步弹窗显隐状态，关闭时清空临时输入与目标画板，避免旧状态污染下一次重命名。
+   */
+  function handleArtboardRenameDialogShowChange(show: boolean) {
+    artboardRenameDialog.value = {
+      show,
+      value: show ? artboardRenameDialog.value.value : '',
+      targetId: show ? artboardRenameDialog.value.targetId : ''
     }
   }
 
@@ -210,12 +249,15 @@ export function useHomeArtboards(options: UseHomeArtboardsOptions): UseHomeArtbo
     artboards,
     activeArtboardId,
     showArtboardList,
+    artboardRenameDialog,
     captureCurrentArtboard,
     loadArtboardContent,
     switchArtboard,
     addArtboard,
     duplicateArtboard,
     renameArtboard,
+    confirmArtboardRename,
+    handleArtboardRenameDialogShowChange,
     deleteArtboard
   }
 }

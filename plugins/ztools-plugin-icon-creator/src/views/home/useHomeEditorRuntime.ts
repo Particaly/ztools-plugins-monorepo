@@ -669,6 +669,7 @@ export function useHomeEditorRuntime() {
     artboards,
     activeArtboardId,
     showArtboardList,
+    artboardRenameDialog,
     undoStack,
     historyIndex,
     canUndo,
@@ -678,8 +679,10 @@ export function useHomeEditorRuntime() {
     addArtboard,
     captureHistoryState,
     clearStoredDraft,
+    confirmArtboardRename,
     deleteArtboard,
     duplicateArtboard,
+    handleArtboardRenameDialogShowChange,
     jumpToHistory,
     loadProjectFile,
     newDoc,
@@ -1958,8 +1961,13 @@ export function useHomeEditorRuntime() {
   }
 
   // 切换画板列表显隐，作为顶栏命令入口隔离 UI 事件和底层 showArtboardList 状态写入。
-  function toggleArtboardList() {
-    showArtboardList.value = !showArtboardList.value
+  // 即将展开列表时若还没有任何画板，先自动创建一个默认画板，否则面板因 artboards.length === 0 不渲染，按钮看起来无反应。
+  async function toggleArtboardList() {
+    const next = !showArtboardList.value
+    showArtboardList.value = next
+    if (next && artboards.value.length === 0) {
+      await addArtboard()
+    }
   }
 
   function getDefaultStrokeDashArray(strokeWidth: unknown = 2): [number, number] {
@@ -7527,6 +7535,7 @@ export function useHomeEditorRuntime() {
     closeProjectTab,
     artboards,
     activeArtboardId,
+    artboardRenameDialog,
     undoStack,
     historyIndex,
     addArtboard,
@@ -7535,6 +7544,8 @@ export function useHomeEditorRuntime() {
     jumpToHistory,
     onProjectFileChosen: onProjectFileChosenForActiveTab,
     renameArtboard,
+    confirmArtboardRename,
+    handleArtboardRenameDialogShowChange,
     switchArtboard,
     keylineTemplateOptions,
     previewBackgroundOptions,

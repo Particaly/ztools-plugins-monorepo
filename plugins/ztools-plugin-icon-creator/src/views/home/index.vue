@@ -560,6 +560,14 @@
       @confirm="confirmLayerRename"
     />
 
+    <ArtboardRenameModal
+      :show="artboardRenameDialog.show"
+      :value="artboardRenameDialog.value"
+      @update:show="handleArtboardRenameDialogShowChange"
+      @update:value="artboardRenameDialog.value = $event"
+      @confirm="confirmArtboardRename"
+    />
+
     <UserAssetModal
       :show="importedUserAssetDialog.show"
       v-model:name="importedUserAssetDialog.name"
@@ -616,6 +624,7 @@ import ShortcutDrawer from './components/ShortcutDrawer.vue'
 import PasteSvgModal from './components/modals/PasteSvgModal.vue'
 import ExportModal from './components/modals/ExportModal.vue'
 import LayerRenameModal from './components/modals/LayerRenameModal.vue'
+import ArtboardRenameModal from './components/modals/ArtboardRenameModal.vue'
 import UserAssetModal from './components/modals/UserAssetModal.vue'
 import StylePresetManagerModal from './components/modals/StylePresetManagerModal.vue'
 import Toast from './components/Toast.vue'
@@ -696,6 +705,7 @@ const {
   closeProjectTab,
   artboards,
   activeArtboardId,
+  artboardRenameDialog,
   undoStack,
   historyIndex,
   addArtboard,
@@ -704,6 +714,8 @@ const {
   jumpToHistory,
   onProjectFileChosen,
   renameArtboard,
+  confirmArtboardRename,
+  handleArtboardRenameDialogShowChange,
   switchArtboard,
   keylineTemplateOptions,
   previewBackgroundOptions,

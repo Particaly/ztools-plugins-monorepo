@@ -3,7 +3,7 @@
     <div class="artboard-list-header">
       <span class="artboard-list-title">画板</span>
       <button class="btn-icon btn-add-artboard" @click="$emit('add-artboard')" title="新建画板">
-        <span class="i-ph-plus"></span>
+        <Icon icon="mdi:plus" />
       </button>
     </div>
     <div class="artboard-items">
@@ -17,7 +17,7 @@
         <div class="artboard-thumbnail">
           <img v-if="artboard.thumbnail" :src="artboard.thumbnail" alt="" />
           <div v-else class="artboard-thumbnail-empty">
-            <span class="i-ph-image"></span>
+            <Icon icon="mdi:image-outline" />
           </div>
         </div>
         <div class="artboard-info">
@@ -26,10 +26,10 @@
         </div>
         <div class="artboard-actions">
           <button class="btn-icon-small" @click.stop="$emit('duplicate-artboard', artboard.id)" title="复制">
-            <span class="i-ph-copy"></span>
+            <Icon icon="mdi:content-copy" />
           </button>
           <button class="btn-icon-small" @click.stop="$emit('rename-artboard', artboard.id)" title="重命名">
-            <span class="i-ph-pencil"></span>
+            <Icon icon="mdi:pencil" />
           </button>
           <button
             v-if="artboards.length > 1"
@@ -37,7 +37,7 @@
             @click.stop="$emit('delete-artboard', artboard.id)"
             title="删除"
           >
-            <span class="i-ph-trash"></span>
+            <Icon icon="mdi:trash-can-outline" />
           </button>
         </div>
       </div>
@@ -46,6 +46,7 @@
 </template>
 
 <script setup lang="ts">
+import { Icon } from '@iconify/vue'
 import type { IconCreatorProjectArtboard } from '../types'
 
 defineProps<{
@@ -97,6 +98,11 @@ defineEmits<{
   cursor: pointer;
   border-radius: 4px;
   transition: all 0.15s;
+
+  :deep(svg) {
+    width: 16px;
+    height: 16px;
+  }
 }
 
 .btn-add-artboard:hover {
@@ -152,7 +158,11 @@ defineEmits<{
   align-items: center;
   justify-content: center;
   color: var(--color-text-3);
-  font-size: 20px;
+
+  :deep(svg) {
+    width: 20px;
+    height: 20px;
+  }
 }
 
 .artboard-info {
@@ -198,6 +208,11 @@ defineEmits<{
   cursor: pointer;
   border-radius: 3px;
   transition: all 0.15s;
+
+  :deep(svg) {
+    width: 14px;
+    height: 14px;
+  }
 }
 
 .btn-icon-small:hover {

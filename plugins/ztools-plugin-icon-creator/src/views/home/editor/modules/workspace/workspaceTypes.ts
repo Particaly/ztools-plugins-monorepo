@@ -3,6 +3,7 @@ import type { IconCreatorProjectArtboard, IconCreatorProjectFile, ProjectLoadOpt
 import type { HistorySnapshot, HistoryState, HomeArtboardStateRefs } from '../../../composables/contracts'
 
 export interface HomeWorkspaceState extends HomeArtboardStateRefs {
+  artboardRenameDialog: Ref<{ show: boolean; value: string; targetId: string }>
   undoStack: HistorySnapshot[]
   historyIndex: Ref<number>
   canUndo: Ref<boolean>
@@ -24,6 +25,8 @@ export interface HomeWorkspaceCommands {
   promptRestoreDraft: () => Promise<void>
   redo: () => void
   renameArtboard: (artboardId: string) => void
+  confirmArtboardRename: () => void
+  handleArtboardRenameDialogShowChange: (show: boolean) => void
   resetHistoryToCurrentCanvas: () => void
   restoreHistoryState: (state: HistoryState) => void
   saveProject: () => void
