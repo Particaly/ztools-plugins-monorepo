@@ -28,7 +28,7 @@
         <template v-if="activeTab === 'colors'">
           <div class="manager-toolbar">
             <label class="manager-inline-field">
-              <span>展示列数</span>
+              <span class="flex-shrink-0">展示列数</span>
               <ZInput
                 size="small"
                 type="text"
@@ -117,7 +117,7 @@
         <template v-else>
           <div class="manager-toolbar">
             <label class="manager-inline-field">
-              <span>展示行数</span>
+              <span class="flex-shrink-0">展示行数</span>
               <ZInput
                 size="small"
                 type="text"
@@ -163,6 +163,8 @@
                   placeholder="渐变名称"
                   @update:model-value="preset.name = String($event)"
                 />
+              </div>
+              <div class="gradient-card-type-row">
                 <div class="gradient-type-toggle">
                   <button class="toggle-btn" :class="{ active: preset.type === 'linear' }" @click="setGradientType(preset.id, 'linear')">线性</button>
                   <button class="toggle-btn" :class="{ active: preset.type === 'radial' }" @click="setGradientType(preset.id, 'radial')">径向</button>
@@ -181,80 +183,96 @@
                     @change="stop.color = String($event)"
                   />
                   <label class="manager-inline-field stop-offset-field">
-                    <span>位置</span>
-                    <input
-                      class="number-input"
+                    <span class="flex-shrink-0">位置</span>
+                    <ZInput
+                      size="small"
                       type="number"
+                      :model-value="Math.round(stop.offset * 100)"
                       min="0"
                       max="100"
                       step="1"
-                      :value="Math.round(stop.offset * 100)"
                       @change="updateGradientStopOffset(preset.id, stopIndex, $event)"
-                    />
-                    <span>%</span>
+                    >
+                      <template #suffix>%</template>
+                    </ZInput>
                   </label>
-                  <button
-                    class="icon-btn danger"
-                    type="button"
-                    title="删除色标"
-                    :disabled="preset.stops.length <= 2"
-                    @click="removeGradientStop(preset.id, stop.id)"
-                  >
-                    <Icon icon="mdi:close" />
-                  </button>
+                  <div class="gradient-stop-actions">
+                    <button
+                      class="icon-btn"
+                      type="button"
+                      title="新增色标"
+                      @click="addGradientStop(preset.id)"
+                    >
+                      <Icon icon="mdi:plus" />
+                    </button>
+                    <button
+                      class="icon-btn danger"
+                      type="button"
+                      title="删除色标"
+                      :disabled="preset.stops.length <= 2"
+                      @click="removeGradientStop(preset.id, stop.id)"
+                    >
+                      <Icon icon="mdi:close" />
+                    </button>
+                  </div>
                 </div>
               </div>
               <div class="gradient-card-body">
-                <div class="gradient-card-actions">
-                  <ZButton size="small" @click="addGradientStop(preset.id)">新增色标</ZButton>
-                </div>
-                <div v-if="preset.type === 'linear'" class="manager-inline-field gradient-param-row">
-                  <span>角度</span>
-                  <input
-                    class="number-input"
+                <div v-if="preset.type === 'linear'" class="gradient-param-row angle-control-row">
+                  <span class="param-label">角度</span>
+                  <ZSlider
+                    :model-value="Math.round(Number(preset.angle ?? 0))"
+                    :min="0"
+                    :max="359"
+                    :step="1"
+                    @change="updateGradientNumberField(preset.id, 'angle', $event)"
+                  />
+                  <ZInput
+                    size="small"
                     type="number"
+                    :model-value="Math.round(Number(preset.angle ?? 0))"
                     min="0"
                     max="359"
                     step="1"
-                    :value="Math.round(Number(preset.angle ?? 0))"
                     @change="updateGradientNumberField(preset.id, 'angle', $event)"
-                  />
-                  <span>°</span>
+                  >
+                    <template #suffix>°</template>
+                  </ZInput>
                 </div>
                 <div v-else class="gradient-radial-fields">
                   <label class="manager-inline-field gradient-param-row">
                     <span>中心 X</span>
-                    <input
-                      class="number-input"
+                    <ZInput
+                      size="small"
                       type="number"
+                      :model-value="Number(preset.centerX ?? 0.5).toFixed(2)"
                       min="0"
                       max="1"
                       step="0.01"
-                      :value="Number(preset.centerX ?? 0.5).toFixed(2)"
                       @change="updateGradientNumberField(preset.id, 'centerX', $event)"
                     />
                   </label>
                   <label class="manager-inline-field gradient-param-row">
                     <span>中心 Y</span>
-                    <input
-                      class="number-input"
+                    <ZInput
+                      size="small"
                       type="number"
+                      :model-value="Number(preset.centerY ?? 0.5).toFixed(2)"
                       min="0"
                       max="1"
                       step="0.01"
-                      :value="Number(preset.centerY ?? 0.5).toFixed(2)"
                       @change="updateGradientNumberField(preset.id, 'centerY', $event)"
                     />
                   </label>
                   <label class="manager-inline-field gradient-param-row">
                     <span>半径</span>
-                    <input
-                      class="number-input"
+                    <ZInput
+                      size="small"
                       type="number"
+                      :model-value="Number(preset.radius ?? 0.5).toFixed(2)"
                       min="0.05"
                       max="2"
                       step="0.01"
-                      :value="Number(preset.radius ?? 0.5).toFixed(2)"
                       @change="updateGradientNumberField(preset.id, 'radius', $event)"
                     />
                   </label>
@@ -294,7 +312,7 @@ import type {
   StylePresetManagerTab,
   StylePresetSettings
 } from '../../types'
-import { ZButton, ZColorPicker, ZInput, ZModal } from 'ztools-ui'
+import { ZButton, ZColorPicker, ZInput, ZModal, ZSlider } from 'ztools-ui'
 
 
 type EditableGradientStop = {
@@ -532,20 +550,20 @@ function removeGradientStop(presetId: string, stopId: string) {
 }
 
 // 用百分比输入更新 stop offset，并在本地立即限制到 0-100 范围内。
-function updateGradientStopOffset(presetId: string, stopIndex: number, event: Event) {
+function updateGradientStopOffset(presetId: string, stopIndex: number, eventOrValue: Event | number) {
   const preset = localGradientPresets.value.find((item) => item.id === presetId)
   if (!preset) return
-  const value = Number((event.target as HTMLInputElement | null)?.value)
+  const value = typeof eventOrValue === 'number' ? eventOrValue : Number((eventOrValue.target as HTMLInputElement | null)?.value)
   const normalized = Number.isFinite(value) ? Math.min(100, Math.max(0, value)) : Math.round(preset.stops[stopIndex]?.offset ?? 0)
   if (!preset.stops[stopIndex]) return
   preset.stops[stopIndex].offset = normalized / 100
 }
 
 // 统一更新线性角度和径向参数，避免模板里分散写多套数值清洗逻辑。
-function updateGradientNumberField(presetId: string, field: 'angle' | 'centerX' | 'centerY' | 'radius', event: Event) {
+function updateGradientNumberField(presetId: string, field: 'angle' | 'centerX' | 'centerY' | 'radius', eventOrValue: Event | number) {
   const preset = localGradientPresets.value.find((item) => item.id === presetId)
   if (!preset) return
-  const value = Number((event.target as HTMLInputElement | null)?.value)
+  const value = typeof eventOrValue === 'number' ? eventOrValue : Number((eventOrValue.target as HTMLInputElement | null)?.value)
   if (!Number.isFinite(value)) return
   if (field === 'angle') {
     const normalized = value % 360
@@ -721,7 +739,7 @@ const currentGradientPreset = computed(() => props.currentGradientPreset)
   color: #4b5563;
 
   :deep(.zt-input) {
-    width: 84px;
+    width: 100%;
   }
 }
 .manager-empty {
@@ -776,6 +794,13 @@ const currentGradientPreset = computed(() => props.currentGradientPreset)
   align-items: center;
   gap: 8px;
 }
+.gradient-card-type-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 10px;
+}
 .color-group-head {
   flex-wrap: wrap;
 }
@@ -824,12 +849,22 @@ const currentGradientPreset = computed(() => props.currentGradientPreset)
   flex-direction: column;
   gap: 8px;
 }
+.gradient-stop-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
 .color-row,
 .gradient-stop-row {
   display: grid;
-  grid-template-columns: 28px auto minmax(0, 1fr) 40px 28px;
   align-items: center;
   gap: 8px;
+}
+.color-row {
+  grid-template-columns: 28px auto minmax(0, 1fr) 40px 28px;
+}
+.gradient-stop-row {
+  grid-template-columns: auto 1fr auto;
 }
 .color-row :deep(.zt-input) {
   min-width: 0;
@@ -843,6 +878,11 @@ const currentGradientPreset = computed(() => props.currentGradientPreset)
 }
 .stop-offset-field {
   justify-content: flex-end;
+}
+.gradient-stop-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .number-input {
   width: 84px;
@@ -876,13 +916,52 @@ const currentGradientPreset = computed(() => props.currentGradientPreset)
   display: flex;
   justify-content: flex-end;
 }
+.angle-control-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  .param-label {
+    flex-shrink: 0;
+    font-size: 12px;
+    color: #4b5563;
+  }
+
+  :deep(.slider-wrapper) {
+    flex: 1;
+    min-width: 0;
+  }
+
+  :deep(.zt-input) {
+    width: 84px;
+    flex-shrink: 0;
+  }
+}
 .gradient-param-row {
   flex-wrap: nowrap;
 }
 .gradient-radial-fields {
   display: flex;
-  gap: 10px;
+  gap: 16px;
   flex-wrap: wrap;
+
+  .manager-inline-field {
+    flex: 1;
+    min-width: 0;
+    gap: 6px;
+
+    > span {
+      flex-shrink: 0;
+      white-space: nowrap;
+      min-width: 36px;
+      text-align: justify;
+      text-align-last: justify;
+    }
+
+    :deep(.zt-input) {
+      width: 100%;
+    }
+  }
 }
 :global(.zt-modal:has(.style-preset-manager-dialog) .zt-modal__body) {
   padding: 0;
