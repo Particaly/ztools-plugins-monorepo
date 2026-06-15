@@ -294,50 +294,89 @@ export const iconTemplates: IconTemplateItem[] = [
 </svg>`
   },
   {
-    id: 'icon-editor-ie-app-icon',
-    name: 'IE 应用图标模板',
+    id: 'icon-editor-ic-app-icon',
+    name: 'IC 应用图标模板',
     category: 'App Icon',
-    description: '以 App Icon 圆角底板为原型，搭配 IE 字母标识和柔和高光，适合作为当前应用图标。',
+    description: '以 App Icon 圆角底板为原型，搭配流畅的 IC 字母标识和柔和高光，富有现代感的设计风格。',
     width: 512,
     height: 512,
     background: 'transparent',
-    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <defs>
-    <linearGradient id="ie-app-bg" x1="96" y1="72" x2="416" y2="440" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#67e8f9" />
-      <stop offset="0.48" stop-color="#3b82f6" />
-      <stop offset="1" stop-color="#312e81" />
-    </linearGradient>
-    <linearGradient id="ie-mark" x1="168" y1="148" x2="352" y2="356" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#ffffff" />
-      <stop offset="0.58" stop-color="#eff6ff" />
-      <stop offset="1" stop-color="#bfdbfe" />
-    </linearGradient>
-  </defs>
-  <rect x="72" y="72" width="368" height="368" rx="92" fill="url(#ie-app-bg)" />
-  <circle cx="352" cy="156" r="42" fill="#ffffff" opacity="0.22" />
-  <circle cx="150" cy="360" r="72" fill="#22d3ee" opacity="0.18" />
-  <path d="M112 168 C148 104 232 92 308 116 C378 138 412 202 398 272 C388 324 350 378 290 400 C218 426 132 400 108 322 C92 270 88 212 112 168 Z" fill="#ffffff" opacity="0.08" />
-  <rect x="88" y="88" width="336" height="336" rx="82" fill="none" stroke="#ffffff" stroke-width="6" opacity="0.2" />
-  <g opacity="0.16" transform="translate(0 12)" fill="#0f172a">
-    <rect x="154" y="160" width="78" height="30" rx="15" />
-    <rect x="178" y="164" width="30" height="184" rx="15" />
-    <rect x="154" y="322" width="78" height="30" rx="15" />
-    <rect x="248" y="160" width="32" height="192" rx="16" />
-    <rect x="248" y="160" width="124" height="30" rx="15" />
-    <rect x="248" y="241" width="104" height="30" rx="15" />
-    <rect x="248" y="322" width="124" height="30" rx="15" />
+    svg: `
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <desc>
+    Created with Fabric.js 7.3.1
+  </desc>
+  <defs/>
+  <g transform="matrix(1.3875 0 0 1.3875 256 256)">
+    <g>
+      <g transform="matrix(1 0 0 1 0 0)">
+        <linearGradient id="SVGID_20" gradientUnits="userSpaceOnUse" gradientTransform="matrix(1 0 0 1 -256 -256)" x1="96" y1="72" x2="416" y2="440">
+          <stop offset="0%" style="stop-color:rgba(103,232,249,1);"/>
+          <stop offset="48%" style="stop-color:rgba(59,130,246,1);"/>
+          <stop offset="100%" style="stop-color:rgba(49,46,129,1);"/>
+        </linearGradient>
+        <rect style="stroke: none; stroke-width: 1; stroke-dasharray: none; stroke-linecap: butt; stroke-dashoffset: 0; stroke-linejoin: miter; stroke-miterlimit: 4; fill: url(#SVGID_20); fill-rule: nonzero; opacity: 1;" x="-184" y="-184" rx="92" ry="92" width="368" height="368"/>
+      </g>
+      <g transform="matrix(1 0 0 1 96 -100)">
+        <circle style="stroke: none; stroke-width: 1; stroke-dasharray: none; stroke-linecap: butt; stroke-dashoffset: 0; stroke-linejoin: miter; stroke-miterlimit: 4; fill: rgb(255,255,255); fill-rule: nonzero; opacity: 0.22;" cx="0" cy="0" r="42"/>
+      </g>
+      <g transform="matrix(1 0 0 1 -106 104)">
+        <circle style="stroke: none; stroke-width: 1; stroke-dasharray: none; stroke-linecap: butt; stroke-dashoffset: 0; stroke-linejoin: miter; stroke-miterlimit: 4; fill: rgb(34,211,238); fill-rule: nonzero; opacity: 0.18;" cx="0" cy="0" r="72"/>
+      </g>
+      <g transform="matrix(1 0 0 1 -7.9496 1.1425)">
+        <path style="stroke: none; stroke-width: 1; stroke-dasharray: none; stroke-linecap: butt; stroke-dashoffset: 0; stroke-linejoin: miter; stroke-miterlimit: 4; fill: rgb(255,255,255); fill-rule: nonzero; opacity: 0.08;" transform=" translate(-248.0504, -257.1425)" d="M 112 168 C 148 104 232 92 308 116 C 378 138 412 202 398 272 C 388 324 350 378 290 400 C 218 426 132 400 108 322 C 92 270 88 212 112 168 Z" stroke-linecap="round"/>
+      </g>
+      <g transform="matrix(1 0 0 1 0 0)">
+        <rect style="stroke: rgb(255,255,255); stroke-width: 6; stroke-dasharray: none; stroke-linecap: butt; stroke-dashoffset: 0; stroke-linejoin: miter; stroke-miterlimit: 4; fill: none; fill-rule: nonzero; opacity: 0.2;" x="-168" y="-168" rx="82" ry="82" width="336" height="336"/>
+      </g>
+      <g transform="matrix(1 0 0 1 -75 -69)">
+        <rect style="stroke: none; stroke-width: 1; stroke-dasharray: none; stroke-linecap: butt; stroke-dashoffset: 0; stroke-linejoin: miter; stroke-miterlimit: 4; fill: rgb(15,23,42); fill-rule: nonzero; opacity: 0.16;" x="-39" y="-15" rx="15" ry="15" width="78" height="30"/>
+      </g>
+      <g transform="matrix(1 0 0 1 -75 12)">
+        <rect style="stroke: none; stroke-width: 1; stroke-dasharray: none; stroke-linecap: butt; stroke-dashoffset: 0; stroke-linejoin: miter; stroke-miterlimit: 4; fill: rgb(15,23,42); fill-rule: nonzero; opacity: 0.16;" x="-15" y="-92" rx="15" ry="15" width="30" height="184"/>
+      </g>
+      <g transform="matrix(1 0 0 1 -75 93)">
+        <rect style="stroke: none; stroke-width: 1; stroke-dasharray: none; stroke-linecap: butt; stroke-dashoffset: 0; stroke-linejoin: miter; stroke-miterlimit: 4; fill: rgb(15,23,42); fill-rule: nonzero; opacity: 0.16;" x="-39" y="-15" rx="15" ry="15" width="78" height="30"/>
+      </g>
+      <g transform="matrix(1 0 0 1 51.5 12)">
+        <path style="stroke: none; stroke-width: 1; stroke-dasharray: none; stroke-linecap: butt; stroke-dashoffset: 0; stroke-linejoin: miter; stroke-miterlimit: 4; fill: rgb(15,23,42); fill-rule: nonzero; opacity: 0.16;" transform=" translate(-307.5, -256)" d="M 325 176 L 355 176 C 363.2843 176 370 182.7157 370 191 C 370 199.2843 363.2843 206 355 206 L 325 206 C 297.3858 206 275 228.3858 275 256 C 275 283.6142 297.3858 306 325 306 L 355 306 C 363.2843 306 370 312.7157 370 321 C 370 329.2843 363.2843 336 355 336 L 325 336 C 280.8172 336 245 300.1828 245 256 C 245 211.8172 280.8172 176 325 176 Z" stroke-linecap="round"/>
+      </g>
+      <g transform="matrix(1 0 0 1 -75 -81)">
+        <linearGradient id="SVGID_21" gradientUnits="userSpaceOnUse" gradientTransform="matrix(1 0 0 1 -181 -175)" x1="168" y1="148" x2="352" y2="356">
+          <stop offset="0%" style="stop-color:rgba(255,255,255,1);"/>
+          <stop offset="57.99999999999999%" style="stop-color:rgba(239,246,255,1);"/>
+          <stop offset="100%" style="stop-color:rgba(191,219,254,1);"/>
+        </linearGradient>
+        <rect style="stroke: none; stroke-width: 1; stroke-dasharray: none; stroke-linecap: butt; stroke-dashoffset: 0; stroke-linejoin: miter; stroke-miterlimit: 4; fill: url(#SVGID_21); fill-rule: nonzero; opacity: 1;" x="-39" y="-15" rx="15" ry="15" width="78" height="30"/>
+      </g>
+      <g transform="matrix(1 0 0 1 -75 0)">
+        <linearGradient id="SVGID_22" gradientUnits="userSpaceOnUse" gradientTransform="matrix(1 0 0 1 -181 -256)" x1="168" y1="148" x2="352" y2="356">
+          <stop offset="0%" style="stop-color:rgba(255,255,255,1);"/>
+          <stop offset="57.99999999999999%" style="stop-color:rgba(239,246,255,1);"/>
+          <stop offset="100%" style="stop-color:rgba(191,219,254,1);"/>
+        </linearGradient>
+        <rect style="stroke: none; stroke-width: 1; stroke-dasharray: none; stroke-linecap: butt; stroke-dashoffset: 0; stroke-linejoin: miter; stroke-miterlimit: 4; fill: url(#SVGID_22); fill-rule: nonzero; opacity: 1;" x="-15" y="-92" rx="15" ry="15" width="30" height="184"/>
+      </g>
+      <g transform="matrix(1 0 0 1 -75 81)">
+        <linearGradient id="SVGID_23" gradientUnits="userSpaceOnUse" gradientTransform="matrix(1 0 0 1 -181 -337)" x1="168" y1="148" x2="352" y2="356">
+          <stop offset="0%" style="stop-color:rgba(255,255,255,1);"/>
+          <stop offset="57.99999999999999%" style="stop-color:rgba(239,246,255,1);"/>
+          <stop offset="100%" style="stop-color:rgba(191,219,254,1);"/>
+        </linearGradient>
+        <rect style="stroke: none; stroke-width: 1; stroke-dasharray: none; stroke-linecap: butt; stroke-dashoffset: 0; stroke-linejoin: miter; stroke-miterlimit: 4; fill: url(#SVGID_23); fill-rule: nonzero; opacity: 1;" x="-39" y="-15" rx="15" ry="15" width="78" height="30"/>
+      </g>
+      <g transform="matrix(1.1468 0 0 1.1863 49.25 3)">
+        <linearGradient id="SVGID_24" gradientUnits="userSpaceOnUse" gradientTransform="matrix(1 0 0 1 0 0)" x1="168" y1="148" x2="352" y2="356">
+          <stop offset="0%" style="stop-color:rgba(255,255,255,1);"/>
+          <stop offset="57.99999999999999%" style="stop-color:rgba(239,246,255,1);"/>
+          <stop offset="100%" style="stop-color:rgba(191,219,254,1);"/>
+        </linearGradient>
+        <path style="stroke: none; stroke-width: 1; stroke-dasharray: none; stroke-linecap: butt; stroke-dashoffset: 0; stroke-linejoin: miter; stroke-miterlimit: 4; fill: url(#SVGID_24); fill-rule: nonzero; opacity: 1;" transform=" translate(-307.5, -256)" d="M 325 176 L 355 176 C 363.2843 176 370 182.7157 370 191 C 370 199.2843 363.2843 206 355 206 L 325 206 C 297.3858 206 275 228.3858 275 256 C 275 283.6142 297.3858 306 325 306 L 355 306 C 363.2843 306 370 312.7157 370 321 C 370 329.2843 363.2843 336 355 336 L 325 336 C 280.8172 336 245 300.1828 245 256 C 245 211.8172 280.8172 176 325 176 Z" stroke-linecap="round"/>
+      </g>
+    </g>
   </g>
-  <g fill="url(#ie-mark)">
-    <rect x="154" y="160" width="78" height="30" rx="15" />
-    <rect x="178" y="164" width="30" height="184" rx="15" />
-    <rect x="154" y="322" width="78" height="30" rx="15" />
-    <rect x="248" y="160" width="32" height="192" rx="16" />
-    <rect x="248" y="160" width="124" height="30" rx="15" />
-    <rect x="248" y="241" width="104" height="30" rx="15" />
-    <rect x="248" y="322" width="124" height="30" rx="15" />
-  </g>
-</svg>`
+</svg>
+`
   },
   {
     id: 'favicon-letter-mark',
