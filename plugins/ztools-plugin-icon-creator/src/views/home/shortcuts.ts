@@ -1,5 +1,5 @@
 export type EditorPlatform = 'darwin' | 'win32' | 'linux'
-export type ShortcutGroupId = 'edit' | 'mode' | 'select' | 'organize' | 'layer' | 'view'
+export type ShortcutGroupId = 'edit' | 'mode' | 'select' | 'organize' | 'layer' | 'view' | 'file'
 export type ShortcutActionId =
   | 'edit.copy'
   | 'edit.paste'
@@ -23,6 +23,7 @@ export type ShortcutActionId =
   | 'view.fit'
   | 'view.actualSize'
   | 'view.toggleRuler'
+  | 'file.saveProject'
 
 export type ShortcutActionDefinition = {
   id: ShortcutActionId
@@ -47,7 +48,8 @@ export const SHORTCUT_DISPLAY_GROUPS: ShortcutGroupDefinition[] = [
   { id: 'select', label: '选择' },
   { id: 'organize', label: '组织' },
   { id: 'layer', label: '图层' },
-  { id: 'view', label: '视图' }
+  { id: 'view', label: '视图' },
+  { id: 'file', label: '文件' }
 ]
 
 export const SHORTCUT_ACTIONS: ShortcutActionDefinition[] = [
@@ -72,7 +74,8 @@ export const SHORTCUT_ACTIONS: ShortcutActionDefinition[] = [
   { id: 'view.zoomOut', group: 'view', name: '缩小', description: '缩小画布视图', defaultBindings: (platform) => [platform === 'darwin' ? 'Meta+-' : 'Ctrl+-'] },
   { id: 'view.fit', group: 'view', name: '适应画布', description: '让画布完整适应当前视图', defaultBindings: (platform) => [platform === 'darwin' ? 'Meta+0' : 'Ctrl+0'] },
   { id: 'view.actualSize', group: 'view', name: '1:1', description: '将画布缩放恢复到 100%', defaultBindings: (platform) => [platform === 'darwin' ? 'Meta+1' : 'Ctrl+1'] },
-  { id: 'view.toggleRuler', group: 'view', name: '切换标尺', description: '显示或隐藏画布标尺', defaultBindings: (platform) => [platform === 'darwin' ? 'Meta+R' : 'Ctrl+R'] }
+  { id: 'view.toggleRuler', group: 'view', name: '切换标尺', description: '显示或隐藏画布标尺', defaultBindings: (platform) => [platform === 'darwin' ? 'Meta+R' : 'Ctrl+R'] },
+  { id: 'file.saveProject', group: 'file', name: '保存工程', description: '保存当前工程；首次保存选择位置与文件名，之后自动覆盖同一文件', defaultBindings: (platform) => [platform === 'darwin' ? 'Meta+S' : 'Ctrl+S'] }
 ]
 
 export function getEditorPlatform(): EditorPlatform {

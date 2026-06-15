@@ -222,6 +222,8 @@ export function createHomeWorkspaceModule(
     resetHistoryToCurrentCanvas: homeDocument.resetHistoryToCurrentCanvas,
     restoreHistoryState: homeDocument.restoreHistoryState,
     saveProject: homeDocument.saveProject,
+    saveProjectAs: homeDocument.saveProjectAs,
+    saveProjectToPath: homeDocument.saveProjectToPath,
     scheduleDraftSave: homeDocument.scheduleDraftSave,
     snapshot: homeDocument.snapshot,
     switchArtboard: homeArtboards.switchArtboard,

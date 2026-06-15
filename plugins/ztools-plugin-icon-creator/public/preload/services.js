@@ -32,6 +32,12 @@ window.services = {
     fs.writeFileSync(filePath, text, { encoding: 'utf-8' })
     return filePath
   },
+  // 文本写入到指定绝对路径，用于工程保存覆盖或首次落盘；目标目录不存在时自动创建。
+  writeTextFileToPath(text, filePath) {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true })
+    fs.writeFileSync(filePath, text, { encoding: 'utf-8' })
+    return filePath
+  },
   // SVG 写入到下载目录，可传入文件名用于导出面板自定义前缀。
   writeSvgFile(svgText, fileName) {
     const safeFileName = sanitizeDownloadFileName(fileName, Date.now().toString() + '.svg')

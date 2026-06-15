@@ -940,6 +940,9 @@ export function createHomeExportDeliveryModule(
       case 'view.toggleRuler':
         options.shortcut.toggleRuler()
         break
+      case 'file.saveProject':
+        options.shortcut.saveProject()
+        break
     }
   }
 

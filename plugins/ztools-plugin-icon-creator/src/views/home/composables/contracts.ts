@@ -125,6 +125,8 @@ export interface UseHomeDocumentReturn {
   promptRestoreDraft: () => Promise<void>
   flushDraftBeforeDispose: () => void
   saveProject: () => void
+  saveProjectAs: (onSaved?: (filePath: string) => void) => void
+  saveProjectToPath: (filePath: string) => string | undefined
   undo: () => void
   redo: () => void
   jumpToHistory: (index: number) => void

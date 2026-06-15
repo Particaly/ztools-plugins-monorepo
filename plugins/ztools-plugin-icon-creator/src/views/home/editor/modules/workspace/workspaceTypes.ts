@@ -30,6 +30,8 @@ export interface HomeWorkspaceCommands {
   resetHistoryToCurrentCanvas: () => void
   restoreHistoryState: (state: HistoryState) => void
   saveProject: () => void
+  saveProjectAs: (onSaved?: (filePath: string) => void) => void
+  saveProjectToPath: (filePath: string) => string | undefined
   scheduleDraftSave: () => void
   snapshot: (options?: SnapshotOptions) => void
   switchArtboard: (artboardId: string) => Promise<void>

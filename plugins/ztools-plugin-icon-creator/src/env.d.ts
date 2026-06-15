@@ -11,6 +11,7 @@ declare module '*.vue' {
 interface Services {
   readFile: (file: string) => string
   writeTextFile: (text: string, ext?: string) => string
+  writeTextFileToPath: (text: string, filePath: string) => string
   writeSvgFile: (svgText: string, fileName?: string) => string
   writeImageFile: (base64Url: string, fileName?: string) => string | undefined
   writeZipFile: (zipBlob: Blob, fileName?: string) => Promise<string>

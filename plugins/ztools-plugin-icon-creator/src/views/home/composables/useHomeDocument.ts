@@ -366,6 +366,58 @@ export function useHomeDocument(options: UseHomeDocumentOptions): UseHomeDocumen
     }
   }
 
+  /**
+   * 弹出系统保存对话框选择存储位置与文件名，成功后返回最终路径；用户取消返回空字符串。
+   * 首次保存用它收集路径，之后 saveProject 直接覆盖同一文件。
+   */
+  function pickProjectSavePath(): string {
+    const ztools = typeof window !== 'undefined' ? window.ztools : undefined
+    const downloads = ztools?.getPath?.('downloads')
+    const result = ztools?.showSaveDialog?.({
+      title: '保存工程',
+      defaultPath: downloads ? `${downloads}/未命名工程.${PROJECT_FILE_EXTENSION}` : `未命名工程.${PROJECT_FILE_EXTENSION}`,
+      buttonLabel: '保存',
+      nameFieldLabel: '工程名称',
+      filters: [{ name: 'Icon Creator 工程文件', extensions: [PROJECT_FILE_EXTENSION] }],
+      properties: ['showOverwriteConfirmation', 'createDirectory']
+    })
+    return typeof result === 'string' ? result : ''
+  }
+
+  /**
+   * 将当前工程直接写入指定绝对路径并清除自动草稿，覆盖式保存不再次弹框。
+   * 同时把更新时间刷新到当前，保证覆盖后的文件元信息与最后一次保存一致。
+   */
+  function saveProjectToPath(filePath: string): string | undefined {
+    if (!getFabricCanvas()) return undefined
+    clearBooleanPreview()
+    const write = window.services?.writeTextFileToPath
+    if (!write) {
+      showToast('当前环境不支持覆盖保存，请使用另存为', 'error')
+      return undefined
+    }
+    try {
+      write(stringifyProjectFile(createProjectFile()), filePath)
+      clearStoredDraft()
+      showToast(`工程已保存：${filePath}`, 'success')
+      return filePath
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '保存工程失败', 'error')
+      return undefined
+    }
+  }
+
+  /**
+   * 另存为：每次都弹出系统保存对话框，并把新路径回传回调用于更新项目标签记忆。
+   * 不会直接覆盖项目标签记忆，由调用方决定是否更新已保存路径。
+   */
+  function saveProjectAs(onSaved?: (filePath: string) => void) {
+    const filePath = pickProjectSavePath()
+    if (!filePath) return
+    const savedPath = saveProjectToPath(filePath)
+    if (savedPath) onSaved?.(savedPath)
+  }
+
   return {
     undoStack,
     historyIndex,
@@ -382,6 +434,8 @@ export function useHomeDocument(options: UseHomeDocumentOptions): UseHomeDocumen
     promptRestoreDraft,
     flushDraftBeforeDispose,
     saveProject,
+    saveProjectAs,
+    saveProjectToPath,
     undo,
     redo,
     jumpToHistory

@@ -693,6 +693,8 @@ export function useHomeEditorRuntime() {
     resetHistoryToCurrentCanvas,
     restoreHistoryState,
     saveProject,
+    saveProjectAs,
+    saveProjectToPath,
     scheduleDraftSave,
     snapshot,
     switchArtboard,
@@ -740,6 +742,8 @@ export function useHomeEditorRuntime() {
     svgPreviewMode: IconCreatorProjectSvgPreviewMode
     history: HistoryState
     dirty: boolean
+    // 记住该标签首次保存选择的绝对路径，之后保存直接覆盖该文件，避免每次都弹保存框。
+    savedFilePath: string
   }
 
   const projectTabs = ref<ProjectTabState[]>([])
@@ -2161,6 +2165,7 @@ export function useHomeEditorRuntime() {
       canUngroup,
       deleteObject,
       activatePenTool: () => penCommands.activate(),
+      saveProject: saveActiveProjectTab,
       fitCanvasInView,
       groupObjects,
       layerBottom,
@@ -2383,7 +2388,8 @@ export function useHomeEditorRuntime() {
       viewMode: canvasViewMode.value,
       svgPreviewMode: svgPreviewMode.value,
       history: captureHistoryState(),
-      dirty: false
+      dirty: false,
+      savedFilePath: ''
     }
     projectTabs.value = [tab]
     activeProjectTabId.value = id
@@ -2415,7 +2421,8 @@ export function useHomeEditorRuntime() {
         viewMode: canvasViewMode.value,
         svgPreviewMode: svgPreviewMode.value,
         history: captureHistoryState(),
-        dirty: false
+        dirty: false,
+        savedFilePath: ''
       }
       projectTabs.value = [...projectTabs.value, tab]
       activeProjectTabId.value = id
@@ -2474,17 +2481,30 @@ export function useHomeEditorRuntime() {
     svgPreviewMode.value = 'graphic'
     const tab = activeProjectTab.value
     if (!tab || !fabricCanvas) return
+    // 新建属于全新文档，清空原标签记忆的保存路径，下次保存会重新弹框选位置。
+    tab.savedFilePath = ''
     captureCurrentProjectTabState(tab)
     tab.dirty = false
   }
 
-  // 保存当前项目标签并清除未保存提示；实际文件落盘仍复用既有工程保存流程。
+  // 保存当前项目标签并清除未保存提示；首次保存弹出选择存储位置与文件名，之后自动覆盖同一文件。
   function saveActiveProjectTab() {
-    saveProject()
     const tab = activeProjectTab.value
-    if (!tab || !fabricCanvas) return
-    captureCurrentProjectTabState(tab)
-    tab.dirty = false
+    if (tab && tab.savedFilePath) {
+      if (saveProjectToPath(tab.savedFilePath)) {
+        captureCurrentProjectTabState(tab)
+        tab.dirty = false
+      }
+      return
+    }
+    // 从未保存过：弹出系统保存框收集路径，成功后记忆到当前标签，后续保存直接覆盖。
+    saveProjectAs((filePath) => {
+      const currentTab = activeProjectTab.value
+      if (!currentTab) return
+      currentTab.savedFilePath = filePath
+      captureCurrentProjectTabState(currentTab)
+      currentTab.dirty = false
+    })
   }
 
   // 打开工程入口会先保存当前标签现场，再复用文件选择器加载到当前项目标签。
@@ -2494,10 +2514,14 @@ export function useHomeEditorRuntime() {
   }
 
   async function onProjectFileChosenForActiveTab(event: Event) {
+    const target = event.target as HTMLInputElement
+    const chosenPath = target?.files?.[0] && 'path' in target.files[0] ? String((target.files[0] as File & { path?: string }).path) : ''
     await onProjectFileChosen(event)
     const tab = activeProjectTab.value
     if (!tab || !fabricCanvas) return
     tab.name = '导入项目'
+    // 打开的是磁盘上真实工程文件时，把它的路径记到标签，后续保存直接覆盖原文件。
+    tab.savedFilePath = chosenPath || ''
     captureCurrentProjectTabState(tab)
     tab.dirty = false
   }
