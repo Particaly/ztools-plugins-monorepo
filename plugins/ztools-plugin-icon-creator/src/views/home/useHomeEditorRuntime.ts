@@ -7182,19 +7182,27 @@ export function useHomeEditorRuntime() {
     if (!fabricCanvas) return
 
     fabricCanvas.on('mouse:down:before', (event) => {
+      const nativeEvent = event.e as MouseEvent
+
       // ── 钢笔工具（正交开关，优先于选择模式判定） ──
       if (penToolActive.value) {
-        const penEvent = event.e as MouseEvent
-        if (penEvent.button === 2) {
+        if (nativeEvent.button === 2) {
           penCommands.handlePenRightClick()
           return
         }
-        if (penEvent.button === 0) {
+        if (nativeEvent.button === 0) {
           const scenePoint = event.scenePoint ?? fabricCanvas.getScenePoint(event.e)
           penCommands.handlePenLeftDown({ x: scenePoint.x, y: scenePoint.y })
         }
         return
       }
+
+      // ── 右键上下文菜单（在非钢笔工具模式下） ──
+      if (nativeEvent.button === 2) {
+        openCanvasObjectContextMenu(nativeEvent)
+        return
+      }
+
       // 重置上一轮残留 (例如 selection 事件没正常 fire 时)
       setPointModeSwitchPending(false)
       if (!fabricCanvas || !activeObject.value) return

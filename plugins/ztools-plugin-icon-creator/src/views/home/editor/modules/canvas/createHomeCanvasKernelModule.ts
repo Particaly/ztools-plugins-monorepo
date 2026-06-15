@@ -188,6 +188,15 @@ export function createHomeCanvasKernelModule(
         selectionKey: ['shiftKey', 'ctrlKey'],
         uniformScaling: options.sizeRatioLocked.value
       })
+
+      // 阻止 canvas 元素的默认右键菜单，确保自定义上下文菜单能够正常显示
+      const canvasEl = options.canvasElRef.value
+      if (canvasEl) {
+        canvasEl.addEventListener('contextmenu', (e) => {
+          e.preventDefault()
+        })
+      }
+
       options.setCanvas(canvas)
       context.setCanvas(canvas)
     },
