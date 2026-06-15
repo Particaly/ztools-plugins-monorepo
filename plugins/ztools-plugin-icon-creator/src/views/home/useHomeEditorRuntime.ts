@@ -286,6 +286,8 @@ export function useHomeEditorRuntime() {
     leftInput: '0', topInput: '0',
     widthInput: '0', heightInput: '0',
     scaleX: 1, scaleY: 1, angle: 0,
+    skewX: 0, skewY: 0,
+    skewXInput: '0', skewYInput: '0',
     fill: '#000000', fillEnabled: true, fillMode: 'solid' as FillModeOption, fillGradientType: DEFAULT_FILL_GRADIENT_TYPE as FillGradientType, fillGradientAngle: DEFAULT_FILL_GRADIENT_ANGLE, fillGradientAngleInput: String(DEFAULT_FILL_GRADIENT_ANGLE), fillGradientStops: decorateGradientStops(cloneFillGradientStops(undefined)), fillGradientCenterX: 0.5, fillGradientCenterY: 0.5, fillGradientRadius: DEFAULT_FILL_GRADIENT_RADIUS,
     stroke: '#000000', strokeEnabled: true, strokeWidth: 0, strokeWidthInput: '0', strokeLineType: 'solid' as StrokeLineType, strokeDashLength: 6, strokeDashGap: 4, strokeDashLengthInput: '6', strokeDashGapInput: '4', opacity: 1,
     bitmapTraceMode: 'alpha' as BitmapTraceMode,
@@ -4614,6 +4616,10 @@ export function useHomeEditorRuntime() {
     objProps.scaleX = obj.scaleX ?? 1
     objProps.scaleY = obj.scaleY ?? 1
     objProps.angle = obj.angle ?? 0
+    objProps.skewX = obj.skewX ?? 0
+    objProps.skewY = obj.skewY ?? 0
+    objProps.skewXInput = formatNumericInputValue(objProps.skewX)
+    objProps.skewYInput = formatNumericInputValue(objProps.skewY)
     objProps.opacity = obj.opacity ?? 1
     objProps.endpointSnapMargin = getObjectEndpointSnapMargin(obj)
     objProps.endpointSnapMarginInput = formatNumericInputValue(objProps.endpointSnapMargin)
@@ -5519,6 +5525,68 @@ export function useHomeEditorRuntime() {
     obj.dirty = true
     obj.setCoords()
     fabricCanvas.requestRenderAll()
+    snapshot()
+  }
+
+  function flipObject(axis: 'x' | 'y') {
+    const obj = activeObject.value
+    if (!obj || !fabricCanvas) return
+    if (axis === 'x') {
+      obj.set('flipX', !obj.flipX)
+    } else {
+      obj.set('flipY', !obj.flipY)
+    }
+    obj.dirty = true
+    obj.setCoords()
+    if (obj instanceof Group) obj.triggerLayout()
+    triggerKaleidoscopeContentSync(obj)
+    fabricCanvas.requestRenderAll()
+    refreshLayers()
+    snapshot()
+  }
+
+  function resetTransform() {
+    const obj = activeObject.value
+    if (!obj || !fabricCanvas) return
+    obj.set({
+      scaleX: 1,
+      scaleY: 1,
+      angle: 0,
+      skewX: 0,
+      skewY: 0,
+      flipX: false,
+      flipY: false
+    })
+    obj.dirty = true
+    obj.setCoords()
+    if (obj instanceof Group) obj.triggerLayout()
+    triggerKaleidoscopeContentSync(obj)
+    fabricCanvas.requestRenderAll()
+    refreshLayers()
+    syncObjProps()
+    snapshot()
+  }
+
+  function setSkewFromInput(axis: 'x' | 'y', value: string | number) {
+    const obj = activeObject.value
+    if (!obj || !fabricCanvas) return
+    const parsed = Number(value)
+    if (!Number.isFinite(parsed)) return
+    if (axis === 'x') {
+      obj.set('skewX', parsed)
+      objProps.skewX = parsed
+      objProps.skewXInput = formatNumericInputValue(parsed)
+    } else {
+      obj.set('skewY', parsed)
+      objProps.skewY = parsed
+      objProps.skewYInput = formatNumericInputValue(parsed)
+    }
+    obj.dirty = true
+    obj.setCoords()
+    if (obj instanceof Group) obj.triggerLayout()
+    triggerKaleidoscopeContentSync(obj)
+    fabricCanvas.requestRenderAll()
+    refreshLayers()
     snapshot()
   }
 
@@ -7819,6 +7887,9 @@ export function useHomeEditorRuntime() {
     removeShadowEffect,
     toggleBlur,
     setBlurRadiusFromInput,
+    flipObject,
+    resetTransform,
+    setSkewFromInput,
     setObjSizeFromInput,
     alignPositions,
     alignPopoverVisible,

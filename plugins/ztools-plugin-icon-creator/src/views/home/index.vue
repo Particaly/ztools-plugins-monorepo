@@ -468,6 +468,9 @@
             :remove-shadow-effect="removeShadowEffect"
             :toggle-blur="toggleBlur"
             :set-blur-radius-from-input="setBlurRadiusFromInput"
+            :flip-object="flipObject"
+            :reset-transform="resetTransform"
+            :set-skew-from-input="setSkewFromInput"
             @update:align-popover-visible="alignPopoverVisible = $event"
             @update:canvas-width-input="canvasWidthInput = $event"
             @update:canvas-height-input="canvasHeightInput = $event"
@@ -834,6 +837,9 @@ const {
   removeShadowEffect,
   toggleBlur,
   setBlurRadiusFromInput,
+  flipObject,
+  resetTransform,
+  setSkewFromInput,
   setObjSizeFromInput,
   alignPositions,
   alignPopoverVisible,

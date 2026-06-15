@@ -66,6 +66,31 @@
             />
             <span class="val-label">{{ Math.round(objProps.angle) }}°</span>
           </div>
+          <div class="prop-group transform-actions-row">
+            <label>变换</label>
+            <div class="transform-actions">
+              <button class="tb-btn sm" title="水平翻转" @click="flipObject('x')">水平翻</button>
+              <button class="tb-btn sm" title="垂直翻转" @click="flipObject('y')">垂直翻</button>
+              <button class="tb-btn sm" title="重置变换" @click="resetTransform">重置</button>
+            </div>
+          </div>
+          <div class="prop-group bezier-group-row">
+            <label>倾斜</label>
+            <ZInput
+              size="small"
+              type="text"
+              :model-value="objProps.skewXInput"
+              @update:model-value="objProps.skewXInput = String($event)"
+              @change="setSkewFromInput('x', $event)"
+            />
+            <ZInput
+              size="small"
+              type="text"
+              :model-value="objProps.skewYInput"
+              @update:model-value="objProps.skewYInput = String($event)"
+              @change="setSkewFromInput('y', $event)"
+            />
+          </div>
           <div v-if="!(activeObject instanceof ActiveSelection)" class="prop-group style-color-row">
             <label>吸附边距</label>
             <ZInput
@@ -891,6 +916,9 @@ const props = defineProps<{
   removeShadowEffect: AnyFn
   toggleBlur: AnyFn
   setBlurRadiusFromInput: AnyFn
+  flipObject: AnyFn
+  resetTransform: AnyFn
+  setSkewFromInput: AnyFn
 }>()
 
 const emit = defineEmits<{
@@ -1484,5 +1512,15 @@ const keylineMarginInput = computed({
 }
 .shadow-header {
   padding: 4px 0 !important;
+}
+.transform-actions-row {
+  display: grid !important;
+  grid-template-columns: 48px 1fr;
+  column-gap: 8px;
+}
+.transform-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
 }
 </style>
