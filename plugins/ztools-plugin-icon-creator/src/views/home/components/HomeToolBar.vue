@@ -42,6 +42,16 @@
       >
         <Icon icon="mdi:minus" />
       </ZButton>
+      <ZButton
+        size="small"
+        class="tool-btn"
+        :class="{ 'is-active': penToolActive }"
+        title="钢笔描点工具 (Alt+4)"
+        aria-label="钢笔描点工具"
+        @click="$emit('toggle-pen-tool')"
+      >
+        <Icon icon="mdi:vector-polyline" />
+      </ZButton>
     </div>
 
     <div class="tool-group" aria-label="视图">
@@ -162,6 +172,7 @@ defineProps<{
   canRedo: boolean
   selectionMode: 'shape' | 'point' | 'segment'
   hasEditablePoints: boolean
+  penToolActive: boolean
   showArtboardList: boolean
   showRuler: boolean
   showPixelGrid: boolean
@@ -177,6 +188,7 @@ defineEmits<{
   (event: 'undo'): void
   (event: 'redo'): void
   (event: 'set-selection-mode', mode: 'shape' | 'point' | 'segment'): void
+  (event: 'toggle-pen-tool'): void
   (event: 'toggle-artboard-list'): void
   (event: 'toggle-ruler'): void
   (event: 'toggle-pixel-grid'): void

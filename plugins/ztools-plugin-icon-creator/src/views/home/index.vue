@@ -95,6 +95,7 @@
         :can-redo="editorSelectors.canRedo"
         :selection-mode="editorSelectors.selectionMode"
         :has-editable-points="editorSelectors.hasEditablePoints"
+        :pen-tool-active="penToolActive"
         :show-artboard-list="editorSelectors.showArtboardList"
         :show-ruler="editorSelectors.showRuler"
         :show-pixel-grid="editorSelectors.showPixelGrid"
@@ -107,6 +108,7 @@
         @undo="editorCommands.undo"
         @redo="editorCommands.redo"
         @set-selection-mode="editorCommands.setSelectionMode"
+        @toggle-pen-tool="togglePenTool"
         @toggle-artboard-list="editorCommands.toggleArtboardList"
         @toggle-ruler="editorCommands.toggleRuler"
         @toggle-pixel-grid="editorCommands.togglePixelGrid"
@@ -842,7 +844,9 @@ const {
   layerTop,
   layerBottom,
   handleCanvasAreaPointerDown,
-  handleCanvasAreaWheel
+  handleCanvasAreaWheel,
+  penToolActive,
+  togglePenTool
 } = useHomeEditorRuntime()
 
 const canvasModeSwitcherCollapsed = ref(false)

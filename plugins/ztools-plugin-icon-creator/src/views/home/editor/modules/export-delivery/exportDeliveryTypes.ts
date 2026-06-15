@@ -122,6 +122,7 @@ export interface HomeExportDeliveryShortcutOptions extends HomeExportDeliveryLay
   canRedo: { value: boolean }
   canUndo: { value: boolean }
   deleteObject: () => void
+  activatePenTool: () => void
   selectionMode: { value: 'shape' | 'point' | 'segment' }
   showToast: (message: string, type?: 'success' | 'error' | 'info' | 'warning', duration?: number) => void
   undo: () => void

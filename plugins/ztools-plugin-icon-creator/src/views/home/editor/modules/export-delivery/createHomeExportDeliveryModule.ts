@@ -901,6 +901,9 @@ export function createHomeExportDeliveryModule(
       case 'mode.segment':
         options.shortcut.setSelectionMode('segment')
         break
+      case 'mode.pen':
+        options.shortcut.activatePenTool()
+        break
       case 'select.all':
         options.shortcut.selectAllByMode()
         break

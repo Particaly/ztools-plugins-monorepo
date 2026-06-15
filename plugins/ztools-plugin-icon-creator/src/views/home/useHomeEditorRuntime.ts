@@ -8,6 +8,7 @@ import {
   DEFAULT_FILL_GRADIENT_RADIUS,
   DEFAULT_FILL_GRADIENT_TYPE,
   DEFAULT_KALEIDOSCOPE_COUNT,
+  DEFAULT_FILL_MODE,
   EDITOR_OBJECT_ID_PREFIX,
   SERIALIZED_OBJECT_PROPS,
   applyDefaultEndpointSnapMargin,
@@ -113,6 +114,7 @@ import { createHomeExportDeliveryModule } from './editor/modules/export-delivery
 import { createHomeSelectionModule } from './editor/modules/selection/createHomeSelectionModule'
 import { createHomeLayersModule } from './editor/modules/layers/createHomeLayersModule'
 import { createHomeDirectEditModule } from './editor/modules/direct-edit/createHomeDirectEditModule'
+import { createHomePenToolModule } from './editor/modules/pen-tool/createHomePenToolModule'
 import { createEditorRuntime } from './editor/runtime/createEditorRuntime'
 import { createEditorServices } from './editor/runtime/editorServices'
 import type { EditorModule, EditorRuntime } from './editor/runtime/editorTypes'
@@ -146,6 +148,8 @@ import {
   setEditableSegmentType,
   createDefaultArrowHead,
   pathEditableModel,
+  polygonEditablePath,
+  createEditablePathObject,
   setObjectCornerRadius,
   setPointCornerRadius,
   setPointsCornerRadius,
@@ -364,6 +368,16 @@ export function useHomeEditorRuntime() {
     syncObjProps,
     updateCurveControls
   })
+  const homePenTool = createHomePenToolModule({
+    getFabricCanvas: () => fabricCanvas,
+    getCanvasAssistColors,
+    getZoom: () => zoom.value,
+    snapScenePoint: (point) => getPixelGridAdjustedScenePoint(point),
+    addPenPathObject,
+    discardActiveObject: () => fabricCanvas?.discardActiveObject()
+  })
+  const penToolActive = homePenTool.controller.state.penToolActive
+  const penCommands = homePenTool.controller.commands
   const directEditState = homeDirectEdit.controller.state
   const directEditCommands = homeDirectEdit.controller.commands
   const {
@@ -403,10 +417,16 @@ export function useHomeEditorRuntime() {
     setRestoreActiveObjectAfterSelectionClear,
     setSelectedEditablePoints,
     setSelectedEditableSegment,
-    setSelectionMode,
+    setSelectionMode: setSelectionModeDirect,
     shouldProtectPointGestureSelection
   } = directEditCommands
   const pointGestureState = getPointGestureState()
+
+  // 钢笔工具与点位/线段模式互斥：切换到非 shape 模式时先退出钢笔态（不生成图形），避免覆盖层残留。
+  function setSelectionMode(mode: 'shape' | 'point' | 'segment') {
+    if (mode !== 'shape' && penToolActive.value) penCommands.deactivate(false)
+    return setSelectionModeDirect(mode)
+  }
 
   const homeCanvasKernel = createHomeCanvasKernelModule({
     getCanvas: () => fabricCanvas,
@@ -2132,6 +2152,7 @@ export function useHomeEditorRuntime() {
       canUndo,
       canUngroup,
       deleteObject,
+      activatePenTool: () => penCommands.activate(),
       fitCanvasInView,
       groupObjects,
       layerBottom,
@@ -5771,9 +5792,49 @@ export function useHomeEditorRuntime() {
 
   // ── 添加元素 ──
   /**
+   * 把钢笔描点的场景坐标生成为可编辑路径对象。
+   * 直接以场景坐标作为路径点：rebuildEditablePathObject(obj, true) 会把对象中心定位到路径包围盒中心，
+   * 使每个点正好渲染在其原始场景坐标处（Fabric Path 默认 originX/originY=center）。
+   */
+  function addPenPathObject(rawScenePoints: { x: number; y: number }[], closed: boolean) {
+    if (!fabricCanvas) return
+    const snapped = rawScenePoints.map((p) => getPixelGridAdjustedScenePoint(new Point(p.x, p.y)))
+    if (snapped.length < 2) return
+    const obj = createEditablePathObject(polygonEditablePath(snapped, closed), 0)
+    obj.set({
+      stroke: '#333333',
+      strokeWidth: 2,
+      strokeUniform: true,
+      fill: 'transparent',
+      strokeLineCap: 'round' as CanvasLineCap,
+      strokeLineJoin: 'round' as CanvasLineJoin,
+      strokeMiterLimit: 4,
+      name: nextName('钢笔图形')
+    })
+    const target = obj as AnyFabricObject
+    target.shapeId = 'base-pen'
+    target.lastFill = '#000000'
+    target.fillMode = DEFAULT_FILL_MODE
+    target.booleanEligible = true
+    target.lastStrokeDashArray = [6, 4]
+    applyDefaultFillGradientMetadata(obj)
+    applyDefaultKaleidoscopeMetadata(obj)
+    applyDefaultEndpointSnapMargin(obj)
+    markObjectSizeRatioLocked(obj)
+    ensureEditorObjectId(obj)
+    obj.setCoords()
+    fabricCanvas.add(obj)
+    refreshLayers()
+    fabricCanvas.setActiveObject(obj)
+    syncActiveObjectPreservingPointMode(obj)
+    fabricCanvas.requestRenderAll()
+  }
+
+  /**
    * 添加基础图形；拖拽插入时优先把图形中心放到落点，普通点击则保持原有画布中心插入行为。
    */
   function addShape(item: ShapeLibraryItem, scenePoint: { x: number; y: number } | null = null) {
+    if (penToolActive.value) penCommands.deactivate(true)
     if (!fabricCanvas) return
     const shape = createShape(item)
     markObjectSizeRatioLocked(shape)
@@ -5797,6 +5858,7 @@ export function useHomeEditorRuntime() {
    * 添加文字预设；拖拽插入时以鼠标落点为文本框中心，点击插入时沿用原有默认位置。
    */
   function addText(preset: TextLibraryItem, scenePoint: { x: number; y: number } | null = null) {
+    if (penToolActive.value) penCommands.deactivate(true)
     if (!fabricCanvas) return
     const width = 200
     const left = scenePoint ? scenePoint.x - width / 2 : canvasWidth.value / 2 - width / 2
@@ -6886,6 +6948,15 @@ export function useHomeEditorRuntime() {
     leftPanelCollapsed.value = !leftPanelCollapsed.value
   }
 
+  // 切换钢笔描点工具：激活或退出（退出时按确认生成语义提交当前描点）。
+  function togglePenTool() {
+    if (penToolActive.value) {
+      penCommands.deactivate(true)
+    } else {
+      penCommands.activate()
+    }
+  }
+
   // 切换底部轻量预览浮层显隐；展开时触发预览更新，收起时合并掉等待中的刷新计时器。
   function handlePreviewPopoverShowChange(show: boolean) {
     previewPopoverVisible.value = show
@@ -6894,6 +6965,7 @@ export function useHomeEditorRuntime() {
 
   // 在画布对象上打开与图层面板复用的快捷菜单；兼容 Fabric 命中结果，空白区或预览对象不触发菜单。
   function openCanvasObjectContextMenu(event: MouseEvent) {
+    if (penToolActive.value) return
     if (!fabricCanvas) return
     const targetInfo = fabricCanvas.findTarget(event) as unknown
     const foundTarget = targetInfo && typeof targetInfo === 'object' && 'target' in targetInfo
@@ -7036,6 +7108,12 @@ export function useHomeEditorRuntime() {
     if (e.key === 'Control') rulerModifierKeys.ctrl = true
     if (e.key === 'Alt') rulerModifierKeys.alt = true
     if (e.key === 'Meta') rulerModifierKeys.meta = true
+    // 钢笔工具下 ESC 退出并生成图形（>=2 点）；右键撤销上一点不经过键盘。
+    if (penToolActive.value && e.key === 'Escape') {
+      e.preventDefault()
+      penCommands.deactivate(true)
+      return
+    }
     const action = getShortcutActionByEvent(e)
     if (action) {
       e.preventDefault()
@@ -7072,6 +7150,19 @@ export function useHomeEditorRuntime() {
     if (!fabricCanvas) return
 
     fabricCanvas.on('mouse:down:before', (event) => {
+      // ── 钢笔工具（正交开关，优先于选择模式判定） ──
+      if (penToolActive.value) {
+        const penEvent = event.e as MouseEvent
+        if (penEvent.button === 2) {
+          penCommands.handlePenRightClick()
+          return
+        }
+        if (penEvent.button === 0) {
+          const scenePoint = event.scenePoint ?? fabricCanvas.getScenePoint(event.e)
+          penCommands.handlePenLeftDown({ x: scenePoint.x, y: scenePoint.y })
+        }
+        return
+      }
       // 重置上一轮残留 (例如 selection 事件没正常 fire 时)
       setPointModeSwitchPending(false)
       if (!fabricCanvas || !activeObject.value) return
@@ -7129,6 +7220,10 @@ export function useHomeEditorRuntime() {
     })
 
     fabricCanvas.on('mouse:move', (event) => {
+      if (penToolActive.value) {
+        penCommands.handlePenPointerMove(event)
+        return
+      }
       handlePointGestureCanvasMove(event)
     })
 
@@ -7138,6 +7233,7 @@ export function useHomeEditorRuntime() {
 
     fabricCanvas.on('after:render', () => {
       drawPointGestureMarquee()
+      if (penToolActive.value) penCommands.drawPenOverlay()
     })
 
     fabricCanvas.on('selection:created', () => {
@@ -7324,6 +7420,7 @@ export function useHomeEditorRuntime() {
     })
     runtime.register(createHomeCanvasLifecycleModule())
     runtime.register(homeDirectEdit.module)
+    runtime.register(homePenTool.module)
     runtime.register(homeWorkspace.module)
     runtime.register(homeAssetsImport.module)
     runtime.register(homeExportDelivery.module)
@@ -7585,6 +7682,8 @@ export function useHomeEditorRuntime() {
     layerBottom,
     openCanvasObjectContextMenu,
     handleCanvasAreaPointerDown,
-    handleCanvasAreaWheel
+    handleCanvasAreaWheel,
+    penToolActive,
+    togglePenTool
   }
 }

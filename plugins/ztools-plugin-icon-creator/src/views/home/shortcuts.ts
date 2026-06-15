@@ -10,6 +10,7 @@ export type ShortcutActionId =
   | 'mode.shape'
   | 'mode.point'
   | 'mode.segment'
+  | 'mode.pen'
   | 'select.all'
   | 'organize.group'
   | 'organize.ungroup'
@@ -59,6 +60,7 @@ export const SHORTCUT_ACTIONS: ShortcutActionDefinition[] = [
   { id: 'mode.shape', group: 'mode', name: '图形模式', description: '切换到图形选择模式', defaultBindings: () => ['Alt+1'] },
   { id: 'mode.point', group: 'mode', name: '点位模式', description: '切换到点位编辑模式', defaultBindings: () => ['Alt+2'] },
   { id: 'mode.segment', group: 'mode', name: '线段模式', description: '切换到线段编辑模式', defaultBindings: () => ['Alt+3'] },
+  { id: 'mode.pen', group: 'mode', name: '钢笔工具', description: '切换到钢笔描点工具', defaultBindings: () => ['Alt+4'] },
   { id: 'select.all', group: 'select', name: '全选', description: '按当前模式选择全部可编辑内容', defaultBindings: (platform) => [platform === 'darwin' ? 'Meta+A' : 'Ctrl+A'] },
   { id: 'organize.group', group: 'organize', name: '成组', description: '将多个已选对象组合成组', defaultBindings: (platform) => [platform === 'darwin' ? 'Meta+G' : 'Ctrl+G'], requiresSelection: true, shapeOnly: true },
   { id: 'organize.ungroup', group: 'organize', name: '解组', description: '拆分当前组对象', defaultBindings: (platform) => [platform === 'darwin' ? 'Meta+Shift+G' : 'Ctrl+Shift+G'], requiresSelection: true, shapeOnly: true },
