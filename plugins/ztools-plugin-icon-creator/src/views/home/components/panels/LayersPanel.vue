@@ -31,12 +31,24 @@
           <button class="layer-drag-handle" type="button" title="拖动排序" :disabled="isLayerDragDisabled">
             <Icon icon="mdi:drag-vertical" />
           </button>
-          <span class="layer-name">{{ item.name }}</span>
+          <span class="layer-name">
+            {{ item.name }}
+            <span v-if="isClippedObject(item.obj)" class="layer-badge" title="已应用蒙版">
+              <Icon icon="mdi:scissors-cutting" />
+            </span>
+            <span v-if="isClippingMask(item.obj)" class="layer-badge" title="作为蒙版">
+              <Icon icon="mdi:content-cut" />
+            </span>
+          </span>
           <button class="layer-icon-btn" @click.stop="$emit('toggle-visible', item.obj)">
             <Icon :icon="item.obj.visible !== false ? 'mdi:eye-outline' : 'mdi:eye-off-outline'" />
           </button>
-          <button class="layer-icon-btn" @click.stop="$emit('toggle-lock', item.obj)">
-            <Icon :icon="item.obj.lockMovementX ? 'mdi:lock' : 'mdi:lock-open-variant'" />
+          <button
+            class="layer-icon-btn"
+            :title="getLockModeTitle(item.obj)"
+            @click.stop="$emit('toggle-lock', item.obj)"
+          >
+            <Icon :icon="getLockModeIcon(item.obj)" />
           </button>
           <button class="layer-icon-btn danger" @click.stop="$emit('remove-object', item.obj)"><Icon icon="mdi:close" /></button>
         </div>
@@ -85,6 +97,55 @@ const localDragItems = computed({
   get: () => props.layerDragItems,
   set: (items: LayerItem[]) => emit('update:layer-drag-items', items)
 })
+
+function getLockMode(obj: FabricObject): 'none' | 'position' | 'size' | 'full' {
+  const moveLocked = obj.lockMovementX === true && obj.lockMovementY === true
+  const scaleLocked = obj.lockScalingX === true && obj.lockScalingY === true
+  const rotateLocked = obj.lockRotation === true
+
+  if (moveLocked && scaleLocked && rotateLocked) return 'full'
+  if (moveLocked && !scaleLocked) return 'position'
+  if (!moveLocked && scaleLocked) return 'size'
+  return 'none'
+}
+
+function getLockModeIcon(obj: FabricObject): string {
+  const mode = getLockMode(obj)
+  switch (mode) {
+    case 'full':
+      return 'mdi:lock'
+    case 'position':
+      return 'mdi:lock-outline'
+    case 'size':
+      return 'mdi:arrow-expand-all'
+    default:
+      return 'mdi:lock-open-variant'
+  }
+}
+
+function getLockModeTitle(obj: FabricObject): string {
+  const mode = getLockMode(obj)
+  switch (mode) {
+    case 'full':
+      return '完全锁定'
+    case 'position':
+      return '锁定位置'
+    case 'size':
+      return '锁定尺寸'
+    default:
+      return '未锁定'
+  }
+}
+
+function isClippingMask(obj: FabricObject): boolean {
+  const metadata = obj as any
+  return metadata?.isClippingMask === true
+}
+
+function isClippedObject(obj: FabricObject): boolean {
+  const metadata = obj as any
+  return typeof metadata?.clippedBy === 'string' && metadata.clippedBy.length > 0
+}
 </script>
 
 <style lang="scss" scoped>
@@ -178,6 +239,17 @@ const localDragItems = computed({
     text-overflow: ellipsis;
     white-space: nowrap;
     user-select: none;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+
+    .layer-badge {
+      display: inline-flex;
+      align-items: center;
+      font-size: 10px;
+      color: var(--primary-color);
+      flex-shrink: 0;
+    }
   }
 }
 .layer-drag-handle {
