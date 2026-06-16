@@ -248,6 +248,22 @@ export const colorPaletteGroups: ColorPaletteGroup[] = [
       { id: 'status-muted', name: '禁用', color: '#94a3b8' },
       { id: 'status-focus', name: '强调', color: '#a855f7' }
     ]
+  },
+  {
+    id: 'chinese-traditional',
+    name: '中国传统色',
+    colors: [
+      { id: 'chinese-vermillion', name: '朱红', color: '#ff4e50' },
+      { id: 'chinese-azure', name: '天青', color: '#4a90e2' },
+      { id: 'chinese-emerald', name: '翠绿', color: '#00a86b' },
+      { id: 'chinese-golden', name: '金黄', color: '#f8b500' },
+      { id: 'chinese-ink', name: '墨色', color: '#2c3e50' },
+      { id: 'chinese-rose', name: '胭脂', color: '#c91f37' },
+      { id: 'chinese-purple', name: '紫罗兰', color: '#7b68ee' },
+      { id: 'chinese-cyan', name: '青碧', color: '#2db7b5' },
+      { id: 'chinese-orange', name: '橘黄', color: '#ff8c00' },
+      { id: 'chinese-jade', name: '玉色', color: '#66cdaa' }
+    ]
   }
 ]
 
