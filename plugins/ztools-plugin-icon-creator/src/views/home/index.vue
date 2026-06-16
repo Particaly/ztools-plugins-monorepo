@@ -503,6 +503,8 @@
             @layer-down="layerDown"
             @layer-top="layerTop"
             @layer-bottom="layerBottom"
+            @show-all-layers="showAllLayers"
+            @hide-all-layers="hideAllLayers"
             @drag-start="isLayerDragging = true"
             @reorder-layers="reorderLayers"
             @layer-mouse-down="handleLayerMouseDown"
@@ -897,6 +899,8 @@ const {
   layerDown,
   layerTop,
   layerBottom,
+  showAllLayers,
+  hideAllLayers,
   handleCanvasAreaPointerDown,
   handleCanvasAreaWheel,
   penToolActive,

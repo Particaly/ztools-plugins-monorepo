@@ -7488,6 +7488,28 @@ export function useHomeEditorRuntime() {
     snapshot()
   }
 
+  function showAllLayers() {
+    if (!fabricCanvas) return
+    const objects = fabricCanvas.getObjects()
+    objects.forEach(obj => {
+      obj.visible = true
+    })
+    fabricCanvas.requestRenderAll()
+    refreshLayers()
+    snapshot()
+  }
+
+  function hideAllLayers() {
+    if (!fabricCanvas) return
+    const objects = fabricCanvas.getObjects()
+    objects.forEach(obj => {
+      obj.visible = false
+    })
+    fabricCanvas.requestRenderAll()
+    refreshLayers()
+    snapshot()
+  }
+
   // 切换左侧插入面板显隐；仅调整壳层布局，不重置标签状态，确保当前插入分类在再次展开后保持原样。
   function toggleLeftPanel() {
     leftPanelCollapsed.value = !leftPanelCollapsed.value
@@ -8257,6 +8279,8 @@ export function useHomeEditorRuntime() {
     layerDown,
     layerTop,
     layerBottom,
+    showAllLayers,
+    hideAllLayers,
     openCanvasObjectContextMenu,
     handleCanvasAreaPointerDown,
     handleCanvasAreaWheel,
