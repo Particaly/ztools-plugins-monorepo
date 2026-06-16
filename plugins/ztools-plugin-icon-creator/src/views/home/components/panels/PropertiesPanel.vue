@@ -25,14 +25,14 @@
               :model-value="objProps.leftInput"
               @update:model-value="objProps.leftInput = String($event)"
               @change="setObjPropFromInput('left', $event)"
-            />
+            ><template #suffix>px</template></ZInput>
             <ZInput
               size="small"
               type="text"
               :model-value="objProps.topInput"
               @update:model-value="objProps.topInput = String($event)"
               @change="setObjPropFromInput('top', $event)"
-            />
+            ><template #suffix>px</template></ZInput>
           </div>
           <div class="prop-group transform-row">
             <label>尺寸</label>
@@ -49,14 +49,14 @@
               :model-value="objProps.widthInput"
               @update:model-value="objProps.widthInput = String($event)"
               @change="setObjSizeFromInput('width', $event)"
-            />
+            ><template #suffix>px</template></ZInput>
             <ZInput
               size="small"
               type="text"
               :model-value="objProps.heightInput"
               @update:model-value="objProps.heightInput = String($event)"
               @change="setObjSizeFromInput('height', $event)"
-            />
+            ><template #suffix>px</template></ZInput>
           </div>
           <div class="prop-group rotation-row">
             <label>旋转</label>
@@ -86,14 +86,14 @@
               :model-value="objProps.skewXInput"
               @update:model-value="objProps.skewXInput = String($event)"
               @change="setSkewFromInput('x', $event)"
-            />
+            ><template #suffix>°</template></ZInput>
             <ZInput
               size="small"
               type="text"
               :model-value="objProps.skewYInput"
               @update:model-value="objProps.skewYInput = String($event)"
               @change="setSkewFromInput('y', $event)"
-            />
+            ><template #suffix>°</template></ZInput>
           </div>
           <div v-if="!(activeObject instanceof ActiveSelection)" class="prop-group style-color-row">
             <label>吸附边距</label>
@@ -103,7 +103,7 @@
               :model-value="objProps.endpointSnapMarginInput"
               @update:model-value="objProps.endpointSnapMarginInput = String($event)"
               @change="setEndpointSnapMarginFromInput"
-            />
+            ><template #suffix>px</template></ZInput>
           </div>
           <div class="prop-group align-row">
             <label>对齐</label>
@@ -259,14 +259,16 @@
                 :formatter="(value) => `${Math.round(value)}°`"
                 @change="setFillGradientAngleValue($event)"
               />
-              <ZInput
-                size="small"
-                type="text"
-                :model-value="objProps.fillGradientAngleInput"
-                @update:model-value="objProps.fillGradientAngleInput = String($event)"
-                @change="setFillGradientAngleFromInput"
-                title="渐变角度 (°)"
-              />
+              <div class="max-w-60px">
+                <ZInput
+                  size="small"
+                  type="text"
+                  :model-value="objProps.fillGradientAngleInput"
+                  @update:model-value="objProps.fillGradientAngleInput = String($event)"
+                  @change="setFillGradientAngleFromInput"
+                  title="渐变角度 (°)"
+                ><template #suffix>°</template></ZInput>
+              </div>
             </div>
             <template v-if="objProps.fillGradientType === 'radial'">
               <div class="prop-group gradient-radius-row">
@@ -306,7 +308,7 @@
               :model-value="objProps.strokeWidthInput"
               @update:model-value="objProps.strokeWidthInput = String($event)"
               @change="setStrokeWidthFromInput"
-            />
+            ><template #suffix>px</template></ZInput>
           </div>
           <div v-if="objProps.strokeEnabled" class="prop-group">
             <label>线型</label>
@@ -333,7 +335,7 @@
               :model-value="objProps.strokeDashLengthInput"
               @update:model-value="objProps.strokeDashLengthInput = String($event)"
               @change="setStrokeDashLengthFromInput"
-            />
+            ><template #suffix>px</template></ZInput>
           </div>
           <div v-if="objProps.strokeEnabled && objProps.strokeLineType === 'dashed'" class="prop-group style-color-row">
             <label>虚线间隔</label>
@@ -343,7 +345,7 @@
               :model-value="objProps.strokeDashGapInput"
               @update:model-value="objProps.strokeDashGapInput = String($event)"
               @change="setStrokeDashGapFromInput"
-            />
+            ><template #suffix>px</template></ZInput>
           </div>
         </div>
         <div class="prop-section">
@@ -392,13 +394,13 @@
                     type="text"
                     :model-value="shadow.offsetX"
                     @change="setShadowEffectProp(index, 'offsetX', $event)"
-                  />
+                  ><template #suffix>px</template></ZInput>
                   <ZInput
                     size="small"
                     type="text"
                     :model-value="shadow.offsetY"
                     @change="setShadowEffectProp(index, 'offsetY', $event)"
-                  />
+                  ><template #suffix>px</template></ZInput>
                 </div>
                 <div class="prop-group style-color-row">
                   <label>模糊</label>
@@ -407,7 +409,7 @@
                     type="text"
                     :model-value="shadow.blur"
                     @change="setShadowEffectProp(index, 'blur', $event)"
-                  />
+                  ><template #suffix>px</template></ZInput>
                 </div>
                 <div class="prop-group" style="justify-content: flex-end; padding-top: 0;">
                   <button class="tb-btn sm danger" @click="removeShadowEffect(index)">删除</button>
@@ -429,7 +431,7 @@
               :model-value="objProps.blurRadiusInput"
               @update:model-value="objProps.blurRadiusInput = String($event)"
               @change="setBlurRadiusFromInput"
-            />
+            ><template #suffix>px</template></ZInput>
           </div>
         </div>
         <div v-if="hasEditablePoints" class="prop-section">
@@ -441,7 +443,7 @@
               :model-value="objProps.cornerRadiusInput"
               @update:model-value="objProps.cornerRadiusInput = String($event)"
               @change="setCornerRadiusFromInput"
-            />
+            ><template #suffix>px</template></ZInput>
           </div>
           <div v-else-if="!hasSelectedArrowEndpoint" class="prop-group style-color-row">
             <label>点圆角</label>
@@ -451,7 +453,7 @@
               :model-value="objProps.pointCornerRadiusInput"
               @update:model-value="objProps.pointCornerRadiusInput = String($event)"
               @change="setSelectedPointCornerRadiusFromInput"
-            />
+            ><template #suffix>px</template></ZInput>
           </div>
         </div>
         <div v-if="hasSelectedArrowEndpoint" class="prop-section">
@@ -501,7 +503,7 @@
                 :model-value="objProps.arrowLineWidthInput"
                 @update:model-value="objProps.arrowLineWidthInput = String($event)"
                 @change="setHollowArrowLineWidthFromInput"
-              />
+              ><template #suffix>px</template></ZInput>
             </div>
             <div v-if="isHollowShaftArrow" class="prop-group rotation-row">
               <label>顶角</label>
@@ -535,7 +537,7 @@
                 :model-value="objProps.arrowLengthInput"
                 @update:model-value="objProps.arrowLengthInput = String($event)"
                 @change="setSelectedArrowLengthFromInput"
-              />
+              ><template #suffix>px</template></ZInput>
             </div>
           </template>
         </div>
@@ -552,14 +554,14 @@
               :model-value="objProps.curveCp1XInput"
               @update:model-value="objProps.curveCp1XInput = String($event)"
               @change="setSelectedSegmentControlPointCoordFromInput('cp1', 'x', $event)"
-            />
+            ><template #suffix>px</template></ZInput>
             <ZInput
               size="small"
               type="text"
               :model-value="objProps.curveCp1YInput"
               @update:model-value="objProps.curveCp1YInput = String($event)"
               @change="setSelectedSegmentControlPointCoordFromInput('cp1', 'y', $event)"
-            />
+            ><template #suffix>px</template></ZInput>
           </div>
           <div v-if="objProps.curveEnabled" class="prop-group bezier-group-row">
             <label>CP2</label>
@@ -569,14 +571,14 @@
               :model-value="objProps.curveCp2XInput"
               @update:model-value="objProps.curveCp2XInput = String($event)"
               @change="setSelectedSegmentControlPointCoordFromInput('cp2', 'x', $event)"
-            />
+            ><template #suffix>px</template></ZInput>
             <ZInput
               size="small"
               type="text"
               :model-value="objProps.curveCp2YInput"
               @update:model-value="objProps.curveCp2YInput = String($event)"
               @change="setSelectedSegmentControlPointCoordFromInput('cp2', 'y', $event)"
-            />
+            ><template #suffix>px</template></ZInput>
           </div>
         </div>
         <div class="prop-section">
@@ -598,14 +600,14 @@
                 :model-value="objProps.kaleidoscopeCenterXInput"
                 @update:model-value="objProps.kaleidoscopeCenterXInput = String($event)"
                 @change="setKaleidoscopeCenterFromInput('x', $event)"
-              />
+              ><template #suffix>px</template></ZInput>
               <ZInput
                 size="small"
                 type="text"
                 :model-value="objProps.kaleidoscopeCenterYInput"
                 @update:model-value="objProps.kaleidoscopeCenterYInput = String($event)"
                 @change="setKaleidoscopeCenterFromInput('y', $event)"
-              />
+              ><template #suffix>px</template></ZInput>
             </div>
             <div class="prop-group style-toggle-row">
               <label>跟随旋转</label>
@@ -732,14 +734,14 @@
           :model-value="canvasWidthInput"
           @update:model-value="canvasWidthInput = String($event)"
           @change="setCanvasSizeFromInput('width', $event)"
-        />
+        ><template #suffix>px</template></ZInput>
         <ZInput
           size="small"
           type="text"
           :model-value="canvasHeightInput"
           @update:model-value="canvasHeightInput = String($event)"
           @change="setCanvasSizeFromInput('height', $event)"
-        />
+        ><template #suffix>px</template></ZInput>
       </div>
       <div class="prop-group">
         <label>背景</label>
@@ -774,7 +776,7 @@
           :model-value="pixelGridSizeInput"
           @update:model-value="pixelGridSizeInput = String($event)"
           @change="setPixelGridSizeFromInput"
-        />
+        ><template #suffix>px</template></ZInput>
       </div>
       <div class="prop-group style-color-row">
         <label>参考线</label>
@@ -794,7 +796,7 @@
           :model-value="keylineMarginInput"
           @update:model-value="keylineMarginInput = String($event)"
           @change="setKeylineMarginFromInput"
-        />
+        ><template #suffix>px</template></ZInput>
       </div>
       <div v-if="keylineTemplate !== 'none'" class="prop-group rotation-row">
         <label>透明度</label>
