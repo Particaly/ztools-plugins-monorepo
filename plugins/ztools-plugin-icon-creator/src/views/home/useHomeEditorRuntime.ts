@@ -3275,6 +3275,101 @@ export function useHomeEditorRuntime() {
     syncObjProps()
   }
 
+  // 样式预览：悬浮色板/渐变预设时临时套用，离开时完整还原，全程不写入历史。
+  // 按 getStyleTargets 逐个目标备份填充/描边的完整状态（含渐变元数据），避免多目标编组只按聚合 objProps 还原导致丢失。
+  type StylePreviewBackupEntry = {
+    target: AnyFabricObject
+    fill: unknown
+    stroke: unknown
+    lastFill: unknown
+    fillMode: unknown
+    fillGradientType: unknown
+    fillGradientStops: FillGradientStop[]
+    fillGradientAngle: unknown
+    fillGradientCenterX: unknown
+    fillGradientCenterY: unknown
+    fillGradientRadius: unknown
+  }
+  let stylePreviewBackup: StylePreviewBackupEntry[] | null = null
+
+  function beginStylePreview() {
+    const obj = activeObject.value
+    if (!obj) return
+    stylePreviewBackup = getStyleTargets(obj).map((target) => {
+      const t = target as AnyFabricObject
+      applyDefaultFillGradientMetadata(t)
+      return {
+        target: t,
+        fill: t.fill,
+        stroke: t.stroke,
+        lastFill: t.lastFill,
+        fillMode: t.fillMode,
+        fillGradientType: t.fillGradientType,
+        fillGradientStops: cloneFillGradientStops(t.fillGradientStops),
+        fillGradientAngle: t.fillGradientAngle,
+        fillGradientCenterX: t.fillGradientCenterX,
+        fillGradientCenterY: t.fillGradientCenterY,
+        fillGradientRadius: t.fillGradientRadius
+      }
+    })
+  }
+
+  // 悬浮预览纯色色板（填充或描边），首次预览时自动备份原始状态。
+  function previewStyleColor(channel: StyleTargetChannel, color: string) {
+    if (!activeObject.value) return
+    if (!stylePreviewBackup) beginStylePreview()
+    withSnapshotSuppressed(() => {
+      if (channel === 'fill') setSolidFillColor(color)
+      else applyColorSwatch('stroke', color)
+    })
+  }
+
+  // 悬浮预览渐变预设，首次预览时自动备份原始状态。
+  function previewStyleGradient(preset: GradientPresetItem) {
+    if (!activeObject.value) return
+    if (!stylePreviewBackup) beginStylePreview()
+    withSnapshotSuppressed(() => applyGradientPreset(preset))
+  }
+
+  // 离开预设时把备份的原始填充/描边状态完整还原回画布，不写入历史。
+  function restoreStylePreview() {
+    const obj = activeObject.value
+    const backup = stylePreviewBackup
+    stylePreviewBackup = null
+    if (!obj || !fabricCanvas || !backup) return
+    withSnapshotSuppressed(() => {
+      backup.forEach((entry) => {
+        const t = entry.target
+        t.fillMode = entry.fillMode
+        t.fillGradientType = entry.fillGradientType
+        t.fillGradientStops = cloneFillGradientStops(entry.fillGradientStops)
+        t.fillGradientAngle = entry.fillGradientAngle
+        t.fillGradientCenterX = entry.fillGradientCenterX
+        t.fillGradientCenterY = entry.fillGradientCenterY
+        t.fillGradientRadius = entry.fillGradientRadius
+        t.lastFill = entry.lastFill
+        if (t.fillMode === 'gradient') {
+          applyGradientFillToTarget(t)
+        } else {
+          t.set('fill', typeof entry.fill === 'string' ? entry.fill : (entry.lastFill as string) || objProps.fill || '#000000')
+        }
+        t.set('stroke', entry.stroke as any)
+        t.dirty = true
+        t.setCoords()
+      })
+      if (obj instanceof Group) obj.triggerLayout()
+      triggerKaleidoscopeContentSync(obj)
+      fabricCanvas.requestRenderAll()
+      refreshLayers()
+      syncObjProps()
+    })
+  }
+
+  // 点击应用预设时丢弃备份（保留当前预览结果），由调用方再走正式的 apply 写入历史。
+  function commitStylePreview() {
+    stylePreviewBackup = null
+  }
+
   // 兼容旧快捷保存入口：把当前对象渐变插到预设列表前面，便于立刻在右侧面板再次复用。
   function saveCurrentGradientPreset() {
     const preset = createCurrentGradientPreset(`渐变 ${stylePresetSettings.gradientPresets.length + 1}`)
@@ -8119,6 +8214,10 @@ export function useHomeEditorRuntime() {
     saveCurrentColorSwatch,
     applyGradientPreset,
     saveCurrentGradientPreset,
+    previewStyleColor,
+    previewStyleGradient,
+    restoreStylePreview,
+    commitStylePreview,
     openStylePresetManager,
     applyStylePresetSettings,
     handleStylePresetManagerShowChange,

@@ -803,6 +803,10 @@ const {
   arrowAggregated,
   applyColorSwatch,
   applyGradientPreset,
+  previewStyleColor,
+  previewStyleGradient,
+  restoreStylePreview,
+  commitStylePreview,
   openStylePresetManager,
   applyStylePresetSettings,
   handleStylePresetManagerShowChange,
@@ -914,21 +918,6 @@ const {
 
 const canvasModeSwitcherCollapsed = ref(false)
 
-// 样式预览状态
-const stylePreviewState = ref<{
-  isActive: boolean
-  originalFill: string | null
-  originalStroke: string | null
-  originalFillMode: string | null
-  originalGradient: any | null
-}>({
-  isActive: false,
-  originalFill: null,
-  originalStroke: null,
-  originalFillMode: null,
-  originalGradient: null
-})
-
 // 切换底部画布模式切换器的收纳状态；收起时同步关闭受控预览浮层，避免隐藏控件后残留预览面板。
 function toggleCanvasModeSwitcherCollapsed() {
   const nextCollapsed = !canvasModeSwitcherCollapsed.value
@@ -936,92 +925,33 @@ function toggleCanvasModeSwitcherCollapsed() {
   if (nextCollapsed) handlePreviewPopoverShowChange(false)
 }
 
-// 工具栏色板预览
+// 工具栏色板预览：悬浮临时套用、离开还原，全程不写历史。
 function handleToolbarPreviewColor(channel: StyleTargetChannel, color: string | null) {
-  const obj = editorSelectors.activeObject
-  if (!obj) return
-
   if (!color) {
-    // 恢复原始样式
-    if (stylePreviewState.value.isActive) {
-      if (stylePreviewState.value.originalFill !== null) {
-        setSolidFillColor(stylePreviewState.value.originalFill)
-      }
-      if (stylePreviewState.value.originalStroke !== null) {
-        setObjProp('stroke', stylePreviewState.value.originalStroke)
-      }
-      stylePreviewState.value.isActive = false
-    }
+    restoreStylePreview()
     return
   }
-
-  // 保存原始样式（只在第一次时保存）
-  if (!stylePreviewState.value.isActive) {
-    stylePreviewState.value.originalFill = objProps.fill
-    stylePreviewState.value.originalStroke = objProps.stroke
-    stylePreviewState.value.isActive = true
-  }
-
-  // 临时应用预览样式
-  if (channel === 'fill') {
-    setSolidFillColor(color)
-  } else {
-    applyColorSwatch('stroke', color)
-  }
+  previewStyleColor(channel, color)
 }
 
 // 工具栏色板应用
 function handleToolbarApplyColor(channel: StyleTargetChannel, color: string) {
-  // 清除预览状态
-  stylePreviewState.value.isActive = false
-
-  // 应用颜色
+  commitStylePreview()
   applyColorSwatch(channel, color)
 }
 
-// 工具栏渐变预览
+// 工具栏渐变预览：悬浮临时套用、离开还原，全程不写历史。
 function handleToolbarPreviewGradient(preset: GradientPresetItem | null) {
-  const obj = editorSelectors.activeObject
-  if (!obj) return
-
   if (!preset) {
-    // 恢复原始样式
-    if (stylePreviewState.value.isActive && stylePreviewState.value.originalGradient) {
-      const orig = stylePreviewState.value.originalGradient
-      setFillStyleMode(orig.fillMode)
-      if (orig.fillMode === 'solid') {
-        setSolidFillColor(orig.fill)
-      }
-      stylePreviewState.value.isActive = false
-    }
+    restoreStylePreview()
     return
   }
-
-  // 保存原始样式（只在第一次时保存）
-  if (!stylePreviewState.value.isActive) {
-    stylePreviewState.value.originalGradient = {
-      fillMode: objProps.fillMode,
-      fill: objProps.fill,
-      fillGradientType: objProps.fillGradientType,
-      fillGradientStops: objProps.fillGradientStops,
-      fillGradientAngle: objProps.fillGradientAngle,
-      fillGradientCenterX: objProps.fillGradientCenterX,
-      fillGradientCenterY: objProps.fillGradientCenterY,
-      fillGradientRadius: objProps.fillGradientRadius
-    }
-    stylePreviewState.value.isActive = true
-  }
-
-  // 临时应用预览渐变
-  applyGradientPreset(preset)
+  previewStyleGradient(preset)
 }
 
 // 工具栏渐变应用
 function handleToolbarApplyGradient(preset: GradientPresetItem) {
-  // 清除预览状态
-  stylePreviewState.value.isActive = false
-
-  // 应用渐变
+  commitStylePreview()
   applyGradientPreset(preset)
 }
 </script>
