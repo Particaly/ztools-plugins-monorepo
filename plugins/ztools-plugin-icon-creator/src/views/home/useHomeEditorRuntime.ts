@@ -6791,6 +6791,8 @@ export function useHomeEditorRuntime() {
           return
         } catch (error) {
           console.error('粘贴图片失败:', error)
+          showToast('粘贴图片失败，请检查图片格式是否支持', 'error')
+          return
         }
       }
     }
@@ -6801,6 +6803,7 @@ export function useHomeEditorRuntime() {
         await importSVGText(normalizePastedSVGText(text), '粘贴 SVG')
       } catch (error) {
         console.error('粘贴 SVG 失败:', error)
+        showToast('粘贴 SVG 失败，请检查 SVG 代码是否有效', 'error')
       }
     }
   }
