@@ -319,6 +319,91 @@ export const gradientPresets: GradientPresetItem[] = [
       { color: '#f97316', offset: 0.55 },
       { color: '#9a3412', offset: 1 }
     ]
+  },
+  {
+    id: 'gradient-fire',
+    name: '火焰',
+    type: 'linear',
+    angle: 180,
+    stops: [
+      { color: '#fef08a', offset: 0 },
+      { color: '#fb923c', offset: 0.4 },
+      { color: '#dc2626', offset: 1 }
+    ]
+  },
+  {
+    id: 'gradient-emerald',
+    name: '翡翠',
+    type: 'linear',
+    angle: 90,
+    stops: [
+      { color: '#34d399', offset: 0 },
+      { color: '#059669', offset: 1 }
+    ]
+  },
+  {
+    id: 'gradient-purple-pink',
+    name: '紫粉',
+    type: 'linear',
+    angle: 315,
+    stops: [
+      { color: '#a78bfa', offset: 0 },
+      { color: '#ec4899', offset: 1 }
+    ]
+  },
+  {
+    id: 'gradient-metallic-silver',
+    name: '金属银',
+    type: 'linear',
+    angle: 90,
+    stops: [
+      { color: '#f8fafc', offset: 0 },
+      { color: '#cbd5e1', offset: 0.5 },
+      { color: '#64748b', offset: 1 }
+    ]
+  },
+  {
+    id: 'gradient-metallic-gold',
+    name: '金属金',
+    type: 'linear',
+    angle: 90,
+    stops: [
+      { color: '#fef3c7', offset: 0 },
+      { color: '#fbbf24', offset: 0.5 },
+      { color: '#b45309', offset: 1 }
+    ]
+  },
+  {
+    id: 'gradient-cool-breeze',
+    name: '清风',
+    type: 'linear',
+    angle: 45,
+    stops: [
+      { color: '#dbeafe', offset: 0 },
+      { color: '#67e8f9', offset: 0.5 },
+      { color: '#06b6d4', offset: 1 }
+    ]
+  },
+  {
+    id: 'gradient-warm-flame',
+    name: '暖阳',
+    type: 'linear',
+    angle: 135,
+    stops: [
+      { color: '#fef9c3', offset: 0 },
+      { color: '#fdba74', offset: 0.5 },
+      { color: '#f97316', offset: 1 }
+    ]
+  },
+  {
+    id: 'gradient-dark-purple',
+    name: '深紫',
+    type: 'linear',
+    angle: 180,
+    stops: [
+      { color: '#5b21b6', offset: 0 },
+      { color: '#1e1b4b', offset: 1 }
+    ]
   }
 ]
 
