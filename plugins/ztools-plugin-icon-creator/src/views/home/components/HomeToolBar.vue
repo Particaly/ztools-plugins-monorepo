@@ -54,6 +54,17 @@
       </ZButton>
     </div>
 
+    <StylePresetToolbar
+      :color-palette-groups="colorPaletteGroups"
+      :gradient-presets="gradientPresets"
+      :color-palette-columns="colorPaletteColumns"
+      @open-style-preset-manager="$emit('open-style-preset-manager', $event)"
+      @preview-color="(channel, color) => $emit('preview-color', channel, color)"
+      @apply-color="(channel, color) => $emit('apply-color', channel, color)"
+      @preview-gradient="$emit('preview-gradient', $event)"
+      @apply-gradient="$emit('apply-gradient', $event)"
+    />
+
     <div class="tool-group" aria-label="视图">
       <ZButton
         size="small"
@@ -160,7 +171,8 @@
 <script setup lang="ts">
 import { Icon } from '@iconify/vue'
 import { ZButton, ZPopover } from 'ztools-ui'
-import type { KeylineTemplate } from '../types'
+import StylePresetToolbar from './StylePresetToolbar.vue'
+import type { KeylineTemplate, ColorPaletteGroup, GradientPresetItem, StyleTargetChannel } from '../types'
 
 type KeylineTemplateOption = {
   value: KeylineTemplate
@@ -182,6 +194,9 @@ defineProps<{
   keylineTemplateOptions: KeylineTemplateOption[]
   shortcutDrawerOpen: boolean
   leftPanelCollapsed: boolean
+  colorPaletteGroups: ColorPaletteGroup[]
+  gradientPresets: GradientPresetItem[]
+  colorPaletteColumns: number
 }>()
 
 defineEmits<{
@@ -197,6 +212,11 @@ defineEmits<{
   (event: 'set-keyline-template', value: KeylineTemplate): void
   (event: 'open-shortcut-drawer'): void
   (event: 'toggle-left-panel'): void
+  (event: 'open-style-preset-manager', tab: 'colors' | 'gradients'): void
+  (event: 'preview-color', channel: StyleTargetChannel, color: string | null): void
+  (event: 'apply-color', channel: StyleTargetChannel, color: string): void
+  (event: 'preview-gradient', preset: GradientPresetItem | null): void
+  (event: 'apply-gradient', preset: GradientPresetItem): void
 }>()
 </script>
 

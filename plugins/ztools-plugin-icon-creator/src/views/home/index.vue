@@ -105,6 +105,9 @@
         :keyline-template-options="keylineTemplateOptions"
         :shortcut-drawer-open="editorSelectors.shortcutDrawerOpen"
         :left-panel-collapsed="leftPanelCollapsed"
+        :color-palette-groups="visibleColorPaletteGroups"
+        :gradient-presets="visibleGradientPresets"
+        :color-palette-columns="stylePresetColorColumns"
         @undo="editorCommands.undo"
         @redo="editorCommands.redo"
         @set-selection-mode="editorCommands.setSelectionMode"
@@ -117,6 +120,11 @@
         @set-keyline-template="setKeylineTemplate"
         @open-shortcut-drawer="editorCommands.openShortcutDrawer"
         @toggle-left-panel="toggleLeftPanel"
+        @open-style-preset-manager="openStylePresetManager"
+        @preview-color="handleToolbarPreviewColor"
+        @apply-color="handleToolbarApplyColor"
+        @preview-gradient="handleToolbarPreviewGradient"
+        @apply-gradient="handleToolbarApplyGradient"
       />
 
       <!-- 画板列表 -->
@@ -656,6 +664,7 @@ import Toast from './components/Toast.vue'
 import { basicShapes, textPresets, shapePreviewPaths, iconTemplates } from './editorCatalog'
 import { EXPORT_PNG_SIZE_OPTIONS } from './constants'
 import { useHomeEditorRuntime } from './useHomeEditorRuntime'
+import type { GradientPresetItem, StyleTargetChannel } from './types'
 
 const {
   canvasElRef,
@@ -913,11 +922,115 @@ const {
 
 const canvasModeSwitcherCollapsed = ref(false)
 
+// 样式预览状态
+const stylePreviewState = ref<{
+  isActive: boolean
+  originalFill: string | null
+  originalStroke: string | null
+  originalFillMode: string | null
+  originalGradient: any | null
+}>({
+  isActive: false,
+  originalFill: null,
+  originalStroke: null,
+  originalFillMode: null,
+  originalGradient: null
+})
+
 // 切换底部画布模式切换器的收纳状态；收起时同步关闭受控预览浮层，避免隐藏控件后残留预览面板。
 function toggleCanvasModeSwitcherCollapsed() {
   const nextCollapsed = !canvasModeSwitcherCollapsed.value
   canvasModeSwitcherCollapsed.value = nextCollapsed
   if (nextCollapsed) handlePreviewPopoverShowChange(false)
+}
+
+// 工具栏色板预览
+function handleToolbarPreviewColor(channel: StyleTargetChannel, color: string | null) {
+  const obj = editorSelectors.activeObject
+  if (!obj) return
+
+  if (!color) {
+    // 恢复原始样式
+    if (stylePreviewState.value.isActive) {
+      if (stylePreviewState.value.originalFill !== null) {
+        setSolidFillColor(stylePreviewState.value.originalFill)
+      }
+      if (stylePreviewState.value.originalStroke !== null) {
+        setObjProp('stroke', stylePreviewState.value.originalStroke)
+      }
+      stylePreviewState.value.isActive = false
+    }
+    return
+  }
+
+  // 保存原始样式（只在第一次时保存）
+  if (!stylePreviewState.value.isActive) {
+    stylePreviewState.value.originalFill = objProps.fill
+    stylePreviewState.value.originalStroke = objProps.stroke
+    stylePreviewState.value.isActive = true
+  }
+
+  // 临时应用预览样式
+  if (channel === 'fill') {
+    setSolidFillColor(color)
+  } else {
+    applyColorSwatch('stroke', color)
+  }
+}
+
+// 工具栏色板应用
+function handleToolbarApplyColor(channel: StyleTargetChannel, color: string) {
+  // 清除预览状态
+  stylePreviewState.value.isActive = false
+
+  // 应用颜色
+  applyColorSwatch(channel, color)
+}
+
+// 工具栏渐变预览
+function handleToolbarPreviewGradient(preset: GradientPresetItem | null) {
+  const obj = editorSelectors.activeObject
+  if (!obj) return
+
+  if (!preset) {
+    // 恢复原始样式
+    if (stylePreviewState.value.isActive && stylePreviewState.value.originalGradient) {
+      const orig = stylePreviewState.value.originalGradient
+      setFillStyleMode(orig.fillMode)
+      if (orig.fillMode === 'solid') {
+        setSolidFillColor(orig.fill)
+      }
+      stylePreviewState.value.isActive = false
+    }
+    return
+  }
+
+  // 保存原始样式（只在第一次时保存）
+  if (!stylePreviewState.value.isActive) {
+    stylePreviewState.value.originalGradient = {
+      fillMode: objProps.fillMode,
+      fill: objProps.fill,
+      fillGradientType: objProps.fillGradientType,
+      fillGradientStops: objProps.fillGradientStops,
+      fillGradientAngle: objProps.fillGradientAngle,
+      fillGradientCenterX: objProps.fillGradientCenterX,
+      fillGradientCenterY: objProps.fillGradientCenterY,
+      fillGradientRadius: objProps.fillGradientRadius
+    }
+    stylePreviewState.value.isActive = true
+  }
+
+  // 临时应用预览渐变
+  applyGradientPreset(preset)
+}
+
+// 工具栏渐变应用
+function handleToolbarApplyGradient(preset: GradientPresetItem) {
+  // 清除预览状态
+  stylePreviewState.value.isActive = false
+
+  // 应用渐变
+  applyGradientPreset(preset)
 }
 </script>
 
