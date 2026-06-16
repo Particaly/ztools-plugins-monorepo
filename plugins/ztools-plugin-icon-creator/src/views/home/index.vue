@@ -528,7 +528,7 @@
           />
         </template>
       </RightPanel>
-      <ZContextMenu
+      <LayerContextMenu
         :show="layerContextMenu.show"
         :x="layerContextMenu.x"
         :y="layerContextMenu.y"
@@ -637,8 +637,9 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { Icon } from '@iconify/vue'
-import { ZContextMenu, ZPopover } from 'ztools-ui'
+import { ZPopover } from 'ztools-ui'
 import HomeTopBar from './components/HomeTopBar.vue'
+import LayerContextMenu from './components/LayerContextMenu.vue'
 import HomeToolBar from './components/HomeToolBar.vue'
 import LeftPanel from './components/LeftPanel.vue'
 import ArtboardList from './components/ArtboardList.vue'

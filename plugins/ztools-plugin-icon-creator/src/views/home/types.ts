@@ -221,6 +221,20 @@ export type LayerContextMenuAction =
   | 'group'
   | 'ungroup'
   | 'save-user-asset'
+  | 'copy-style'
+  | 'paste-style'
+
+export type LayerContextMenuRowAction = {
+  key: LayerContextMenuAction
+  icon: string
+  title: string
+  disabled?: boolean
+}
+
+export type LayerContextMenuItem =
+  | { type: 'separator' }
+  | { type?: 'item'; key: LayerContextMenuAction; label: string; icon?: string; danger?: boolean; disabled?: boolean }
+  | { type: 'icon-row'; actions: LayerContextMenuRowAction[] }
 
 export type LayerItem = {
   id: string

@@ -532,8 +532,10 @@ export function useHomeEditorRuntime() {
     canGroup,
     canSaveUserAsset,
     canUngroup,
+    canPasteStyle: computed(() => copiedStyle.value !== null),
     clearBooleanPreview,
     clearKaleidoscopeMetadata,
+    copyStyle: () => copyStyle(),
     deleteObjects,
     duplicateSelection: () => duplicateSelection(),
     ensureEditorObjectId,
@@ -549,6 +551,7 @@ export function useHomeEditorRuntime() {
     layerUp,
     layerVersion,
     openCreateUserAssetDialog,
+    pasteStyle: () => pasteStyle(),
     refreshActiveObject,
     refreshLayers,
     selectedObjects,
@@ -5748,7 +5751,7 @@ export function useHomeEditorRuntime() {
       blurEnabled: shadowMetadata?.blurEnabled,
       blurRadius: shadowMetadata?.blurRadius
     }
-    toast.success('样式已复制')
+    showToast('样式已复制', 'success')
   }
 
   function pasteStyle() {
@@ -5827,7 +5830,7 @@ export function useHomeEditorRuntime() {
     refreshLayers()
     syncObjProps()
     snapshot()
-    toast.success('样式已应用')
+    showToast('样式已应用', 'success')
   }
 
   const currentLockMode = computed(() => {

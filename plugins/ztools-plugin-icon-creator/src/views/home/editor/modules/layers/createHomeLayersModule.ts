@@ -1,13 +1,9 @@
 import { computed, reactive, ref, shallowRef, watch, type ComputedRef, type Ref, type ShallowRef } from 'vue'
 import type { Canvas, FabricObject } from 'fabric'
 import type { AnyFabricObject } from '../../../fabric/objectMetadata'
-import type { LayerContextMenuAction, LayerContextMenuState, LayerItem, LayerRenameDialogState } from '../../../types'
+import type { LayerContextMenuAction, LayerContextMenuItem, LayerContextMenuState, LayerItem, LayerRenameDialogState } from '../../../types'
 
 type HomeSelectionMode = 'shape' | 'point' | 'segment'
-
-type LayerContextMenuItem =
-  | { type: 'separator' }
-  | { key: LayerContextMenuAction; label: string; danger?: boolean; disabled?: boolean }
 
 export interface HomeLayersState {
   filteredLayers: ComputedRef<LayerItem[]>
@@ -44,8 +40,10 @@ export interface CreateHomeLayersModuleOptions {
   canGroup: ComputedRef<boolean>
   canSaveUserAsset: ComputedRef<boolean>
   canUngroup: ComputedRef<boolean>
+  canPasteStyle: ComputedRef<boolean>
   clearBooleanPreview: () => void
   clearKaleidoscopeMetadata: (obj: FabricObject) => void
+  copyStyle: () => void
   deleteObjects: (objects?: FabricObject[]) => void
   duplicateSelection: () => Promise<boolean>
   ensureEditorObjectId: (obj: FabricObject | null | undefined) => string
@@ -61,6 +59,7 @@ export interface CreateHomeLayersModuleOptions {
   layerUp: () => void
   layerVersion: Ref<number>
   openCreateUserAssetDialog: () => void
+  pasteStyle: () => void
   refreshActiveObject: () => void
   refreshLayers: () => void
   selectedObjects: ComputedRef<FabricObject[]>
@@ -155,30 +154,45 @@ export function createHomeLayersModule(options: CreateHomeLayersModuleOptions): 
       const target = targets[0]
       const visible = target.visible !== false
       const locked = !!target.lockMovementX
+      const isTop = target === filteredLayers.value[0]?.obj
+      const isBottom = target === filteredLayers.value[filteredLayers.value.length - 1]?.obj
       return [
+        { key: 'duplicate', label: '复制' },
+        { type: 'separator' },
         { key: 'rename', label: '重命名' },
         { key: visible ? 'hide' : 'show', label: visible ? '隐藏' : '显示' },
         { key: locked ? 'unlock' : 'lock', label: locked ? '解锁' : '锁定' },
+        { type: 'separator' },
+        {
+          type: 'icon-row',
+          actions: [
+            { key: 'move-up', icon: 'mdi:arrow-up', title: '上移一层', disabled: !canLayerContextMove.value || isTop },
+            { key: 'move-top', icon: 'mdi:arrow-collapse-up', title: '上移到最顶层', disabled: !canLayerContextMove.value || isTop },
+            { key: 'move-down', icon: 'mdi:arrow-down', title: '下移一层', disabled: !canLayerContextMove.value || isBottom },
+            { key: 'move-bottom', icon: 'mdi:arrow-collapse-down', title: '下移到最底层', disabled: !canLayerContextMove.value || isBottom }
+          ]
+        },
+        { type: 'separator' },
+        { key: 'copy-style', label: '复制样式', icon: 'mdi:content-copy' },
+        { key: 'paste-style', label: '粘贴样式', icon: 'mdi:content-paste', disabled: !options.canPasteStyle.value },
         { type: 'separator' },
         { key: 'delete', label: '删除', danger: true },
         { key: 'detach-source', label: '脱离源对象', disabled: !options.isKaleidoscopeInstance(target) },
         { key: 'select-source', label: '选中源对象', disabled: !canLayerContextSelectSource.value },
         { type: 'separator' },
-        { key: 'move-up', label: '上移一层', disabled: !canLayerContextMove.value || target === filteredLayers.value[0]?.obj },
-        { key: 'move-top', label: '上移到最顶层', disabled: !canLayerContextMove.value || target === filteredLayers.value[0]?.obj },
-        { key: 'move-down', label: '下移一层', disabled: !canLayerContextMove.value || target === filteredLayers.value[filteredLayers.value.length - 1]?.obj },
-        { key: 'move-bottom', label: '下移到最底层', disabled: !canLayerContextMove.value || target === filteredLayers.value[filteredLayers.value.length - 1]?.obj },
-        { type: 'separator' },
-        { key: 'duplicate', label: '复制' },
         { key: 'save-user-asset', label: '保存到素材库', disabled: !options.canSaveUserAsset.value }
       ]
     }
     return [
+      { key: 'duplicate', label: '复制' },
+      { type: 'separator' },
       { key: 'group', label: '成组', disabled: !options.canGroup.value },
       { key: 'ungroup', label: '解组', disabled: !options.canUngroup.value },
-      { key: 'duplicate', label: '复制' },
       { key: 'save-user-asset', label: '保存到素材库', disabled: !options.canSaveUserAsset.value },
       { key: 'delete', label: '删除', danger: true },
+      { type: 'separator' },
+      { key: 'copy-style', label: '复制样式', icon: 'mdi:content-copy' },
+      { key: 'paste-style', label: '粘贴样式', icon: 'mdi:content-paste', disabled: !options.canPasteStyle.value },
       { type: 'separator' },
       { key: 'hide', label: '隐藏', disabled: !targets.some((obj) => obj.visible !== false) },
       { key: 'lock', label: '锁定', disabled: !targets.some((obj) => !obj.lockMovementX) },
@@ -412,7 +426,9 @@ export function createHomeLayersModule(options: CreateHomeLayersModuleOptions): 
     const action = key as LayerContextMenuAction
     const targets = getCurrentLayerContextTargets()
     const single = singleLayerContextTarget.value
-    closeLayerContextMenu()
+    // 层级调整属于可连续触发的操作，保持菜单常驻，禁用态由计算属性实时刷新。
+    const keepMenuOpen = action === 'move-up' || action === 'move-top' || action === 'move-down' || action === 'move-bottom'
+    if (!keepMenuOpen) closeLayerContextMenu()
     if (!targets.length) return
     switch (action) {
       case 'rename':
@@ -462,6 +478,12 @@ export function createHomeLayersModule(options: CreateHomeLayersModuleOptions): 
         return
       case 'save-user-asset':
         options.openCreateUserAssetDialog()
+        return
+      case 'copy-style':
+        options.copyStyle()
+        return
+      case 'paste-style':
+        options.pasteStyle()
         return
     }
   }
