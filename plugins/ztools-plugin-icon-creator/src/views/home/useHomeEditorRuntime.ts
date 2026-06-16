@@ -7510,6 +7510,40 @@ export function useHomeEditorRuntime() {
     snapshot()
   }
 
+  function unlockAllLayers() {
+    if (!fabricCanvas) return
+    const objects = fabricCanvas.getObjects()
+    objects.forEach(obj => {
+      obj.lockMovementX = false
+      obj.lockMovementY = false
+      obj.lockScalingX = false
+      obj.lockScalingY = false
+      obj.lockRotation = false
+      obj.hasControls = true
+      obj.selectable = true
+    })
+    fabricCanvas.requestRenderAll()
+    refreshLayers()
+    snapshot()
+  }
+
+  function lockAllLayers() {
+    if (!fabricCanvas) return
+    const objects = fabricCanvas.getObjects()
+    objects.forEach(obj => {
+      obj.lockMovementX = true
+      obj.lockMovementY = true
+      obj.lockScalingX = false
+      obj.lockScalingY = false
+      obj.lockRotation = false
+      obj.hasControls = true
+      obj.selectable = true
+    })
+    fabricCanvas.requestRenderAll()
+    refreshLayers()
+    snapshot()
+  }
+
   // 切换左侧插入面板显隐；仅调整壳层布局，不重置标签状态，确保当前插入分类在再次展开后保持原样。
   function toggleLeftPanel() {
     leftPanelCollapsed.value = !leftPanelCollapsed.value
@@ -8281,6 +8315,8 @@ export function useHomeEditorRuntime() {
     layerBottom,
     showAllLayers,
     hideAllLayers,
+    unlockAllLayers,
+    lockAllLayers,
     openCanvasObjectContextMenu,
     handleCanvasAreaPointerDown,
     handleCanvasAreaWheel,

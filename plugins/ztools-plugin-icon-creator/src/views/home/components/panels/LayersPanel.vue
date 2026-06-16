@@ -11,6 +11,8 @@
       <ZButton class="layer-toolbar-btn" size="small" title="置底" @click="$emit('layer-bottom')"><Icon icon="mdi:arrow-collapse-down" /></ZButton>
       <ZButton class="layer-toolbar-btn" size="small" title="显示所有图层" @click="$emit('show-all-layers')"><Icon icon="mdi:eye-outline" /></ZButton>
       <ZButton class="layer-toolbar-btn" size="small" title="隐藏所有图层" @click="$emit('hide-all-layers')"><Icon icon="mdi:eye-off-outline" /></ZButton>
+      <ZButton class="layer-toolbar-btn" size="small" title="解锁所有图层" @click="$emit('unlock-all-layers')"><Icon icon="mdi:lock-open-outline" /></ZButton>
+      <ZButton class="layer-toolbar-btn" size="small" title="锁定所有图层位置" @click="$emit('lock-all-layers')"><Icon icon="mdi:lock-outline" /></ZButton>
       <ZInput class="layer-search" size="small" type="text" placeholder="搜索" :model-value="layerSearch" @update:model-value="$emit('update:layer-search', String($event))" />
     </div>
     <div v-if="filteredLayers.length" class="layer-list">
