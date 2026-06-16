@@ -18,6 +18,8 @@ export type ShapeId =
   | 'base-rotated-right-triangle'
   | 'base-half-moon'
   | 'base-pentagon'
+  | 'base-hexagon'
+  | 'base-octagon'
   | 'base-arrow-right'
   | 'base-solid-shaft-arrow'
   | 'base-double-solid-shaft-arrow'
@@ -76,6 +78,8 @@ const basicShapeItems: Array<Omit<ShapeLibraryItem, 'previewKind'>> = [
   { id: 'base-rotated-right-triangle', label: '直角三角形', defaultWidth: 100, defaultHeight: 100 },
   { id: 'base-half-moon', label: '半月形', defaultWidth: 110, defaultHeight: 78 },
   { id: 'base-pentagon', label: '五边形', defaultWidth: 104, defaultHeight: 100 },
+  { id: 'base-hexagon', label: '六边形', defaultWidth: 110, defaultHeight: 96 },
+  { id: 'base-octagon', label: '八边形', defaultWidth: 104, defaultHeight: 104 },
   { id: 'base-arrow-right', label: '箭头', defaultWidth: 118, defaultHeight: 70 },
   { id: 'base-solid-shaft-arrow', label: '空心箭头', defaultWidth: 120, defaultHeight: 78 },
   { id: 'base-double-solid-shaft-arrow', label: '双向箭头', defaultWidth: 120, defaultHeight: 78 },
@@ -106,6 +110,8 @@ export const shapePreviewPaths: Record<ShapeId, string> = {
   'base-rotated-right-triangle': 'M 12 12 L 52 52 H 12 Z',
   'base-half-moon': 'M 32 14 C 46 14 54 30 54 50 H 10 C 10 30 18 14 32 14 Z',
   'base-pentagon': 'M 32 8 L 55 26 L 46 56 H 18 L 9 26 Z',
+  'base-hexagon': 'M 32 8 L 54 20 L 54 44 L 32 56 L 10 44 L 10 20 Z',
+  'base-octagon': 'M 20 8 H 44 L 56 20 V 44 L 44 56 H 20 L 8 44 V 20 Z',
   'base-arrow-right': 'M 10 32 H 52 M 52 32 L 40 20 M 52 32 L 40 44',
   'base-solid-shaft-arrow': 'M 8 24 H 38 V 14 L 56 32 L 38 50 V 40 H 8 Z',
   'base-double-solid-shaft-arrow': 'M 8 32 L 24 14 V 24 H 40 V 14 L 56 32 L 40 50 V 40 H 24 V 50 Z',
