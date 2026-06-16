@@ -689,7 +689,36 @@
         <div class="prop-actions">
           <button class="tb-btn" @click="groupObjects" :disabled="!canGroup">成组</button>
           <button class="tb-btn" @click="ungroupObject" :disabled="!canUngroup">解组</button>
-          <button class="tb-btn" @click="lockObject">{{ activeObject.lockMovementX ? '解锁' : '锁定' }}</button>
+          <ZPopover
+            :show="lockPopoverVisible"
+            trigger="click"
+            placement="top"
+            :to="false"
+            show-arrow
+            @update:show="lockPopoverVisible = $event"
+          >
+            <template #trigger>
+              <button class="tb-btn">{{ getLockButtonLabel() }}</button>
+            </template>
+            <div class="lock-options-menu">
+              <button class="tb-btn sm lock-option" @click="setLockMode('none')">
+                <Icon v-if="currentLockMode === 'none'" icon="mdi:check" />
+                <span>无锁定</span>
+              </button>
+              <button class="tb-btn sm lock-option" @click="setLockMode('position')">
+                <Icon v-if="currentLockMode === 'position'" icon="mdi:check" />
+                <span>锁定位置</span>
+              </button>
+              <button class="tb-btn sm lock-option" @click="setLockMode('size')">
+                <Icon v-if="currentLockMode === 'size'" icon="mdi:check" />
+                <span>锁定尺寸</span>
+              </button>
+              <button class="tb-btn sm lock-option" @click="setLockMode('full')">
+                <Icon v-if="currentLockMode === 'full'" icon="mdi:check" />
+                <span>完全锁定</span>
+              </button>
+            </div>
+          </ZPopover>
           <button class="tb-btn danger" @click="deleteObject">删除</button>
         </div>
       </template>
@@ -796,7 +825,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { VueDraggable } from 'vue-draggable-plus'
 import { Icon } from '@iconify/vue'
 import { ActiveSelection, type FabricObject } from 'fabric'
@@ -925,7 +954,24 @@ const props = defineProps<{
   setSkewFromInput: AnyFn
   copyStyle: AnyFn
   pasteStyle: AnyFn
+  currentLockMode: string
+  setLockMode: AnyFn
 }>()
+
+const lockPopoverVisible = ref(false)
+
+function getLockButtonLabel() {
+  switch (props.currentLockMode) {
+    case 'position':
+      return '锁位置'
+    case 'size':
+      return '锁尺寸'
+    case 'full':
+      return '已锁定'
+    default:
+      return '锁定'
+  }
+}
 
 const emit = defineEmits<{
   (event: 'update:align-popover-visible', value: boolean): void
@@ -1528,5 +1574,25 @@ const keylineMarginInput = computed({
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 4px;
+}
+.lock-options-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  min-width: 120px;
+}
+.lock-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: flex-start;
+  width: 100%;
+  text-align: left;
+}
+.lock-option .iconify {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
 }
 </style>

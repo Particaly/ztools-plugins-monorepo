@@ -5720,6 +5720,77 @@ export function useHomeEditorRuntime() {
     toast.success('样式已应用')
   }
 
+  const currentLockMode = computed(() => {
+    const obj = activeObject.value
+    if (!obj) return 'none'
+
+    const moveLocked = obj.lockMovementX === true && obj.lockMovementY === true
+    const scaleLocked = obj.lockScalingX === true && obj.lockScalingY === true
+    const rotateLocked = obj.lockRotation === true
+
+    if (moveLocked && scaleLocked && rotateLocked) return 'full'
+    if (moveLocked && !scaleLocked) return 'position'
+    if (!moveLocked && scaleLocked) return 'size'
+    return 'none'
+  })
+
+  function setLockMode(mode: 'none' | 'position' | 'size' | 'full') {
+    const obj = activeObject.value
+    if (!obj || !fabricCanvas) return
+
+    switch (mode) {
+      case 'none':
+        obj.set({
+          lockMovementX: false,
+          lockMovementY: false,
+          lockScalingX: false,
+          lockScalingY: false,
+          lockRotation: false,
+          hasControls: true,
+          selectable: true
+        })
+        break
+      case 'position':
+        obj.set({
+          lockMovementX: true,
+          lockMovementY: true,
+          lockScalingX: false,
+          lockScalingY: false,
+          lockRotation: false,
+          hasControls: true,
+          selectable: true
+        })
+        break
+      case 'size':
+        obj.set({
+          lockMovementX: false,
+          lockMovementY: false,
+          lockScalingX: true,
+          lockScalingY: true,
+          lockRotation: true,
+          hasControls: false,
+          selectable: true
+        })
+        break
+      case 'full':
+        obj.set({
+          lockMovementX: true,
+          lockMovementY: true,
+          lockScalingX: true,
+          lockScalingY: true,
+          lockRotation: true,
+          hasControls: false,
+          selectable: true
+        })
+        break
+    }
+
+    obj.setCoords()
+    fabricCanvas.requestRenderAll()
+    refreshLayers()
+    snapshot()
+  }
+
 
   // 按属性面板输入缩放当前对象；开启网格吸附时会继续量化显示尺寸和边界位置。
   function setObjSize(dim: 'width' | 'height', value: number) {
@@ -8022,6 +8093,8 @@ export function useHomeEditorRuntime() {
     setSkewFromInput,
     copyStyle,
     pasteStyle,
+    currentLockMode,
+    setLockMode,
     setObjSizeFromInput,
     alignPositions,
     alignPopoverVisible,

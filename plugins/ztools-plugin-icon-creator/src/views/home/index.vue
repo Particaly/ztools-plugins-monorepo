@@ -473,6 +473,8 @@
             :set-skew-from-input="setSkewFromInput"
             :copy-style="copyStyle"
             :paste-style="pasteStyle"
+            :current-lock-mode="currentLockMode"
+            :set-lock-mode="setLockMode"
             @update:align-popover-visible="alignPopoverVisible = $event"
             @update:canvas-width-input="canvasWidthInput = $event"
             @update:canvas-height-input="canvasHeightInput = $event"
@@ -844,6 +846,8 @@ const {
   setSkewFromInput,
   copyStyle,
   pasteStyle,
+  currentLockMode,
+  setLockMode,
   setObjSizeFromInput,
   alignPositions,
   alignPopoverVisible,
