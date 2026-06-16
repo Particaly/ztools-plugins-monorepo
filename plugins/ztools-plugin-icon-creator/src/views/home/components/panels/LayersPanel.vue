@@ -55,7 +55,16 @@
       </VueDraggable>
     </div>
     <div v-else class="layer-empty">
-      {{ layerSearch.trim() ? '未找到匹配的图层' : '当前没有图层' }}
+      <template v-if="layerSearch.trim()">
+        <Icon icon="mdi:magnify" class="empty-icon" />
+        <p>未找到匹配的图层</p>
+        <p class="empty-hint">尝试使用其他关键词搜索</p>
+      </template>
+      <template v-else>
+        <Icon icon="mdi:layers-off-outline" class="empty-icon" />
+        <p>当前没有图层</p>
+        <p class="empty-hint">添加形状、文本或导入图片来创建图层</p>
+      </template>
     </div>
   </div>
 </template>
@@ -215,9 +224,26 @@ function isClippedObject(obj: FabricObject): boolean {
   user-select: none;
 }
 .layer-empty {
-  padding: 10px 8px 12px;
+  padding: 32px 16px;
+  text-align: center;
   font-size: 12px;
   color: #888;
+
+  .empty-icon {
+    font-size: 48px;
+    color: #ddd;
+    margin-bottom: 12px;
+  }
+
+  p {
+    margin: 0 0 4px 0;
+    color: #666;
+  }
+
+  .empty-hint {
+    font-size: 11px;
+    color: #999;
+  }
 }
 .layer-item {
   display: flex;
