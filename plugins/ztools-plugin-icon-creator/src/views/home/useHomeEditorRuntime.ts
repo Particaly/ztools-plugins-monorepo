@@ -5341,6 +5341,13 @@ export function useHomeEditorRuntime() {
     })
   }
 
+  function setFillGradientStopOffsetFromInput(index: number, value: string | number) {
+    const numValue = parseFloat(String(value))
+    if (Number.isFinite(numValue)) {
+      setFillGradientStopOffset(index, numValue)
+    }
+  }
+
   function addFillGradientStop() {
     updateFillGradientStops((stops) => {
       if (stops.length < 2) return [...stops, { color: objProps.fill || '#000000', offset: 1 }]
@@ -5380,6 +5387,14 @@ export function useHomeEditorRuntime() {
     refreshLayers()
     snapshot()
     syncObjProps()
+  }
+
+  function setFillGradientAngleFromInput() {
+    const value = parseFloat(objProps.fillGradientAngleInput)
+    if (Number.isFinite(value)) {
+      const normalized = ((value % 360) + 360) % 360
+      setFillGradientAngleValue(normalized)
+    }
   }
 
   function setFillGradientRadiusValue(value: number) {
@@ -8175,9 +8190,11 @@ export function useHomeEditorRuntime() {
     setFillGradientStopColor,
     reorderFillGradientStops,
     setFillGradientStopOffset,
+    setFillGradientStopOffsetFromInput,
     addFillGradientStop,
     removeFillGradientStop,
     setFillGradientAngleValue,
+    setFillGradientAngleFromInput,
     setFillGradientRadiusValue,
     toggleStroke,
     addShadowEffect,

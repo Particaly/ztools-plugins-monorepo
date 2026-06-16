@@ -418,9 +418,11 @@
             :set-fill-gradient-stop-color="setFillGradientStopColor"
             :is-fill-gradient-stop-percent-disabled="isFillGradientStopPercentDisabled"
             :set-fill-gradient-stop-offset="setFillGradientStopOffset"
+            :set-fill-gradient-stop-offset-from-input="setFillGradientStopOffsetFromInput"
             :remove-fill-gradient-stop="removeFillGradientStop"
             :add-fill-gradient-stop="addFillGradientStop"
             :set-fill-gradient-angle-value="setFillGradientAngleValue"
+            :set-fill-gradient-angle-from-input="setFillGradientAngleFromInput"
             :set-fill-gradient-radius-value="setFillGradientRadiusValue"
             :apply-color-swatch="applyColorSwatch"
             :apply-gradient-preset="applyGradientPreset"
@@ -836,9 +838,11 @@ const {
   setFillGradientStopColor,
   reorderFillGradientStops,
   setFillGradientStopOffset,
+  setFillGradientStopOffsetFromInput,
   addFillGradientStop,
   removeFillGradientStop,
   setFillGradientAngleValue,
+  setFillGradientAngleFromInput,
   setFillGradientRadiusValue,
   toggleStroke,
   addShadowEffect,

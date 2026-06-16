@@ -233,7 +233,14 @@
                   :disabled-value="(value) => isFillGradientStopPercentDisabled(stopIndex, value)"
                   @change="setFillGradientStopOffset(stopIndex, $event)"
                 />
-                <span class="val-label">{{ `${Math.round(stop.offset * 100)}%` }}</span>
+                <ZInput
+                  size="small"
+                  type="text"
+                  class="gradient-stop-offset-input"
+                  :model-value="`${Math.round(stop.offset * 100)}`"
+                  @change="setFillGradientStopOffsetFromInput(stopIndex, $event)"
+                  title="色标位置 (%)"
+                />
                 <button class="layer-icon-btn danger" :disabled="objProps.fillGradientStops.length <= 2" title="删除色标" @click="removeFillGradientStop(stopIndex)">
                   <Icon icon="mdi:close" />
                 </button>
@@ -252,7 +259,14 @@
                 :formatter="(value) => `${Math.round(value)}°`"
                 @change="setFillGradientAngleValue($event)"
               />
-              <span class="val-label">{{ `${Math.round(objProps.fillGradientAngle)}°` }}</span>
+              <ZInput
+                size="small"
+                type="text"
+                :model-value="objProps.fillGradientAngleInput"
+                @update:model-value="objProps.fillGradientAngleInput = String($event)"
+                @change="setFillGradientAngleFromInput"
+                title="渐变角度 (°)"
+              />
             </div>
             <template v-if="objProps.fillGradientType === 'radial'">
               <div class="prop-group gradient-radius-row">
@@ -907,9 +921,11 @@ const props = defineProps<{
   setFillGradientStopColor: AnyFn
   isFillGradientStopPercentDisabled: AnyFn
   setFillGradientStopOffset: AnyFn
+  setFillGradientStopOffsetFromInput: AnyFn
   removeFillGradientStop: AnyFn
   addFillGradientStop: AnyFn
   setFillGradientAngleValue: AnyFn
+  setFillGradientAngleFromInput: AnyFn
   setFillGradientRadiusValue: AnyFn
   applyColorSwatch: AnyFn
   applyGradientPreset: AnyFn
@@ -1345,9 +1361,13 @@ const keylineMarginInput = computed({
   }
   &.gradient-stop-row {
     display: grid;
-    grid-template-columns: 20px auto minmax(0, 1fr) auto auto;
+    grid-template-columns: 20px auto minmax(0, 1fr) 60px auto;
     column-gap: 6px;
     align-items: center;
+
+    .gradient-stop-offset-input {
+      width: 100%;
+    }
   }
   &.bezier-group-row {
     display: grid;
