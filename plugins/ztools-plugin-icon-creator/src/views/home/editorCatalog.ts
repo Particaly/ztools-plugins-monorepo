@@ -139,6 +139,12 @@ export const textPresets: TextLibraryItem[] = [
 
 export const canvasPresets: CanvasPreset[] = [
   {
+    label: '1024×1024',
+    value: '1024x1024',
+    width: 1024,
+    height: 1024
+  },
+  {
     label: '512×512',
     value: '512x512',
     width: 512,
@@ -155,6 +161,54 @@ export const canvasPresets: CanvasPreset[] = [
     value: '128x128',
     width: 128,
     height: 128
+  },
+  {
+    label: '64×64',
+    value: '64x64',
+    width: 64,
+    height: 64
+  },
+  {
+    label: '32×32',
+    value: '32x32',
+    width: 32,
+    height: 32
+  },
+  {
+    label: 'iOS 应用图标 (1024×1024)',
+    value: 'ios-app-icon',
+    width: 1024,
+    height: 1024
+  },
+  {
+    label: 'Android 图标 (512×512)',
+    value: 'android-icon',
+    width: 512,
+    height: 512
+  },
+  {
+    label: 'Favicon (32×32)',
+    value: 'favicon',
+    width: 32,
+    height: 32
+  },
+  {
+    label: '社交媒体头像 (400×400)',
+    value: 'social-avatar',
+    width: 400,
+    height: 400
+  },
+  {
+    label: '图标集 (24×24)',
+    value: 'icon-set-24',
+    width: 24,
+    height: 24
+  },
+  {
+    label: '图标集 (48×48)',
+    value: 'icon-set-48',
+    width: 48,
+    height: 48
   }
 ]
 
