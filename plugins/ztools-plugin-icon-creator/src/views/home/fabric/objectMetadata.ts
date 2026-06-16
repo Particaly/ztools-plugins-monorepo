@@ -55,6 +55,12 @@ export type ShadowEffectsMetadata = {
   blurRadius?: number
 }
 
+export type ClippingMaskMetadata = {
+  isClippingMask?: boolean
+  clippedBy?: string  // 蒙版对象的 editorObjectId
+  clippingTarget?: string  // 被蒙版对象的 editorObjectId
+}
+
 export const DEFAULT_KALEIDOSCOPE_COUNT = 6
 export const MIN_KALEIDOSCOPE_COUNT = 1
 export const MAX_KALEIDOSCOPE_COUNT = 36
@@ -105,7 +111,10 @@ export const SERIALIZED_OBJECT_PROPS = [
   'sizeRatioLocked',
   'shadowEffects',
   'blurEnabled',
-  'blurRadius'
+  'blurRadius',
+  'isClippingMask',
+  'clippedBy',
+  'clippingTarget'
 ] as const
 
 function cloneGradientStops(stops: FillGradientStop[]) {
@@ -532,3 +541,29 @@ export function createDefaultShadowEffect(): ShadowEffectItem {
     color: 'rgba(0, 0, 0, 0.25)'
   }
 }
+
+export function getClippingMaskMetadata(obj: FabricObject | null | undefined): ClippingMaskMetadata | null {
+  if (!obj) return null
+  return obj as ClippingMaskMetadata
+}
+
+export function isClippingMask(obj: FabricObject | null | undefined): boolean {
+  const metadata = getClippingMaskMetadata(obj)
+  return metadata?.isClippingMask === true
+}
+
+export function isClippedObject(obj: FabricObject | null | undefined): boolean {
+  const metadata = getClippingMaskMetadata(obj)
+  return typeof metadata?.clippedBy === 'string' && metadata.clippedBy.length > 0
+}
+
+export function getClippingMaskId(obj: FabricObject | null | undefined): string | undefined {
+  const metadata = getClippingMaskMetadata(obj)
+  return metadata?.clippedBy
+}
+
+export function getClippingTargetId(obj: FabricObject | null | undefined): string | undefined {
+  const metadata = getClippingMaskMetadata(obj)
+  return metadata?.clippingTarget
+}
+
