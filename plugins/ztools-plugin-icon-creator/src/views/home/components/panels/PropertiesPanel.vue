@@ -683,16 +683,16 @@
           <span v-if="booleanError" class="boolean-error">{{ booleanError }}</span>
         </div>
         <div class="prop-actions">
-          <button class="tb-btn" @click="copyStyle">复制样式</button>
-          <button class="tb-btn" @click="pasteStyle">粘贴样式</button>
+          <button class="tb-btn" @click="copyStyle" title="复制样式 (Ctrl+Shift+C)">复制样式</button>
+          <button class="tb-btn" @click="pasteStyle" title="粘贴样式 (Ctrl+Shift+V)">粘贴样式</button>
         </div>
         <div class="prop-actions">
-          <button class="tb-btn" @click="createClippingMask" :disabled="!canCreateClippingMask">创建蒙版</button>
-          <button class="tb-btn" @click="releaseClippingMask" :disabled="!hasClippingMask">释放蒙版</button>
+          <button class="tb-btn" @click="createClippingMask" :disabled="!canCreateClippingMask" title="创建蒙版">创建蒙版</button>
+          <button class="tb-btn" @click="releaseClippingMask" :disabled="!hasClippingMask" title="释放蒙版">释放蒙版</button>
         </div>
         <div class="prop-actions">
-          <button class="tb-btn" @click="groupObjects" :disabled="!canGroup">成组</button>
-          <button class="tb-btn" @click="ungroupObject" :disabled="!canUngroup">解组</button>
+          <button class="tb-btn" @click="groupObjects" :disabled="!canGroup" title="成组 (Ctrl+G)">成组</button>
+          <button class="tb-btn" @click="ungroupObject" :disabled="!canUngroup" title="解组 (Ctrl+Shift+G)">解组</button>
           <ZPopover
             :show="lockPopoverVisible"
             trigger="click"
