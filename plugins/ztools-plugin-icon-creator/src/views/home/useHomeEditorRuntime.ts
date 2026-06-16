@@ -5877,6 +5877,18 @@ export function useHomeEditorRuntime() {
     return typeof metadata.clippedBy === 'string' && metadata.clippedBy.length > 0
   })
 
+  const isMultiSelection = computed(() => {
+    return activeObject.value instanceof ActiveSelection
+  })
+
+  const selectionCount = computed(() => {
+    const obj = activeObject.value
+    if (obj instanceof ActiveSelection) {
+      return obj.size()
+    }
+    return obj ? 1 : 0
+  })
+
 
   // 按属性面板输入缩放当前对象；开启网格吸附时会继续量化显示尺寸和边界位置。
   function setObjSize(dim: 'width' | 'height', value: number) {
@@ -8185,6 +8197,8 @@ export function useHomeEditorRuntime() {
     releaseClippingMask,
     canCreateClippingMask,
     hasClippingMask,
+    isMultiSelection,
+    selectionCount,
     setObjSizeFromInput,
     alignPositions,
     alignPopoverVisible,

@@ -360,6 +360,8 @@
         <template #properties>
           <PropertiesPanel
             :active-object="editorSelectors.activeObject"
+            :is-multi-selection="isMultiSelection"
+            :selection-count="selectionCount"
             :active-kaleidoscope-instance="activeKaleidoscopeInstance"
             :active-kaleidoscope-editable-source="activeKaleidoscopeEditableSource"
             :obj-props="objProps"
@@ -856,6 +858,8 @@ const {
   releaseClippingMask,
   canCreateClippingMask,
   hasClippingMask,
+  isMultiSelection,
+  selectionCount,
   setObjSizeFromInput,
   alignPositions,
   alignPopoverVisible,

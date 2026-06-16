@@ -2,6 +2,10 @@
   <div class="right-panel-scroll">
     <!-- 对象属性 -->
     <template v-if="activeObject">
+      <div class="section-title">
+        <span v-if="isMultiSelection">已选中 {{ selectionCount }} 个对象</span>
+        <span v-else>对象属性</span>
+      </div>
       <template v-if="activeKaleidoscopeInstance">
         <div class="prop-section">
           <div class="prop-actions instance-actions">
@@ -845,6 +849,8 @@ type SelectOption = {
 
 const props = defineProps<{
   activeObject: FabricObject | null
+  isMultiSelection: boolean
+  selectionCount: number
   activeKaleidoscopeInstance: FabricObject | null | undefined
   activeKaleidoscopeEditableSource: FabricObject | null | undefined
   objProps: Record<string, any>
