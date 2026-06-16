@@ -190,6 +190,18 @@ export const canvasPresets: CanvasPreset[] = [
     value: '128x128',
     width: 128,
     height: 128
+  },
+  {
+    label: '64×64',
+    value: '64x64',
+    width: 64,
+    height: 64
+  },
+  {
+    label: '32×32',
+    value: '32x32',
+    width: 32,
+    height: 32
   }
 ]
 
