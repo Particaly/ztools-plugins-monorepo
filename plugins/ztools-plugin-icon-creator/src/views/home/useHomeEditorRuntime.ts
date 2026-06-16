@@ -322,10 +322,7 @@ export function useHomeEditorRuntime() {
     kaleidoscopeCenterYInput: '0',
     kaleidoscopeFollowRotation: false,
     kaleidoscopeCountInput: String(DEFAULT_KALEIDOSCOPE_COUNT),
-    shadowEffects: [] as any[],
-    blurEnabled: false,
-    blurRadius: 4,
-    blurRadiusInput: '4'
+    shadowEffects: [] as any[]
   })
   const sizeRatioLocked = ref(false)
   const lockedAspectRatio = ref(1)
@@ -344,8 +341,6 @@ export function useHomeEditorRuntime() {
     strokeDashArray?: number[] | null
     opacity?: number
     shadowEffects?: any[]
-    blurEnabled?: boolean
-    blurRadius?: number
   }
   const copiedStyle = ref<CopiedStyle | null>(null)
 
@@ -4851,13 +4846,10 @@ export function useHomeEditorRuntime() {
       resetCurveProps()
     }
 
-    // 同步阴影和模糊效果
+    // 同步阴影效果
     applyDefaultShadowEffectsMetadata(obj)
     const shadowMetadata = getShadowEffectsMetadata(obj)
     objProps.shadowEffects = shadowMetadata?.shadowEffects ? [...shadowMetadata.shadowEffects] : []
-    objProps.blurEnabled = shadowMetadata?.blurEnabled === true
-    objProps.blurRadius = shadowMetadata?.blurRadius ?? 4
-    objProps.blurRadiusInput = formatNumericInputValue(objProps.blurRadius)
   }
 
   // ── 属性设置 ──
@@ -5676,44 +5668,6 @@ export function useHomeEditorRuntime() {
     snapshot()
   }
 
-  function toggleBlur(enabled: boolean) {
-    const obj = activeObject.value
-    if (!obj || !fabricCanvas) return
-    const metadata = getShadowEffectsMetadata(obj)
-    if (!metadata) return
-    metadata.blurEnabled = enabled
-    const anyObj = obj as any
-    if (enabled) {
-      anyObj.filters = anyObj.filters || []
-      // FabricJS 的模糊需要通过 filters 实现，这里先占位
-      // 实际实现需要使用 fabric.Image.filters.Blur 等
-    } else {
-      anyObj.filters = []
-    }
-    obj.dirty = true
-    obj.setCoords()
-    fabricCanvas.requestRenderAll()
-    syncObjProps()
-    snapshot()
-  }
-
-  function setBlurRadiusFromInput(value: string | number) {
-    const obj = activeObject.value
-    if (!obj || !fabricCanvas) return
-    const parsed = Number(value)
-    if (!Number.isFinite(parsed) || parsed < 0) return
-    const metadata = getShadowEffectsMetadata(obj)
-    if (!metadata) return
-    metadata.blurRadius = parsed
-    objProps.blurRadius = parsed
-    objProps.blurRadiusInput = formatNumericInputValue(parsed)
-    // 实际应用模糊效果
-    obj.dirty = true
-    obj.setCoords()
-    fabricCanvas.requestRenderAll()
-    snapshot()
-  }
-
   function flipObject(axis: 'x' | 'y') {
     const obj = activeObject.value
     if (!obj || !fabricCanvas) return
@@ -5811,9 +5765,7 @@ export function useHomeEditorRuntime() {
       strokeWidth: first.strokeWidth,
       strokeDashArray: first.strokeDashArray ? [...first.strokeDashArray] : null,
       opacity: first.opacity,
-      shadowEffects: shadowMetadata?.shadowEffects ? [...shadowMetadata.shadowEffects] : undefined,
-      blurEnabled: shadowMetadata?.blurEnabled,
-      blurRadius: shadowMetadata?.blurRadius
+      shadowEffects: shadowMetadata?.shadowEffects ? [...shadowMetadata.shadowEffects] : undefined
     }
     showToast('样式已复制', 'success')
   }
@@ -5871,15 +5823,11 @@ export function useHomeEditorRuntime() {
         target.set('opacity', style.opacity)
       }
 
-      // 应用阴影和模糊
+      // 应用阴影
       const shadowMetadata = getShadowEffectsMetadata(target)
-      if (shadowMetadata) {
-        if (style.shadowEffects) {
-          shadowMetadata.shadowEffects = style.shadowEffects.map(effect => ({...effect}))
-          applyShadowEffectsToFabricObject(target)
-        }
-        if (style.blurEnabled !== undefined) shadowMetadata.blurEnabled = style.blurEnabled
-        if (style.blurRadius !== undefined) shadowMetadata.blurRadius = style.blurRadius
+      if (shadowMetadata && style.shadowEffects) {
+        shadowMetadata.shadowEffects = style.shadowEffects.map(effect => ({...effect}))
+        applyShadowEffectsToFabricObject(target)
       }
 
       target.dirty = true
@@ -8354,8 +8302,6 @@ export function useHomeEditorRuntime() {
     toggleShadowEffect,
     setShadowEffectProp,
     removeShadowEffect,
-    toggleBlur,
-    setBlurRadiusFromInput,
     flipObject,
     resetTransform,
     setRotate3DFromInput,

@@ -478,8 +478,6 @@
             :toggle-shadow-effect="toggleShadowEffect"
             :set-shadow-effect-prop="setShadowEffectProp"
             :remove-shadow-effect="removeShadowEffect"
-            :toggle-blur="toggleBlur"
-            :set-blur-radius-from-input="setBlurRadiusFromInput"
             :flip-object="flipObject"
             :reset-transform="resetTransform"
             :set-rotate3d-from-input="setRotate3DFromInput"
@@ -863,8 +861,6 @@ const {
   toggleShadowEffect,
   setShadowEffectProp,
   removeShadowEffect,
-  toggleBlur,
-  setBlurRadiusFromInput,
   flipObject,
   resetTransform,
   setRotate3DFromInput,

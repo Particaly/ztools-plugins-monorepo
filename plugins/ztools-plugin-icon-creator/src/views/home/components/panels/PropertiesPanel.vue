@@ -462,22 +462,6 @@
             </div>
           </div>
         </div>
-        <div class="prop-section">
-          <div class="prop-group style-toggle-row">
-            <label>模糊</label>
-            <ZSwitch size="small" :model-value="objProps.blurEnabled" @change="toggleBlur" />
-          </div>
-          <div v-if="objProps.blurEnabled" class="prop-group style-color-row">
-            <label>半径</label>
-            <ZInput
-              size="small"
-              type="text"
-              :model-value="objProps.blurRadiusInput"
-              @update:model-value="objProps.blurRadiusInput = String($event)"
-              @change="setBlurRadiusFromInput"
-            ><template #suffix>px</template></ZInput>
-          </div>
-        </div>
         <div v-if="hasEditablePoints" class="prop-section">
           <div v-if="!hasSelectedPoint" class="prop-group style-color-row">
             <label>圆角</label>
@@ -985,8 +969,6 @@ const props = defineProps<{
   toggleShadowEffect: AnyFn
   setShadowEffectProp: AnyFn
   removeShadowEffect: AnyFn
-  toggleBlur: AnyFn
-  setBlurRadiusFromInput: AnyFn
   flipObject: AnyFn
   resetTransform: AnyFn
   setRotate3DFromInput: AnyFn

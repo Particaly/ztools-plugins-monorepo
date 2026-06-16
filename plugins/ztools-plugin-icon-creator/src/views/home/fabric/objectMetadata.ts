@@ -51,8 +51,6 @@ export type ShadowEffectItem = {
 
 export type ShadowEffectsMetadata = {
   shadowEffects?: ShadowEffectItem[]
-  blurEnabled?: boolean
-  blurRadius?: number
 }
 
 export type Rotation3DMetadata = {
@@ -114,8 +112,6 @@ export const SERIALIZED_OBJECT_PROPS = [
   'kaleidoscopeInstanceIndex',
   'sizeRatioLocked',
   'shadowEffects',
-  'blurEnabled',
-  'blurRadius',
   'rotateX',
   'rotateY',
   'rotation3dBaseScaleX',
@@ -506,9 +502,6 @@ export function applyDefaultShadowEffectsMetadata(obj: FabricObject | null | und
   } else {
     target.shadowEffects = []
   }
-
-  target.blurEnabled = target.blurEnabled === true
-  target.blurRadius = Math.max(0, normalizeFiniteNumber(target.blurRadius, 4))
 }
 
 export function applyShadowEffectsToFabricObject(obj: FabricObject | null | undefined) {
