@@ -55,6 +55,16 @@ export type ShadowEffectsMetadata = {
   blurRadius?: number
 }
 
+export type Rotation3DMetadata = {
+  // 绕画布平面内 X / Y 轴的立体旋转角（角度制）。绕 Z 轴的旋转沿用 Fabric 原生的 angle。
+  rotateX?: number
+  rotateY?: number
+  rotateZ?: number // 存储用户设置的原始 Z 轴旋转角度，避免投影角度污染
+  // 立体旋转前对象自身的缩放，用于让立体旋转与普通缩放可以叠加而互不破坏。
+  rotation3dBaseScaleX?: number
+  rotation3dBaseScaleY?: number
+}
+
 export const DEFAULT_KALEIDOSCOPE_COUNT = 6
 export const MIN_KALEIDOSCOPE_COUNT = 1
 export const MAX_KALEIDOSCOPE_COUNT = 36
@@ -105,7 +115,11 @@ export const SERIALIZED_OBJECT_PROPS = [
   'sizeRatioLocked',
   'shadowEffects',
   'blurEnabled',
-  'blurRadius'
+  'blurRadius',
+  'rotateX',
+  'rotateY',
+  'rotation3dBaseScaleX',
+  'rotation3dBaseScaleY'
 ] as const
 
 function cloneGradientStops(stops: FillGradientStop[]) {
@@ -531,5 +545,192 @@ export function createDefaultShadowEffect(): ShadowEffectItem {
     spread: 0,
     color: 'rgba(0, 0, 0, 0.25)'
   }
+}
+
+// 透视投影中相机到平面的归一化距离，值越大透视越弱（越接近正交投影）。
+const ROTATION_3D_PERSPECTIVE = 4
+
+export function getRotation3DMetadata(obj: FabricObject | null | undefined) {
+  return obj ? (obj as AnyFabricObject & Rotation3DMetadata) : null
+}
+
+export function applyDefaultRotation3DMetadata(obj: FabricObject | null | undefined) {
+  const target = getRotation3DMetadata(obj)
+  if (!target) return
+  target.rotateX = normalizeRotation3DAngle(target.rotateX)
+  target.rotateY = normalizeRotation3DAngle(target.rotateY)
+  target.rotateZ = normalizeRotation3DAngle(target.rotateZ)
+  target.rotation3dBaseScaleX = normalizeFiniteNumber(target.rotation3dBaseScaleX, 1)
+  target.rotation3dBaseScaleY = normalizeFiniteNumber(target.rotation3dBaseScaleY, 1)
+}
+
+export function clearRotation3DMetadata(obj: FabricObject | null | undefined) {
+  const target = getRotation3DMetadata(obj)
+  if (!target) return
+  target.rotateX = 0
+  target.rotateY = 0
+  target.rotateZ = 0
+  target.rotation3dBaseScaleX = 1
+  target.rotation3dBaseScaleY = 1
+}
+
+// 旋转角统一归一化到 [0, 360)，与平面旋转滑杆保持一致的取值范围。
+export function normalizeRotation3DAngle(value: unknown) {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return 0
+  const mod = parsed % 360
+  return mod < 0 ? mod + 360 : mod
+}
+
+type Vec3 = [number, number, number]
+
+function rotateAroundX([x, y, z]: Vec3, rad: number): Vec3 {
+  const c = Math.cos(rad)
+  const s = Math.sin(rad)
+  return [x, y * c - z * s, y * s + z * c]
+}
+
+function rotateAroundY([x, y, z]: Vec3, rad: number): Vec3 {
+  const c = Math.cos(rad)
+  const s = Math.sin(rad)
+  return [x * c + z * s, y, -x * s + z * c]
+}
+
+// 透视投影：把 3D 点投影到 z=0 平面，z 越靠近相机（越大）放大越多。
+function projectPerspective([x, y, z]: Vec3): { x: number; y: number } {
+  const factor = ROTATION_3D_PERSPECTIVE / (ROTATION_3D_PERSPECTIVE - z)
+  return { x: x * factor, y: y * factor }
+}
+
+export type Rotation3DTransform = {
+  scaleX: number
+  scaleY: number
+  skewX: number
+  skewY: number
+  angle: number
+  flipX: boolean
+  flipY: boolean
+}
+
+/**
+ * 把三轴旋转角度（角度制）连同基础缩放分解为 Fabric 的 2D 变换组合。
+ *
+ * 设计要点：绕 Z 轴的旋转就是平面内旋转，等价于 Fabric 的 angle，作为最外层叠加；
+ * 绕 X / Y 轴的旋转通过对单位基向量做 3D 旋转 + 透视投影来模拟立体翻转，
+ * 再用 QR 式分解反解出 scaleX / scaleY / skewX。三个轴因此都"对照旋转"来实现。
+ *
+ * baseScaleX / baseScaleY 是对象自身缩放（拖拽改变尺寸得到的值），与投影系数相乘后再分解，
+ * 保证立体旋转与普通缩放可以叠加而互不破坏。
+ */
+export function computeRotation3DTransform(
+  rotateX: number,
+  rotateY: number,
+  rotateZ: number,
+  baseScaleX = 1,
+  baseScaleY = 1
+): Rotation3DTransform {
+  const rx = (rotateX * Math.PI) / 180
+  const ry = (rotateY * Math.PI) / 180
+
+  // 仅用 X / Y 轴旋转构造投影后的两条基向量；Z 轴旋转留到最后以纯角度叠加。
+  const project = (v: Vec3) => projectPerspective(rotateAroundY(rotateAroundX(v, rx), ry))
+  const ux = project([1, 0, 0])
+  const uy = project([0, 1, 0])
+
+  // 叠加基础缩放：相当于先对局部坐标缩放，再投影。
+  const a = ux.x * baseScaleX
+  const b = ux.y * baseScaleX
+  const c = uy.x * baseScaleY
+  const d = uy.y * baseScaleY
+
+  // QR 式分解：从 col0 取旋转角与 scaleX，再据此求 skewX 与 scaleY。
+  const denom = Math.hypot(a, b) || 1e-6
+  let scaleX = denom
+  const shear = (a * c + b * d) / (denom * denom)
+  let scaleY = (a * d - b * c) / denom
+  let projAngle = Math.atan2(b, a)
+
+  let flipX = false
+  let flipY = false
+  if (scaleX < 0) {
+    scaleX = -scaleX
+    flipX = true
+  }
+  if (scaleY < 0) {
+    scaleY = -scaleY
+    flipY = true
+  }
+
+  // 当发生 flipY 时，调整投影角度以保持视觉一致性
+  // flipY 意味着对象在 Y 轴上翻转了，此时投影角度会跳变约 180°
+  // 我们需要补偿这个跳变，使得 Z 轴旋转保持稳定
+  if (flipY) {
+    projAngle = projAngle + Math.PI
+  }
+
+  return {
+    scaleX,
+    scaleY,
+    skewX: (Math.atan(shear) * 180) / Math.PI,
+    skewY: 0,
+    // 平面旋转（rotateZ）作为最外层旋转，与投影自身产生的微小角度相加。
+    angle: rotateZ + (projAngle * 180) / Math.PI,
+    flipX,
+    flipY
+  }
+}
+
+/**
+ * 把三轴旋转元数据应用到 Fabric 对象上，将其物理变换设为对应的投影结果。
+ */
+export function applyRotation3DTransformToObject(obj: FabricObject | null | undefined) {
+  const target = getRotation3DMetadata(obj)
+  if (!target || !obj) return
+  applyDefaultRotation3DMetadata(target)
+
+  const rotateX = target.rotateX ?? 0
+  const rotateY = target.rotateY ?? 0
+  const rotateZ = target.rotateZ ?? 0  // 使用存储的原始 Z 轴角度
+  const baseScaleX = target.rotation3dBaseScaleX ?? 1
+  const baseScaleY = target.rotation3dBaseScaleY ?? 1
+
+  const transform = computeRotation3DTransform(rotateX, rotateY, rotateZ, baseScaleX, baseScaleY)
+
+  obj.set({
+    scaleX: transform.scaleX,
+    scaleY: transform.scaleY,
+    skewX: transform.skewX,
+    skewY: transform.skewY,
+    angle: transform.angle,
+    flipX: transform.flipX,
+    flipY: transform.flipY
+  })
+}
+
+/**
+ * 从 Fabric 对象当前变换反推出基础缩放（未应用立体旋转投影前的真实缩放）。
+ *
+ * 用于在用户拖拽缩放手柄后，把新的 scaleX/scaleY 写回 rotation3dBaseScaleX/Y，
+ * 再重新应用立体旋转，这样缩放与立体旋转保持独立可叠加。
+ */
+export function extractRotation3DBaseScalesFromObject(obj: FabricObject | null | undefined) {
+  const target = getRotation3DMetadata(obj)
+  if (!target || !obj) return
+  applyDefaultRotation3DMetadata(target)
+
+  const rotateX = target.rotateX ?? 0
+  const rotateY = target.rotateY ?? 0
+
+  // 计算只有 X/Y 旋转时的投影系数（不含基础缩放）。
+  const unitTransform = computeRotation3DTransform(rotateX, rotateY, 0, 1, 1)
+
+  // 当前 Fabric scaleX/Y 是 基础缩放 × 投影系数，反推基础缩放。
+  const currentScaleX = Math.abs(obj.scaleX ?? 1)
+  const currentScaleY = Math.abs(obj.scaleY ?? 1)
+  const baseScaleX = Math.abs(unitTransform.scaleX) > 1e-6 ? currentScaleX / unitTransform.scaleX : 1
+  const baseScaleY = Math.abs(unitTransform.scaleY) > 1e-6 ? currentScaleY / unitTransform.scaleY : 1
+
+  target.rotation3dBaseScaleX = baseScaleX
+  target.rotation3dBaseScaleY = baseScaleY
 }
 

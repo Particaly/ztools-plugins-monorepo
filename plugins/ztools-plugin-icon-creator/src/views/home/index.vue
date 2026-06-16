@@ -482,7 +482,7 @@
             :set-blur-radius-from-input="setBlurRadiusFromInput"
             :flip-object="flipObject"
             :reset-transform="resetTransform"
-            :set-skew-from-input="setSkewFromInput"
+            :set-rotate3d-from-input="setRotate3DFromInput"
             :copy-style="copyStyle"
             :paste-style="pasteStyle"
             :current-lock-mode="currentLockMode"
@@ -867,7 +867,7 @@ const {
   setBlurRadiusFromInput,
   flipObject,
   resetTransform,
-  setSkewFromInput,
+  setRotate3DFromInput,
   copyStyle,
   pasteStyle,
   currentLockMode,

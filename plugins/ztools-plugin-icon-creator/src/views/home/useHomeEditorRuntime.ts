@@ -16,8 +16,12 @@ import {
   applyDefaultKaleidoscopeMetadata,
   applyDefaultSizeRatioLockMetadata,
   applyDefaultShadowEffectsMetadata,
+  applyDefaultRotation3DMetadata,
   applyShadowEffectsToFabricObject,
+  applyRotation3DTransformToObject,
+  extractRotation3DBaseScalesFromObject,
   clearKaleidoscopeMetadata,
+  clearRotation3DMetadata,
   cloneFillGradientStops,
   createDefaultShadowEffect,
   createGradientFromMetadata,
@@ -26,11 +30,13 @@ import {
   getNormalizedGradientOffsetSlots,
   getKaleidoscopeMetadata,
   getObjectEndpointSnapMargin,
+  getRotation3DMetadata,
   getShadowEffectsMetadata,
   isObjectSizeRatioLocked,
   markObjectSizeRatioLocked,
   normalizeEndpointSnapMargin,
   normalizeKaleidoscopeCount,
+  normalizeRotation3DAngle,
   type AnyFabricObject,
   type FillGradientStop,
   type FillGradientType,
@@ -286,8 +292,8 @@ export function useHomeEditorRuntime() {
     leftInput: '0', topInput: '0',
     widthInput: '0', heightInput: '0',
     scaleX: 1, scaleY: 1, angle: 0,
-    skewX: 0, skewY: 0,
-    skewXInput: '0', skewYInput: '0',
+    rotateX: 0, rotateY: 0,
+    rotateXInput: '0', rotateYInput: '0', angleInput: '0',
     fill: '#000000', fillEnabled: true, fillMode: 'solid' as FillModeOption, fillGradientType: DEFAULT_FILL_GRADIENT_TYPE as FillGradientType, fillGradientAngle: DEFAULT_FILL_GRADIENT_ANGLE, fillGradientAngleInput: String(DEFAULT_FILL_GRADIENT_ANGLE), fillGradientStops: decorateGradientStops(cloneFillGradientStops(undefined)), fillGradientCenterX: 0.5, fillGradientCenterY: 0.5, fillGradientRadius: DEFAULT_FILL_GRADIENT_RADIUS,
     stroke: '#000000', strokeEnabled: true, strokeWidth: 0, strokeWidthInput: '0', strokeLineType: 'solid' as StrokeLineType, strokeDashLength: 6, strokeDashGap: 4, strokeDashLengthInput: '6', strokeDashGapInput: '4', opacity: 1,
     bitmapTraceMode: 'alpha' as BitmapTraceMode,
@@ -4724,6 +4730,7 @@ export function useHomeEditorRuntime() {
     const obj = activeObject.value
     if (!obj) return
     applyDefaultKaleidoscopeMetadata(obj)
+    applyDefaultRotation3DMetadata(obj)
     objProps.left = obj.left ?? 0
     objProps.top = obj.top ?? 0
     objProps.leftInput = formatNumericInputValue(objProps.left)
@@ -4734,11 +4741,13 @@ export function useHomeEditorRuntime() {
     objProps.heightInput = formatNumericInputValue(objProps.height)
     objProps.scaleX = obj.scaleX ?? 1
     objProps.scaleY = obj.scaleY ?? 1
-    objProps.angle = obj.angle ?? 0
-    objProps.skewX = obj.skewX ?? 0
-    objProps.skewY = obj.skewY ?? 0
-    objProps.skewXInput = formatNumericInputValue(objProps.skewX)
-    objProps.skewYInput = formatNumericInputValue(objProps.skewY)
+    const rotation3d = getRotation3DMetadata(obj)
+    objProps.rotateX = rotation3d?.rotateX ?? 0
+    objProps.rotateY = rotation3d?.rotateY ?? 0
+    objProps.angle = rotation3d?.rotateZ ?? 0  // 从 metadata 读取原始 Z 轴角度
+    objProps.rotateXInput = formatNumericInputValue(objProps.rotateX)
+    objProps.rotateYInput = formatNumericInputValue(objProps.rotateY)
+    objProps.angleInput = formatNumericInputValue(objProps.angle)
     objProps.opacity = obj.opacity ?? 1
     objProps.endpointSnapMargin = getObjectEndpointSnapMargin(obj)
     objProps.endpointSnapMarginInput = formatNumericInputValue(objProps.endpointSnapMargin)
@@ -4886,6 +4895,40 @@ export function useHomeEditorRuntime() {
       })
       objProps.strokeEnabled = Number(value) > 0
       objProps.strokeWidthInput = formatNumericInputValue(Number(value) || 0)
+    } else if (prop === 'rotateX' || prop === 'rotateY') {
+      const parsed = Number(value)
+      if (!Number.isFinite(parsed)) return
+      const normalized = normalizeRotation3DAngle(parsed)
+      const target = getRotation3DMetadata(obj)
+      if (!target) return
+
+      // 确保 rotateZ 已初始化，避免在调整 X/Y 时丢失 Z 轴角度
+      if (target.rotateZ === undefined) {
+        target.rotateZ = objProps.angle ?? 0
+      }
+
+      if (prop === 'rotateX') {
+        target.rotateX = normalized
+        objProps.rotateX = normalized
+        objProps.rotateXInput = formatNumericInputValue(normalized)
+      } else {
+        target.rotateY = normalized
+        objProps.rotateY = normalized
+        objProps.rotateYInput = formatNumericInputValue(normalized)
+      }
+
+      applyRotation3DTransformToObject(obj)
+    } else if (prop === 'angle') {
+      const parsed = Number(value)
+      if (!Number.isFinite(parsed)) return
+      const normalized = normalizeRotation3DAngle(parsed)
+      const target = getRotation3DMetadata(obj)
+      if (target) {
+        target.rotateZ = normalized  // 存储原始 Z 轴角度到 metadata
+      }
+      objProps.angle = normalized
+      objProps.angleInput = formatNumericInputValue(normalized)
+      applyRotation3DTransformToObject(obj)
     } else {
       obj.set(prop as any, value)
     }
@@ -4910,15 +4953,24 @@ export function useHomeEditorRuntime() {
   }
 
   // 将对象位置输入提交为数值，非法输入回退到当前坐标
-  function setObjPropFromInput(prop: 'left' | 'top', value: string | number) {
-    const fallback = prop === 'left' ? objProps.left : objProps.top
+  function setObjPropFromInput(prop: 'left' | 'top' | 'rotateX' | 'rotateY' | 'angle', value: string | number) {
+    let fallback: number
+    if (prop === 'left') fallback = objProps.left
+    else if (prop === 'top') fallback = objProps.top
+    else if (prop === 'rotateX') fallback = objProps.rotateX
+    else if (prop === 'rotateY') fallback = objProps.rotateY
+    else fallback = objProps.angle
+
     commitNumericInput(
       value,
       fallback,
       (next) => { setObjProp(prop, next) },
       (next) => {
         if (prop === 'left') objProps.leftInput = formatNumericInputValue(Number(next))
-        else objProps.topInput = formatNumericInputValue(Number(next))
+        else if (prop === 'top') objProps.topInput = formatNumericInputValue(Number(next))
+        else if (prop === 'rotateX') objProps.rotateXInput = formatNumericInputValue(Number(next))
+        else if (prop === 'rotateY') objProps.rotateYInput = formatNumericInputValue(Number(next))
+        else objProps.angleInput = formatNumericInputValue(Number(next))
       }
     )
   }
@@ -5691,6 +5743,7 @@ export function useHomeEditorRuntime() {
       flipX: false,
       flipY: false
     })
+    clearRotation3DMetadata(obj)
     obj.dirty = true
     obj.setCoords()
     if (obj instanceof Group) obj.triggerLayout()
@@ -5701,20 +5754,31 @@ export function useHomeEditorRuntime() {
     snapshot()
   }
 
-  function setSkewFromInput(axis: 'x' | 'y', value: string | number) {
+  function setRotate3DFromInput(axis: 'x' | 'y', value: string | number) {
     const obj = activeObject.value
     if (!obj || !fabricCanvas) return
     const parsed = Number(value)
     if (!Number.isFinite(parsed)) return
-    if (axis === 'x') {
-      obj.set('skewX', parsed)
-      objProps.skewX = parsed
-      objProps.skewXInput = formatNumericInputValue(parsed)
-    } else {
-      obj.set('skewY', parsed)
-      objProps.skewY = parsed
-      objProps.skewYInput = formatNumericInputValue(parsed)
+    const normalized = normalizeRotation3DAngle(parsed)
+    const target = getRotation3DMetadata(obj)
+    if (!target) return
+
+    // 确保 rotateZ 已初始化，避免在调整 X/Y 时丢失 Z 轴角度
+    if (target.rotateZ === undefined) {
+      target.rotateZ = objProps.angle ?? 0
     }
+
+    if (axis === 'x') {
+      target.rotateX = normalized
+      objProps.rotateX = normalized
+      objProps.rotateXInput = formatNumericInputValue(normalized)
+    } else {
+      target.rotateY = normalized
+      objProps.rotateY = normalized
+      objProps.rotateYInput = formatNumericInputValue(normalized)
+    }
+
+    applyRotation3DTransformToObject(obj)
     obj.dirty = true
     obj.setCoords()
     if (obj instanceof Group) obj.triggerLayout()
@@ -5935,6 +5999,9 @@ export function useHomeEditorRuntime() {
     } else {
       obj.scaleToHeight(value)
     }
+    // 提取新的基础缩放并重新应用 3D 旋转
+    extractRotation3DBaseScalesFromObject(obj)
+    applyRotation3DTransformToObject(obj)
     rebuildObjectGradientFill(obj)
     snapObjectSizeToPixelGrid(obj)
     snapObjectPositionToPixelGrid(obj)
@@ -7931,6 +7998,9 @@ export function useHomeEditorRuntime() {
       if (isBooleanPreviewObject(target)) return
       clearBooleanPreview()
       if (target) {
+        // 先提取基础缩放，再重新应用 3D 旋转，保证两者正确叠加
+        extractRotation3DBaseScalesFromObject(target)
+        applyRotation3DTransformToObject(target)
         snapObjectSizeToPixelGrid(target)
         snapObjectPositionToPixelGrid(target)
         target.setCoords()
@@ -7945,11 +8015,15 @@ export function useHomeEditorRuntime() {
     // Real-time sync during drag interactions
     fabricCanvas.on('object:scaling', (event) => {
       clearBooleanPreview()
-      snapObjectSizeToPixelGrid(event.target ?? null)
-      clearOwnedEndpointAttachmentsForTransformedObject(event.target ?? null)
-      syncEndpointsForChangedObject(event.target ?? null)
+      const target = event.target ?? null
+      // 实时提取基础缩放并重新应用 3D 旋转，保证缩放手柄拖拽时预览正确
+      extractRotation3DBaseScalesFromObject(target)
+      applyRotation3DTransformToObject(target)
+      snapObjectSizeToPixelGrid(target)
+      clearOwnedEndpointAttachmentsForTransformedObject(target)
+      syncEndpointsForChangedObject(target)
       syncObjProps()
-      triggerKaleidoscopeTransformSync(event.target ?? null)
+      triggerKaleidoscopeTransformSync(target)
     })
     fabricCanvas.on('object:moving', (event) => {
       clearBooleanPreview()
@@ -7975,6 +8049,7 @@ export function useHomeEditorRuntime() {
         ensureEditorObjectId(target)
         normalizeEndpointAttachments(target)
         applyDefaultSizeRatioLockMetadata(target)
+        applyDefaultRotation3DMetadata(target)
         applyCanvasThemeToObject(target)
         target.snapAngle = snapToPixelGrid.value ? 15 : undefined
       }
@@ -8283,7 +8358,7 @@ export function useHomeEditorRuntime() {
     setBlurRadiusFromInput,
     flipObject,
     resetTransform,
-    setSkewFromInput,
+    setRotate3DFromInput,
     copyStyle,
     pasteStyle,
     currentLockMode,

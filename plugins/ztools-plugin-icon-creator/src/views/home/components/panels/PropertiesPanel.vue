@@ -58,17 +58,78 @@
               @change="setObjSizeFromInput('height', $event)"
             ><template #suffix>px</template></ZInput>
           </div>
-          <div class="prop-group rotation-row">
+          <div class="prop-group rotation-combined-row">
             <label>旋转</label>
-            <ZSlider
-              :model-value="objProps.angle"
-              :min="0"
-              :max="360"
-              :step="1"
-              :formatter="(value) => `${Math.round(value)}°`"
-              @change="setObjProp('angle', $event)"
-            />
-            <span class="val-label">{{ Math.round(objProps.angle) }}°</span>
+            <ZPopover
+              trigger="hover"
+              placement="top"
+              :to="false"
+              show-arrow
+              :delay="200"
+              :hide-delay="100"
+              keep-alive-on-hover
+            >
+              <template #trigger>
+                <div class="rotation-inputs-group">
+                  <ZInput
+                    size="small"
+                    type="text"
+                    :model-value="objProps.rotateXInput"
+                    @update:model-value="objProps.rotateXInput = String($event)"
+                    @change="setObjPropFromInput('rotateX', $event)"
+                  ><template #suffix>°</template></ZInput>
+                  <ZInput
+                    size="small"
+                    type="text"
+                    :model-value="objProps.rotateYInput"
+                    @update:model-value="objProps.rotateYInput = String($event)"
+                    @change="setObjPropFromInput('rotateY', $event)"
+                  ><template #suffix>°</template></ZInput>
+                  <ZInput
+                    size="small"
+                    type="text"
+                    :model-value="objProps.angleInput"
+                    @update:model-value="objProps.angleInput = String($event)"
+                    @change="setObjPropFromInput('angle', $event)"
+                  ><template #suffix>°</template></ZInput>
+                </div>
+              </template>
+              <div class="rotation-tooltip">
+                <div class="rotation-tooltip-row">
+                  <span class="rotation-tooltip-label">X轴旋转</span>
+                  <ZSlider
+                    :model-value="objProps.rotateX"
+                    :min="0"
+                    :max="360"
+                    :step="1"
+                    :formatter="(value) => `${Math.round(value)}°`"
+                    @change="setObjProp('rotateX', $event)"
+                  />
+                </div>
+                <div class="rotation-tooltip-row">
+                  <span class="rotation-tooltip-label">Y轴旋转</span>
+                  <ZSlider
+                    :model-value="objProps.rotateY"
+                    :min="0"
+                    :max="360"
+                    :step="1"
+                    :formatter="(value) => `${Math.round(value)}°`"
+                    @change="setObjProp('rotateY', $event)"
+                  />
+                </div>
+                <div class="rotation-tooltip-row">
+                  <span class="rotation-tooltip-label">Z轴旋转</span>
+                  <ZSlider
+                    :model-value="objProps.angle"
+                    :min="0"
+                    :max="360"
+                    :step="1"
+                    :formatter="(value) => `${Math.round(value)}°`"
+                    @change="setObjProp('angle', $event)"
+                  />
+                </div>
+              </div>
+            </ZPopover>
           </div>
           <div class="prop-group transform-actions-row">
             <label>变换</label>
@@ -77,23 +138,6 @@
               <button class="tb-btn sm" title="垂直翻转" @click="flipObject('y')">垂直翻</button>
               <button class="tb-btn sm" title="重置变换" @click="resetTransform">重置</button>
             </div>
-          </div>
-          <div class="prop-group bezier-group-row">
-            <label>倾斜</label>
-            <ZInput
-              size="small"
-              type="text"
-              :model-value="objProps.skewXInput"
-              @update:model-value="objProps.skewXInput = String($event)"
-              @change="setSkewFromInput('x', $event)"
-            ><template #suffix>°</template></ZInput>
-            <ZInput
-              size="small"
-              type="text"
-              :model-value="objProps.skewYInput"
-              @update:model-value="objProps.skewYInput = String($event)"
-              @change="setSkewFromInput('y', $event)"
-            ><template #suffix>°</template></ZInput>
           </div>
           <div v-if="!(activeObject instanceof ActiveSelection)" class="prop-group style-color-row">
             <label>吸附边距</label>
@@ -945,7 +989,7 @@ const props = defineProps<{
   setBlurRadiusFromInput: AnyFn
   flipObject: AnyFn
   resetTransform: AnyFn
-  setSkewFromInput: AnyFn
+  setRotate3DFromInput: AnyFn
   copyStyle: AnyFn
   pasteStyle: AnyFn
   currentLockMode: string
@@ -1330,6 +1374,9 @@ const keylineMarginInput = computed({
       white-space: nowrap;
     }
   }
+  .max-w-60px {
+    max-width: 60px;
+  }
   &.style-toggle-row,
   &.style-color-row {
     display: grid;
@@ -1356,6 +1403,14 @@ const keylineMarginInput = computed({
     grid-template-columns: 48px 1fr;
     column-gap: 8px;
   }
+  &.rotation-combined-row {
+    display: grid;
+    grid-template-columns: 48px 1fr;
+    column-gap: 8px;
+    :deep(.zt-popover) {
+      width: 100%;
+    }
+  }
   .stroke-line-type-picker {
     justify-self: end;
   }
@@ -1364,6 +1419,29 @@ const keylineMarginInput = computed({
       justify-self: end;
     }
   }
+}
+.rotation-inputs-group {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  width: 100%;
+}
+.rotation-tooltip {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 8px;
+  min-width: 240px;
+}
+.rotation-tooltip-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.rotation-tooltip-label {
+  font-size: 11px;
+  color: #666;
+  font-weight: 500;
 }
 .gradient-stop-actions {
   padding: 4px 8px 8px;
