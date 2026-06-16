@@ -480,7 +480,7 @@
             :remove-shadow-effect="removeShadowEffect"
             :flip-object="flipObject"
             :reset-transform="resetTransform"
-            :set-rotate3d-from-input="setRotate3DFromInput"
+            :set-rotate3-d-from-input="setRotate3DFromInput"
             :copy-style="copyStyle"
             :paste-style="pasteStyle"
             :current-lock-mode="currentLockMode"

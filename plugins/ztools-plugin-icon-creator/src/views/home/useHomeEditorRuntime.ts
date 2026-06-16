@@ -1,6 +1,7 @@
 import { ref, shallowRef, triggerRef, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useZtoolsTheme } from 'ztools-ui'
 import { Canvas, Control, FabricObject, Gradient, Textbox, Group, ActiveSelection, FabricImage, Path, Point, Rect, Circle, Triangle, Polygon, Line, StaticCanvas, util, loadSVGFromString } from 'fabric'
+import { html as beautifyHtml } from 'js-beautify'
 import { basicShapes, textPresets, canvasPresets, shapePreviewPaths, iconTemplates, colorPaletteGroups as defaultColorPaletteGroups, gradientPresets as defaultGradientPresets } from './editorCatalog'
 import type { ShapeLibraryItem, TextLibraryItem, IconTemplateItem } from './editorCatalog'
 import {
@@ -2287,6 +2288,29 @@ export function useHomeEditorRuntime() {
     svgPreviewSource.value ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgPreviewSource.value)}` : ''
   ))
 
+  // 使用 js-beautify 格式化 SVG 源码，添加换行和缩进以提升可读性。
+  function formatSvgSource(source: string) {
+    try {
+      return beautifyHtml(source, {
+        indent_size: 2,
+        indent_char: ' ',
+        max_preserve_newlines: 1,
+        preserve_newlines: true,
+        wrap_line_length: 0,
+        wrap_attributes: 'auto',
+        unformatted: [],
+        content_unformatted: [],
+        indent_inner_html: false,
+        indent_scripts: 'normal',
+        end_with_newline: false,
+        extra_liners: []
+      })
+    } catch {
+      // 如果格式化失败，返回原始源码
+      return source
+    }
+  }
+
   // 将 SVG 源码转成分段高亮的 HTML，保持代码模式只读展示且不执行源码中的 SVG 内容。
   function highlightSvgSource(source: string) {
     const escapeHtml = (value: string) => value
@@ -2294,13 +2318,16 @@ export function useHomeEditorRuntime() {
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
 
+    // 先使用 js-beautify 格式化源码，添加缩进
+    const formatted = formatSvgSource(source)
+
     const tagPattern = /<\/?[\w:-]+(?:\s+[\w:-]+(?:=(?:"[^"]*"|'[^']*'|[^\s>]+))?)*\s*\/?>/g
     let highlighted = ''
     let lastIndex = 0
-    for (const match of source.matchAll(tagPattern)) {
+    for (const match of formatted.matchAll(tagPattern)) {
       const tagSource = match[0]
       const index = match.index ?? 0
-      highlighted += escapeHtml(source.slice(lastIndex, index))
+      highlighted += escapeHtml(formatted.slice(lastIndex, index))
       const escapedTag = escapeHtml(tagSource)
       const highlightedAttrs = escapedTag.replace(
         /([\w:-]+)(=)("[^"]*"|'[^']*'|[^\s]+)/g,
@@ -2311,7 +2338,7 @@ export function useHomeEditorRuntime() {
         .replace(/(\/??&gt;)$/, '<span class="svg-code-bracket">$1</span>')
       lastIndex = index + tagSource.length
     }
-    highlighted += escapeHtml(source.slice(lastIndex))
+    highlighted += escapeHtml(formatted.slice(lastIndex))
     return highlighted
   }
 
