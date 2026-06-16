@@ -656,32 +656,54 @@
           <button class="tb-btn" @click="groupObjects" :disabled="!canGroup" title="成组 (Ctrl+G)">成组</button>
           <button class="tb-btn" @click="ungroupObject" :disabled="!canUngroup" title="解组 (Ctrl+Shift+G)">解组</button>
           <ZPopover
-            :show="lockPopoverVisible"
-            trigger="click"
+            trigger="hover"
             placement="top"
             :to="false"
             show-arrow
-            @update:show="lockPopoverVisible = $event"
+            keep-alive-on-hover
           >
             <template #trigger>
-              <button class="tb-btn">{{ getLockButtonLabel() }}</button>
+              <button
+                class="tb-btn"
+                :class="{ active: currentLockMode !== 'none' }"
+                :title="getLockButtonTooltip()"
+                @click="toggleLock"
+              >
+                锁定
+              </button>
             </template>
             <div class="lock-options-menu">
-              <button class="tb-btn sm lock-option" @click="setLockMode('none')">
-                <Icon v-if="currentLockMode === 'none'" icon="mdi:check" />
-                <span>无锁定</span>
+              <button
+                class="lock-option-btn"
+                :class="{ active: currentLockMode === 'none' }"
+                @click="setLockMode('none')"
+                title="无锁定"
+              >
+                <Icon icon="mdi:lock-open-variant-outline" />
               </button>
-              <button class="tb-btn sm lock-option" @click="setLockMode('position')">
-                <Icon v-if="currentLockMode === 'position'" icon="mdi:check" />
-                <span>锁定位置</span>
+              <button
+                class="lock-option-btn"
+                :class="{ active: currentLockMode === 'position' }"
+                @click="setLockMode('position')"
+                title="锁定位置"
+              >
+                <Icon icon="mdi:crosshairs-gps" />
               </button>
-              <button class="tb-btn sm lock-option" @click="setLockMode('size')">
-                <Icon v-if="currentLockMode === 'size'" icon="mdi:check" />
-                <span>锁定尺寸</span>
+              <button
+                class="lock-option-btn"
+                :class="{ active: currentLockMode === 'size' }"
+                @click="setLockMode('size')"
+                title="锁定尺寸"
+              >
+                <Icon icon="mdi:arrow-expand-all" />
               </button>
-              <button class="tb-btn sm lock-option" @click="setLockMode('full')">
-                <Icon v-if="currentLockMode === 'full'" icon="mdi:check" />
-                <span>完全锁定</span>
+              <button
+                class="lock-option-btn"
+                :class="{ active: currentLockMode === 'full' }"
+                @click="setLockMode('full')"
+                title="完全锁定"
+              >
+                <Icon icon="mdi:lock-outline" />
               </button>
             </div>
           </ZPopover>
@@ -928,21 +950,6 @@ const props = defineProps<{
   setLockMode: AnyFn
 }>()
 
-const lockPopoverVisible = ref(false)
-
-function getLockButtonLabel() {
-  switch (props.currentLockMode) {
-    case 'position':
-      return '锁位置'
-    case 'size':
-      return '锁尺寸'
-    case 'full':
-      return '已锁定'
-    default:
-      return '锁定'
-  }
-}
-
 const emit = defineEmits<{
   (event: 'update:align-popover-visible', value: boolean): void
   (event: 'update:canvas-width-input', value: string): void
@@ -950,6 +957,27 @@ const emit = defineEmits<{
   (event: 'update:pixel-grid-size-input', value: string): void
   (event: 'update:keyline-margin-input', value: string): void
 }>()
+
+function getLockButtonTooltip() {
+  switch (props.currentLockMode) {
+    case 'position':
+      return '已锁定位置（点击切换/悬浮查看选项）'
+    case 'size':
+      return '已锁定尺寸（点击切换/悬浮查看选项）'
+    case 'full':
+      return '已完全锁定（点击切换/悬浮查看选项）'
+    default:
+      return '锁定对象（点击切换/悬浮查看选项）'
+  }
+}
+
+function toggleLock() {
+  if (props.currentLockMode === 'none') {
+    props.setLockMode('full')
+  } else {
+    props.setLockMode('none')
+  }
+}
 
 const colorSwatchTargets: Array<{ channel: StyleTargetChannel; label: string; className: string }> = [
   { channel: 'fill', label: '填', className: 'fill-target' },
@@ -1039,10 +1067,17 @@ const keylineMarginInput = computed({
   cursor: pointer;
   font-size: 12px;
   white-space: nowrap;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, color 0.15s ease, background 0.15s ease;
   &:hover { background: #e8e8e8; }
   &:disabled { opacity: 0.4; cursor: default; }
   &.sm { padding: 3px 7px; font-size: 11px; }
   &.danger { color: #c00; }
+  &.active {
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+    background: var(--primary-light-bg);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary-color), transparent 35%);
+  }
 }
 .canvas-bg-picker,
 .stroke-line-type-picker {
@@ -1433,22 +1468,41 @@ const keylineMarginInput = computed({
 }
 .lock-options-menu {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 8px;
-  min-width: 120px;
-}
-.lock-option {
-  display: flex;
-  align-items: center;
+  flex-direction: row;
   gap: 6px;
-  justify-content: flex-start;
-  width: 100%;
-  text-align: left;
+  padding: 8px;
+  min-width: 0;
 }
-.lock-option .iconify {
-  width: 14px;
-  height: 14px;
-  flex-shrink: 0;
+.lock-option-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid rgba(128, 128, 128, 0.25);
+  border-radius: 6px;
+  background: #fff;
+  color: #555;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, color 0.15s ease, background 0.15s ease;
+
+  :deep(.iconify) {
+    width: 16px;
+    height: 16px;
+  }
+
+  &:hover {
+    background: color-mix(in srgb, var(--primary-color) 8%, #fff);
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+  }
+
+  &.active {
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+    background: var(--primary-light-bg);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary-color), transparent 35%);
+  }
 }
 </style>

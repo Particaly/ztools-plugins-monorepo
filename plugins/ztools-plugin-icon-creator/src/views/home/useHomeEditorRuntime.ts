@@ -5901,7 +5901,10 @@ export function useHomeEditorRuntime() {
     obj.setCoords()
     fabricCanvas.requestRenderAll()
     refreshLayers()
+    syncObjProps()
     snapshot()
+    // 强制触发 shallowRef 的响应式更新
+    triggerRef(activeObject)
   }
 
   const isMultiSelection = computed(() => {
