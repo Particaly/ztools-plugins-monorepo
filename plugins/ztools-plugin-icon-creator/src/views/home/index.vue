@@ -507,7 +507,6 @@
             @hide-all-layers="hideAllLayers"
             @unlock-all-layers="unlockAllLayers"
             @lock-all-layers="lockAllLayers"
-            @delete-hidden-layers="deleteHiddenLayers"
             @drag-start="isLayerDragging = true"
             @reorder-layers="reorderLayers"
             @layer-mouse-down="handleLayerMouseDown"
@@ -906,7 +905,6 @@ const {
   hideAllLayers,
   unlockAllLayers,
   lockAllLayers,
-  deleteHiddenLayers,
   handleCanvasAreaPointerDown,
   handleCanvasAreaWheel,
   penToolActive,

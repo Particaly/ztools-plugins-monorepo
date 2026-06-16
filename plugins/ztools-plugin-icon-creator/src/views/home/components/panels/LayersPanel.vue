@@ -5,16 +5,21 @@
       <span>图层</span>
     </div>
     <div class="layer-toolbar">
-      <ZButton class="layer-toolbar-btn" size="small" title="上移" @click="$emit('layer-up')"><Icon icon="mdi:arrow-up" /></ZButton>
-      <ZButton class="layer-toolbar-btn" size="small" title="下移" @click="$emit('layer-down')"><Icon icon="mdi:arrow-down" /></ZButton>
-      <ZButton class="layer-toolbar-btn" size="small" title="置顶" @click="$emit('layer-top')"><Icon icon="mdi:arrow-collapse-up" /></ZButton>
-      <ZButton class="layer-toolbar-btn" size="small" title="置底" @click="$emit('layer-bottom')"><Icon icon="mdi:arrow-collapse-down" /></ZButton>
-      <ZButton class="layer-toolbar-btn" size="small" title="显示所有图层" @click="$emit('show-all-layers')"><Icon icon="mdi:eye-outline" /></ZButton>
-      <ZButton class="layer-toolbar-btn" size="small" title="隐藏所有图层" @click="$emit('hide-all-layers')"><Icon icon="mdi:eye-off-outline" /></ZButton>
-      <ZButton class="layer-toolbar-btn" size="small" title="解锁所有图层" @click="$emit('unlock-all-layers')"><Icon icon="mdi:lock-open-outline" /></ZButton>
-      <ZButton class="layer-toolbar-btn" size="small" title="锁定所有图层位置" @click="$emit('lock-all-layers')"><Icon icon="mdi:lock-outline" /></ZButton>
-      <ZButton class="layer-toolbar-btn danger" size="small" title="删除所有隐藏图层" @click="$emit('delete-hidden-layers')"><Icon icon="mdi:delete-sweep" /></ZButton>
-      <ZInput class="layer-search" size="small" type="text" placeholder="搜索" :model-value="layerSearch" @update:model-value="$emit('update:layer-search', String($event))" />
+      <div class="layer-toolbar-row">
+        <ZButton class="layer-toolbar-btn" size="small" title="上移" @click="$emit('layer-up')"><Icon icon="mdi:arrow-up" /></ZButton>
+        <ZButton class="layer-toolbar-btn" size="small" title="置顶" @click="$emit('layer-top')"><Icon icon="mdi:arrow-collapse-up" /></ZButton>
+        <ZButton class="layer-toolbar-btn" size="small" title="显示所有图层" @click="$emit('show-all-layers')"><Icon icon="mdi:eye-outline" /></ZButton>
+        <ZButton class="layer-toolbar-btn" size="small" title="锁定所有图层位置" @click="$emit('lock-all-layers')"><Icon icon="mdi:lock-outline" /></ZButton>
+      </div>
+      <div class="layer-toolbar-row">
+        <ZButton class="layer-toolbar-btn" size="small" title="下移" @click="$emit('layer-down')"><Icon icon="mdi:arrow-down" /></ZButton>
+        <ZButton class="layer-toolbar-btn" size="small" title="置底" @click="$emit('layer-bottom')"><Icon icon="mdi:arrow-collapse-down" /></ZButton>
+        <ZButton class="layer-toolbar-btn" size="small" title="隐藏所有图层" @click="$emit('hide-all-layers')"><Icon icon="mdi:eye-off-outline" /></ZButton>
+        <ZButton class="layer-toolbar-btn" size="small" title="解锁所有图层" @click="$emit('unlock-all-layers')"><Icon icon="mdi:lock-open-outline" /></ZButton>
+      </div>
+      <div class="layer-toolbar-row">
+        <ZInput class="layer-search" size="small" type="text" placeholder="搜索" :model-value="layerSearch" @update:model-value="$emit('update:layer-search', String($event))" />
+      </div>
     </div>
     <div v-if="filteredLayers.length" class="layer-list">
       <VueDraggable
@@ -178,9 +183,14 @@ function isClippedObject(obj: FabricObject): boolean {
 }
 .layer-toolbar {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 6px;
   padding: 4px 8px;
+  .layer-toolbar-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
   .layer-search {
     flex: 1;
     min-width: 0;

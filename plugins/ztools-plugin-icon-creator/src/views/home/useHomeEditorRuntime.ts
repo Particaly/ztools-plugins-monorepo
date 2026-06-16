@@ -7544,25 +7544,6 @@ export function useHomeEditorRuntime() {
     snapshot()
   }
 
-  function deleteHiddenLayers() {
-    if (!fabricCanvas) return
-    const objects = fabricCanvas.getObjects()
-    const hiddenObjects = objects.filter(obj => obj.visible === false)
-    if (!hiddenObjects.length) {
-      showToast('没有隐藏的图层', 'info')
-      return
-    }
-    hiddenObjects.forEach(obj => {
-      removeEndpointAttachmentsReferencing(obj)
-      fabricCanvas.remove(obj as AnyFabricObject)
-    })
-    fabricCanvas.discardActiveObject()
-    fabricCanvas.requestRenderAll()
-    refreshLayers()
-    snapshot()
-    showToast(`已删除 ${hiddenObjects.length} 个隐藏图层`, 'success')
-  }
-
   // 切换左侧插入面板显隐；仅调整壳层布局，不重置标签状态，确保当前插入分类在再次展开后保持原样。
   function toggleLeftPanel() {
     leftPanelCollapsed.value = !leftPanelCollapsed.value
@@ -8336,7 +8317,6 @@ export function useHomeEditorRuntime() {
     hideAllLayers,
     unlockAllLayers,
     lockAllLayers,
-    deleteHiddenLayers,
     openCanvasObjectContextMenu,
     handleCanvasAreaPointerDown,
     handleCanvasAreaWheel,
