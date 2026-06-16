@@ -115,11 +115,25 @@ export const shapePreviewPaths: Record<ShapeId, string> = {
 
 export const textPresets: TextLibraryItem[] = [
   {
+    id: 'display',
+    label: '特大标题',
+    text: '特大标题',
+    fontSize: 56,
+    fontWeight: '800'
+  },
+  {
     id: 'title',
     label: '标题',
     text: '输入标题',
     fontSize: 42,
     fontWeight: '700'
+  },
+  {
+    id: 'subtitle',
+    label: '副标题',
+    text: '副标题',
+    fontSize: 32,
+    fontWeight: '600'
   },
   {
     id: 'body',
@@ -129,11 +143,32 @@ export const textPresets: TextLibraryItem[] = [
     fontWeight: '500'
   },
   {
+    id: 'body-small',
+    label: '小正文',
+    text: '正文内容',
+    fontSize: 20,
+    fontWeight: '400'
+  },
+  {
     id: 'caption',
     label: '注释',
     text: '辅助说明',
     fontSize: 18,
     fontWeight: '400'
+  },
+  {
+    id: 'label',
+    label: '标签',
+    text: '标签',
+    fontSize: 16,
+    fontWeight: '600'
+  },
+  {
+    id: 'button-text',
+    label: '按钮文字',
+    text: '按钮',
+    fontSize: 18,
+    fontWeight: '600'
   }
 ]
 
