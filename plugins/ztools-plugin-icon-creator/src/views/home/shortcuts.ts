@@ -7,6 +7,8 @@ export type ShortcutActionId =
   | 'edit.delete'
   | 'edit.undo'
   | 'edit.redo'
+  | 'edit.copyStyle'
+  | 'edit.pasteStyle'
   | 'mode.shape'
   | 'mode.point'
   | 'mode.segment'
@@ -59,6 +61,8 @@ export const SHORTCUT_ACTIONS: ShortcutActionDefinition[] = [
   { id: 'edit.delete', group: 'edit', name: '删除', description: '删除当前选中的图形对象', defaultBindings: () => ['Delete', 'Backspace'], requiresSelection: true },
   { id: 'edit.undo', group: 'edit', name: '撤销', description: '撤销上一步编辑操作', defaultBindings: (platform) => [platform === 'darwin' ? 'Meta+Z' : 'Ctrl+Z'] },
   { id: 'edit.redo', group: 'edit', name: '重做', description: '恢复刚撤销的编辑操作', defaultBindings: (platform) => (platform === 'darwin' ? ['Meta+Shift+Z'] : ['Ctrl+Y', 'Ctrl+Shift+Z']) },
+  { id: 'edit.copyStyle', group: 'edit', name: '复制样式', description: '复制当前对象的样式属性', defaultBindings: (platform) => [platform === 'darwin' ? 'Meta+Shift+C' : 'Ctrl+Shift+C'], requiresSelection: true },
+  { id: 'edit.pasteStyle', group: 'edit', name: '粘贴样式', description: '将复制的样式应用到当前对象', defaultBindings: (platform) => [platform === 'darwin' ? 'Meta+Shift+V' : 'Ctrl+Shift+V'], requiresSelection: true },
   { id: 'mode.shape', group: 'mode', name: '图形模式', description: '切换到图形选择模式', defaultBindings: () => ['Alt+1'] },
   { id: 'mode.point', group: 'mode', name: '点位模式', description: '切换到点位编辑模式', defaultBindings: () => ['Alt+2'] },
   { id: 'mode.segment', group: 'mode', name: '线段模式', description: '切换到线段编辑模式', defaultBindings: () => ['Alt+3'] },

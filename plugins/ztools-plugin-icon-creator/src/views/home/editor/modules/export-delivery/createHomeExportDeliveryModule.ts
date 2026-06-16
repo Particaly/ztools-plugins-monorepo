@@ -892,6 +892,12 @@ export function createHomeExportDeliveryModule(
       case 'edit.redo':
         options.shortcut.redo()
         break
+      case 'edit.copyStyle':
+        options.shortcut.copyStyle()
+        break
+      case 'edit.pasteStyle':
+        options.shortcut.pasteStyle()
+        break
       case 'mode.shape':
         options.shortcut.setSelectionMode('shape')
         break

@@ -471,6 +471,8 @@
             :flip-object="flipObject"
             :reset-transform="resetTransform"
             :set-skew-from-input="setSkewFromInput"
+            :copy-style="copyStyle"
+            :paste-style="pasteStyle"
             @update:align-popover-visible="alignPopoverVisible = $event"
             @update:canvas-width-input="canvasWidthInput = $event"
             @update:canvas-height-input="canvasHeightInput = $event"
@@ -840,6 +842,8 @@ const {
   flipObject,
   resetTransform,
   setSkewFromInput,
+  copyStyle,
+  pasteStyle,
   setObjSizeFromInput,
   alignPositions,
   alignPopoverVisible,

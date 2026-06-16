@@ -324,6 +324,25 @@ export function useHomeEditorRuntime() {
   const sizeRatioLocked = ref(false)
   const lockedAspectRatio = ref(1)
 
+  type CopiedStyle = {
+    fill?: any
+    fillMode?: string
+    fillGradientType?: string
+    fillGradientStops?: any[]
+    fillGradientAngle?: number
+    fillGradientCenterX?: number
+    fillGradientCenterY?: number
+    fillGradientRadius?: number
+    stroke?: any
+    strokeWidth?: number
+    strokeDashArray?: number[] | null
+    opacity?: number
+    shadowEffects?: any[]
+    blurEnabled?: boolean
+    blurRadius?: number
+  }
+  const copiedStyle = ref<CopiedStyle | null>(null)
+
   const { isDark, primaryColor, customColor } = useZtoolsTheme()
 
   function getCssVar(name: string, fallback: string, scopeEl?: Element | null) {
@@ -2192,7 +2211,9 @@ export function useHomeEditorRuntime() {
       toggleRuler,
       undo,
       ungroupObject,
-      zoom
+      zoom,
+      copyStyle,
+      pasteStyle
     }
   })
   const exportDeliveryState = homeExportDelivery.controller.state
@@ -5590,6 +5611,115 @@ export function useHomeEditorRuntime() {
     snapshot()
   }
 
+  function copyStyle() {
+    const obj = activeObject.value
+    if (!obj) return
+    const targets = getStyleTargets(obj)
+    const first = targets[0]
+    if (!first) return
+
+    const metadata = getFillGradientMetadata(first)
+    const shadowMetadata = getShadowEffectsMetadata(first)
+
+    copiedStyle.value = {
+      fill: first.fill,
+      fillMode: metadata?.fillMode,
+      fillGradientType: metadata?.fillGradientType,
+      fillGradientStops: metadata?.fillGradientStops ? [...metadata.fillGradientStops] : undefined,
+      fillGradientAngle: metadata?.fillGradientAngle,
+      fillGradientCenterX: metadata?.fillGradientCenterX,
+      fillGradientCenterY: metadata?.fillGradientCenterY,
+      fillGradientRadius: metadata?.fillGradientRadius,
+      stroke: first.stroke,
+      strokeWidth: first.strokeWidth,
+      strokeDashArray: first.strokeDashArray ? [...first.strokeDashArray] : null,
+      opacity: first.opacity,
+      shadowEffects: shadowMetadata?.shadowEffects ? [...shadowMetadata.shadowEffects] : undefined,
+      blurEnabled: shadowMetadata?.blurEnabled,
+      blurRadius: shadowMetadata?.blurRadius
+    }
+    toast.success('样式已复制')
+  }
+
+  function pasteStyle() {
+    const obj = activeObject.value
+    if (!obj || !fabricCanvas || !copiedStyle.value) return
+
+    const style = copiedStyle.value
+    const targets = getStyleTargets(obj)
+
+    targets.forEach((target) => {
+      const anyTarget = target as AnyFabricObject
+
+      // 应用填充
+      if (style.fill !== undefined) {
+        target.set('fill', style.fill)
+        anyTarget.lastFill = typeof style.fill === 'string' ? style.fill : undefined
+      }
+
+      // 应用填充渐变元数据
+      const metadata = getFillGradientMetadata(target)
+      if (metadata) {
+        if (style.fillMode) metadata.fillMode = style.fillMode
+        if (style.fillGradientType) metadata.fillGradientType = style.fillGradientType
+        if (style.fillGradientStops) metadata.fillGradientStops = [...style.fillGradientStops]
+        if (style.fillGradientAngle !== undefined) metadata.fillGradientAngle = style.fillGradientAngle
+        if (style.fillGradientCenterX !== undefined) metadata.fillGradientCenterX = style.fillGradientCenterX
+        if (style.fillGradientCenterY !== undefined) metadata.fillGradientCenterY = style.fillGradientCenterY
+        if (style.fillGradientRadius !== undefined) metadata.fillGradientRadius = style.fillGradientRadius
+
+        // 如果是渐变模式，重建渐变对象
+        if (style.fillMode === 'gradient') {
+          const gradient = createGradientFromMetadata(target)
+          if (gradient) target.set('fill', gradient)
+        }
+      }
+
+      // 应用描边
+      if (style.stroke !== undefined) {
+        target.set('stroke', style.stroke)
+        anyTarget.lastStroke = typeof style.stroke === 'string' ? style.stroke : undefined
+      }
+      if (style.strokeWidth !== undefined) {
+        target.set('strokeWidth', style.strokeWidth)
+        anyTarget.lastStrokeWidth = style.strokeWidth
+      }
+      if (style.strokeDashArray !== undefined) {
+        target.set('strokeDashArray', style.strokeDashArray ? [...style.strokeDashArray] : null)
+        anyTarget.lastStrokeDashArray = style.strokeDashArray ? [...style.strokeDashArray] : null
+      }
+
+      // 应用透明度
+      if (style.opacity !== undefined) {
+        target.set('opacity', style.opacity)
+      }
+
+      // 应用阴影和模糊
+      const shadowMetadata = getShadowEffectsMetadata(target)
+      if (shadowMetadata) {
+        if (style.shadowEffects) {
+          shadowMetadata.shadowEffects = style.shadowEffects.map(effect => ({...effect}))
+          applyShadowEffectsToFabricObject(target)
+        }
+        if (style.blurEnabled !== undefined) shadowMetadata.blurEnabled = style.blurEnabled
+        if (style.blurRadius !== undefined) shadowMetadata.blurRadius = style.blurRadius
+      }
+
+      target.dirty = true
+      target.setCoords()
+    })
+
+    if (obj instanceof Group) obj.triggerLayout()
+    obj.dirty = true
+    obj.setCoords()
+    triggerKaleidoscopeContentSync(obj)
+    fabricCanvas.requestRenderAll()
+    refreshLayers()
+    syncObjProps()
+    snapshot()
+    toast.success('样式已应用')
+  }
+
 
   // 按属性面板输入缩放当前对象；开启网格吸附时会继续量化显示尺寸和边界位置。
   function setObjSize(dim: 'width' | 'height', value: number) {
@@ -7890,6 +8020,8 @@ export function useHomeEditorRuntime() {
     flipObject,
     resetTransform,
     setSkewFromInput,
+    copyStyle,
+    pasteStyle,
     setObjSizeFromInput,
     alignPositions,
     alignPopoverVisible,

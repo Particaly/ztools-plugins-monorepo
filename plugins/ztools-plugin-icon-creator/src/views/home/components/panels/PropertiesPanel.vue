@@ -683,6 +683,10 @@
           <span v-if="booleanError" class="boolean-error">{{ booleanError }}</span>
         </div>
         <div class="prop-actions">
+          <button class="tb-btn" @click="copyStyle">复制样式</button>
+          <button class="tb-btn" @click="pasteStyle">粘贴样式</button>
+        </div>
+        <div class="prop-actions">
           <button class="tb-btn" @click="groupObjects" :disabled="!canGroup">成组</button>
           <button class="tb-btn" @click="ungroupObject" :disabled="!canUngroup">解组</button>
           <button class="tb-btn" @click="lockObject">{{ activeObject.lockMovementX ? '解锁' : '锁定' }}</button>
@@ -919,6 +923,8 @@ const props = defineProps<{
   flipObject: AnyFn
   resetTransform: AnyFn
   setSkewFromInput: AnyFn
+  copyStyle: AnyFn
+  pasteStyle: AnyFn
 }>()
 
 const emit = defineEmits<{
