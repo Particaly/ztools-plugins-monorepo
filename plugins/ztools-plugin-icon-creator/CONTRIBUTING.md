@@ -63,7 +63,7 @@ src/
 - 撤销/重做历史管理
 - 图层操作（上移、下移、显示/隐藏等）
 - 样式管理（填充、描边、渐变等）
-- 高级功能（阴影、模糊、蒙版、锁定等）
+- 高级功能（阴影、模糊、锁定等）
 
 核心响应式状态：
 - `fabricCanvas` - Fabric 画布实例
@@ -75,7 +75,6 @@ src/
 定义对象的扩展元数据类型：
 - 渐变相关：`FillGradientMetadata`
 - 阴影和模糊：`ShadowEffectsMetadata`
-- 蒙版相关：`ClippingMaskMetadata`
 - 万花筒：`KaleidoscopeMetadata`
 - 锁定相关：通过 Fabric 原生属性实现
 
@@ -249,11 +248,11 @@ function applyYourProperty() {
 
 示例：
 ```
-feat: 新增剪切蒙版功能
+feat: 新增高级渐变功能
 
-- 新增剪切蒙版支持，可选中两个对象创建蒙版关系
-- 使用 Fabric.js clipPath 实现非破坏性裁切
-- 在属性面板添加创建蒙版和释放蒙版按钮
+- 新增径向渐变和锥形渐变支持
+- 支持渐变角度和中心点调整
+- 在属性面板添加渐变类型选择器
 ```
 
 ## 测试

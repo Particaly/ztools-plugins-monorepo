@@ -657,10 +657,6 @@
           <button class="tb-btn" @click="pasteStyle" title="粘贴样式 (Ctrl+Shift+V)">粘贴样式</button>
         </div>
         <div class="prop-actions">
-          <button class="tb-btn" @click="createClippingMask" :disabled="!canCreateClippingMask" title="创建蒙版">创建蒙版</button>
-          <button class="tb-btn" @click="releaseClippingMask" :disabled="!hasClippingMask" title="释放蒙版">释放蒙版</button>
-        </div>
-        <div class="prop-actions">
           <button class="tb-btn" @click="groupObjects" :disabled="!canGroup" title="成组 (Ctrl+G)">成组</button>
           <button class="tb-btn" @click="ungroupObject" :disabled="!canUngroup" title="解组 (Ctrl+Shift+G)">解组</button>
           <ZPopover
@@ -934,10 +930,6 @@ const props = defineProps<{
   pasteStyle: AnyFn
   currentLockMode: string
   setLockMode: AnyFn
-  createClippingMask: AnyFn
-  releaseClippingMask: AnyFn
-  canCreateClippingMask: boolean
-  hasClippingMask: boolean
 }>()
 
 const lockPopoverVisible = ref(false)

@@ -43,12 +43,6 @@
           </button>
           <span class="layer-name">
             {{ item.name }}
-            <span v-if="isClippedObject(item.obj)" class="layer-badge" title="已应用蒙版">
-              <Icon icon="mdi:scissors-cutting" />
-            </span>
-            <span v-if="isClippingMask(item.obj)" class="layer-badge" title="作为蒙版">
-              <Icon icon="mdi:content-cut" />
-            </span>
           </span>
           <button class="layer-icon-btn" @click.stop="$emit('toggle-visible', item.obj)">
             <Icon :icon="item.obj.visible !== false ? 'mdi:eye-outline' : 'mdi:eye-off-outline'" />
@@ -154,16 +148,6 @@ function getLockModeTitle(obj: FabricObject): string {
     default:
       return '未锁定'
   }
-}
-
-function isClippingMask(obj: FabricObject): boolean {
-  const metadata = obj as any
-  return metadata?.isClippingMask === true
-}
-
-function isClippedObject(obj: FabricObject): boolean {
-  const metadata = obj as any
-  return typeof metadata?.clippedBy === 'string' && metadata.clippedBy.length > 0
 }
 </script>
 

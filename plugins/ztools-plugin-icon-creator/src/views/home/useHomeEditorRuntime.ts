@@ -5806,92 +5806,6 @@ export function useHomeEditorRuntime() {
     snapshot()
   }
 
-  function createClippingMask() {
-    const obj = activeObject.value
-    if (!obj || !fabricCanvas) return
-
-    // 需要选中两个对象：一个作为蒙版，一个被裁切
-    if (!(obj instanceof ActiveSelection) || obj.size() !== 2) {
-      toast.warning('请选中两个对象：上层作为蒙版，下层被裁切')
-      return
-    }
-
-    const objects = obj.getObjects()
-    // 获取层级，上层作为蒙版
-    const maskObject = objects[objects.length - 1]
-    const targetObject = objects[0]
-
-    const maskId = (maskObject as any).editorObjectId
-    const targetId = (targetObject as any).editorObjectId
-
-    if (!maskId || !targetId) {
-      toast.error('对象缺少必要的 ID 信息')
-      return
-    }
-
-    // 设置蒙版关系
-    const maskMeta = maskObject as any
-    const targetMeta = targetObject as any
-
-    maskMeta.isClippingMask = true
-    maskMeta.clippingTarget = targetId
-
-    targetMeta.clippedBy = maskId
-
-    // 使用 clipPath 实现蒙版
-    targetObject.clipPath = maskObject as any
-
-    // 取消选择，重新选择被蒙版对象
-    fabricCanvas.discardActiveObject()
-    fabricCanvas.setActiveObject(targetObject)
-
-    fabricCanvas.requestRenderAll()
-    refreshLayers()
-    snapshot()
-    toast.success('蒙版已创建')
-  }
-
-  function releaseClippingMask() {
-    const obj = activeObject.value
-    if (!obj || !fabricCanvas) return
-
-    const metadata = obj as any
-    if (!metadata.clippedBy) {
-      toast.warning('当前对象没有应用蒙版')
-      return
-    }
-
-    // 清除蒙版
-    obj.clipPath = undefined as any
-    metadata.clippedBy = undefined
-
-    // 找到蒙版对象并清除其元数据
-    const allObjects = fabricCanvas.getObjects()
-    const maskObj = allObjects.find((o: any) => o.editorObjectId === metadata.clippedBy)
-    if (maskObj) {
-      const maskMeta = maskObj as any
-      maskMeta.isClippingMask = false
-      maskMeta.clippingTarget = undefined
-    }
-
-    fabricCanvas.requestRenderAll()
-    refreshLayers()
-    snapshot()
-    toast.success('蒙版已释放')
-  }
-
-  const canCreateClippingMask = computed(() => {
-    const obj = activeObject.value
-    return obj instanceof ActiveSelection && obj.size() === 2
-  })
-
-  const hasClippingMask = computed(() => {
-    const obj = activeObject.value
-    if (!obj) return false
-    const metadata = obj as any
-    return typeof metadata.clippedBy === 'string' && metadata.clippedBy.length > 0
-  })
-
   const isMultiSelection = computed(() => {
     return activeObject.value instanceof ActiveSelection
   })
@@ -8269,10 +8183,6 @@ export function useHomeEditorRuntime() {
     pasteStyle,
     currentLockMode,
     setLockMode,
-    createClippingMask,
-    releaseClippingMask,
-    canCreateClippingMask,
-    hasClippingMask,
     isMultiSelection,
     selectionCount,
     setObjSizeFromInput,

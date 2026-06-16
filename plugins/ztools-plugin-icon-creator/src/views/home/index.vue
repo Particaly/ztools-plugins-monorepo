@@ -487,10 +487,6 @@
             :paste-style="pasteStyle"
             :current-lock-mode="currentLockMode"
             :set-lock-mode="setLockMode"
-            :create-clipping-mask="createClippingMask"
-            :release-clipping-mask="releaseClippingMask"
-            :can-create-clipping-mask="canCreateClippingMask"
-            :has-clipping-mask="hasClippingMask"
             @update:align-popover-visible="alignPopoverVisible = $event"
             @update:canvas-width-input="canvasWidthInput = $event"
             @update:canvas-height-input="canvasHeightInput = $event"
@@ -871,10 +867,6 @@ const {
   pasteStyle,
   currentLockMode,
   setLockMode,
-  createClippingMask,
-  releaseClippingMask,
-  canCreateClippingMask,
-  hasClippingMask,
   isMultiSelection,
   selectionCount,
   setObjSizeFromInput,
