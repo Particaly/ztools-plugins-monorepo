@@ -94,8 +94,10 @@ defineEmits<{
 .left-panel__content {
   width: $left-w;
   min-width: $left-w;
-  flex: 0 0 auto;
+  flex: 1;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
   opacity: 1;
   transform: translateX(0);
   transition: opacity 0.16s ease, transform 0.22s ease;
