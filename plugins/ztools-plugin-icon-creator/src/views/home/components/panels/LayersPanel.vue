@@ -98,6 +98,10 @@ const emit = defineEmits<{
   (event: 'layer-bottom'): void
   (event: 'drag-start'): void
   (event: 'reorder-layers'): void
+  (event: 'show-all-layers'): void
+  (event: 'hide-all-layers'): void
+  (event: 'lock-all-layers'): void
+  (event: 'unlock-all-layers'): void
   (event: 'layer-mouse-down', obj: FabricObject, mouseEvent: MouseEvent): void
   (event: 'open-context-menu', obj: FabricObject, mouseEvent: MouseEvent): void
   (event: 'toggle-visible', obj: FabricObject): void

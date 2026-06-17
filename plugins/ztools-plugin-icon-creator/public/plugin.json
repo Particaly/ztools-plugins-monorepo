@@ -1,8 +1,8 @@
 {
   "$schema": "node_modules/@ztools-center/ztools-api-types/resource/ztools.schema.json",
   "name": "Icon Creator",
-  "title": "Icon Creator",
-  "description": "A ZTools plugin",
+  "title": "图标创建工具",
+  "description": "可视化图标设计工具，支持图层编辑、样式预设和 PNG/SVG 多格式导出",
   "author": "皮皮虾我们走",
   "version": "1.0.0",
   "main": "index.html",

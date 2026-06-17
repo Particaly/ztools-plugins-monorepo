@@ -128,4 +128,6 @@ export interface HomeExportDeliveryShortcutOptions extends HomeExportDeliveryLay
   showToast: (message: string, type?: 'success' | 'error' | 'info' | 'warning', duration?: number) => void
   undo: () => void
   redo: () => void
+  copyStyle: () => void
+  pasteStyle: () => void
 }

@@ -550,20 +550,20 @@ function removeGradientStop(presetId: string, stopId: string) {
 }
 
 // 用百分比输入更新 stop offset，并在本地立即限制到 0-100 范围内。
-function updateGradientStopOffset(presetId: string, stopIndex: number, eventOrValue: Event | number) {
+function updateGradientStopOffset(presetId: string, stopIndex: number, eventOrValue: string | number) {
   const preset = localGradientPresets.value.find((item) => item.id === presetId)
   if (!preset) return
-  const value = typeof eventOrValue === 'number' ? eventOrValue : Number((eventOrValue.target as HTMLInputElement | null)?.value)
+  const value = typeof eventOrValue === 'number' ? eventOrValue : Number(eventOrValue)
   const normalized = Number.isFinite(value) ? Math.min(100, Math.max(0, value)) : Math.round(preset.stops[stopIndex]?.offset ?? 0)
   if (!preset.stops[stopIndex]) return
   preset.stops[stopIndex].offset = normalized / 100
 }
 
 // 统一更新线性角度和径向参数，避免模板里分散写多套数值清洗逻辑。
-function updateGradientNumberField(presetId: string, field: 'angle' | 'centerX' | 'centerY' | 'radius', eventOrValue: Event | number) {
+function updateGradientNumberField(presetId: string, field: 'angle' | 'centerX' | 'centerY' | 'radius', eventOrValue: string | number) {
   const preset = localGradientPresets.value.find((item) => item.id === presetId)
   if (!preset) return
-  const value = typeof eventOrValue === 'number' ? eventOrValue : Number((eventOrValue.target as HTMLInputElement | null)?.value)
+  const value = typeof eventOrValue === 'number' ? eventOrValue : Number(eventOrValue)
   if (!Number.isFinite(value)) return
   if (field === 'angle') {
     const normalized = value % 360

@@ -41,6 +41,7 @@ import {
   type AnyFabricObject,
   type FillGradientStop,
   type FillGradientType,
+  type FillMode,
   type ShadowEffectItem
 } from './fabric/objectMetadata'
 import { createShape } from './fabric/shapeFactories'
@@ -330,8 +331,8 @@ export function useHomeEditorRuntime() {
 
   type CopiedStyle = {
     fill?: any
-    fillMode?: string
-    fillGradientType?: string
+    fillMode?: FillMode
+    fillGradientType?: FillGradientType
     fillGradientStops?: any[]
     fillGradientAngle?: number
     fillGradientCenterX?: number
