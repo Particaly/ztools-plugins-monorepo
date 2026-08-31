@@ -1,0 +1,924 @@
+/**
+ * 全局样式：主题 token 与基础布局约定。
+ *
+ * 主题机制（与 ztools-ui 对齐）：
+ * - ztools-ui 在 :root 注入浅色宿主变量（--bg-color/--text-color/--border-color/--primary-color 等），
+ *   在 html.dark（含 os-* / theme-* / data-material 变体）注入深色宿主变量；
+ * - 本文件的 --diff-* token 跟随同一约定：浅色挂 :root，深色挂 html.dark。
+ */
+
+/* ---------- Diff 配色 token（GitHub 风格，见 roadmap §3.2） ---------- */
+
+:root {
+  /* 删除行 */
+  --diff-del-bg: #ffebe9;
+  --diff-del-word-bg: #ffc1bc;
+  --diff-del-text: #82071a;
+
+  /* 新增行 */
+  --diff-add-bg: #dafbe1;
+  --diff-add-word-bg: #aceebb;
+  --diff-add-text: #116329;
+
+  /* 行号栏 / hunk 头 */
+  --diff-gutter-bg: #f6f8fa;
+  --diff-hunk-bg: #ddf4ff;
+
+  /*
+   * 语法高亮 token（INT-001，浅色取值参考 GitHub light 语法色板）。
+   * 这是新增的独立 token 组（--syntax-*），与上方 --diff-* 的「diff 语义色」
+   * 分工明确：--diff-* 管行级红绿底色与词级 diff 背景，--syntax-* 只管
+   * 语法 token 的文字色（消费方 .tok-* 类与 spans 渲染，见下方 tok-* 段），
+   * 互不覆盖。variableName 刻意不给色（默认文字色），operator / punctuation
+   * 用次级弱化色。
+   */
+  --syntax-keyword: #cf222e;
+  --syntax-string: #0a3069;
+  --syntax-comment: #6e7781;
+  --syntax-number: #0550ae;
+  --syntax-atom: #0550ae;
+  --syntax-entity: #116329;
+  --syntax-type: #953800;
+  --syntax-attribute: #0550ae;
+  --syntax-property: #0550ae;
+  --syntax-operator: #57606a;
+  --syntax-punctuation: color-mix(in srgb, var(--text-color, #333333) 75%, transparent);
+  --syntax-meta: #8250df;
+
+  /* Diff 排版 token */
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --diff-font-size: 13px;
+  --diff-line-height: 20px;
+
+  /* 内部滚动条（浅色） */
+  --scrollbar-thumb: #d0d7de;
+}
+
+/* 深色 token：跟随 ztools-ui 宿主深色选择器 html.dark */
+html.dark {
+  --diff-del-bg: #78191b;
+  --diff-del-word-bg: #9c3231;
+  --diff-del-text: #ff8181;
+
+  --diff-add-bg: #1a4721;
+  --diff-add-word-bg: #2ea04366;
+  --diff-add-text: #7ee787;
+
+  --diff-gutter-bg: #161b22;
+  --diff-hunk-bg: #121d2f;
+
+  /* 语法高亮 token（INT-001，深色取值参考 GitHub dark 语法色板） */
+  --syntax-keyword: #ff7b72;
+  --syntax-string: #a5d6ff;
+  --syntax-comment: #8b949e;
+  --syntax-number: #79c0ff;
+  --syntax-atom: #79c0ff;
+  --syntax-entity: #7ee787;
+  --syntax-type: #ffa657;
+  --syntax-attribute: #79c0ff;
+  --syntax-property: #79c0ff;
+  --syntax-operator: #8b949e;
+  --syntax-punctuation: color-mix(in srgb, var(--text-color, #c9d1d9) 75%, transparent);
+  --syntax-meta: #d2a8ff;
+
+  /* 内部滚动条（深色） */
+  --scrollbar-thumb: #30363d;
+}
+
+/* ---------- 基础布局：App Shell 占满视口，页面级不滚动 ---------- */
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  background-color: var(--bg-color, #f4f4f4);
+  color: var(--text-color, #333333);
+}
+
+/* ---------- 滚动条（供编辑器 / diff 视图等内部滚动区域继承，随宿主主题切换） ---------- */
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track-piece {
+  background-color: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb, var(--border-color, #e5e7eb));
+  border-radius: 4px;
+}
+
+/* ---------- Diff 文本基础排版（UI-006/007 diff 视图复用） ---------- */
+
+.diff-text {
+  font-family: var(--font-mono);
+  font-size: var(--diff-font-size);
+  line-height: var(--diff-line-height);
+}
+
+/*
+ * ---------- 语法高亮 token 类（INT-001，src/core/highlight.ts 产出） ----------
+ *
+ * highlightLineSpans 把行文本切成带 tok-* 类名的 spans（有限类名集合，映射
+ * 表见 highlight.ts 的 tagToClass：Tag.set 父链回退，如 controlKeyword 落到
+ * keyword），每个类只消费上方的 --syntax-* token，随宿主深浅主题自动切换。
+ *
+ * 与 diff 语义色的共存规则：tok-* 只设 color（文字色），行级红绿底色由
+ * .diff-content.is-tone-* 承载、词级 diff 背景由 .word-changed（背景）承载
+ * —— 同一 span 上 class 并列挂载（'word-changed tok-*'）时背景与文字色
+ * 各司其职，互不覆盖。tok-variable 刻意保持默认文字色（占位类）。
+ * 消费方：SplitDiffView / UnifiedDiffView 的行内容 spans，以及 InputEditor
+ * （CM6 侧经 highlight.ts 导出的 class 型 HighlightStyle 挂同样的 tok-* 类，
+ * 编辑器与结果视图共用同一套语法色板）。
+ */
+.tok-keyword {
+  color: var(--syntax-keyword);
+}
+
+.tok-string {
+  color: var(--syntax-string);
+}
+
+.tok-comment {
+  color: var(--syntax-comment);
+}
+
+.tok-number {
+  color: var(--syntax-number);
+}
+
+.tok-atom {
+  color: var(--syntax-atom);
+}
+
+.tok-entity {
+  color: var(--syntax-entity);
+}
+
+.tok-type {
+  color: var(--syntax-type);
+}
+
+.tok-attribute {
+  color: var(--syntax-attribute);
+}
+
+.tok-property {
+  color: var(--syntax-property);
+}
+
+.tok-variable {
+  color: inherit;
+}
+
+.tok-operator {
+  color: var(--syntax-operator);
+}
+
+.tok-punctuation {
+  color: var(--syntax-punctuation);
+}
+
+.tok-meta {
+  color: var(--syntax-meta);
+}
+
+/*
+ * ---------- Diff 行模型公共类（UI-006/007 并排与统一视图共用） ----------
+ *
+ * 并排（SplitDiffView）与统一（UnifiedDiffView）两视图的行号列 / 记号列 /
+ * 内容列结构与配色语义一致（UI-007 起从 SplitDiffView 的 scoped 样式提取）：
+ * 公共部分收敛到全局类（.diff-* 前缀命名空间，避免与宿主样式冲突），组件内
+ * 只保留各自的布局量（网格列宽、sticky left 偏移）与视图专属样式 —— 两视图
+ * 共用同一份行样式，杜绝双份拷贝漂移。颜色只消费 --diff-* token 与宿主变量。
+ */
+
+/*
+ * 行分组容器：display:contents —— 行盒子自身不参与布局（单元格直接落入外层
+ * 网格的列轨道），但保留 DOM 分组（v-for key、行级 class（is-* / is-long-line）
+ * 挂载点、虚拟滚动 UI-009 已接入的天然行切分单元）。
+ */
+.diff-row {
+  display: contents;
+}
+
+/*
+ * 行号列（gutter）：sticky 左固定 + 右对齐，底色恒为 gutter 灰、数字弱化色
+ * （GitHub 风格）。sticky left: 0 是防御性声明（两视图的网格本体都不产生横向
+ * 滚动，行号天然恒定可见；多列 gutter 的第二列及后续列的 left 偏移由各组件
+ * 按自身列宽在 scoped 样式覆写）。
+ */
+.diff-gutter {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  padding: 0 8px 0 6px;
+  text-align: right;
+  /* 行号数字等宽（UI-015 显式声明：不依赖根节点 .diff-text 的继承链） */
+  font-family: var(--font-mono);
+  background-color: var(--diff-gutter-bg);
+  color: color-mix(in srgb, var(--text-color, #333333) 55%, transparent);
+  user-select: none;
+}
+
+/* 记号列（−/+）：sticky 基类（left 偏移 = 前置 gutter 总宽，属各组件布局量） */
+.diff-sign {
+  position: sticky;
+  z-index: 2;
+  /* −/+ 记号等宽（UI-015 显式声明：与行号 / 内容同族，符号宽度稳定） */
+  font-family: var(--font-mono);
+  text-align: center;
+  user-select: none;
+}
+
+/*
+ * 内容列：横向滚动的唯一单元 —— 列宽恒为 minmax(0, 1fr)（与内容长短无关，
+ * 任何超长行都不会撑宽网格），超出部分交给单元格自身横向滚动 / 换行策略。
+ * min-height：空文本行不塌陷（保留一行底色高度）。
+ *
+ * 行高恒定修正（UI-009 虚拟滚动的前置保证）：内容格是横向滚动容器，原生
+ * 经典滚动条（全局 ::-webkit-scrollbar 高 8px）出现在超长行时会把内容格
+ * 的 auto 高度撑到 20px + 8px = 28px，行高不再统一、虚拟滚动的等行高计高
+ * 模型失真（且滚动条出现 / 消失会引发行高跳变）。这里隐藏内容格自身的
+ * 滚动条（标准属性 scrollbar-width + webkit 私有兜底双写；指定标准属性后
+ * Chromium 对该元素忽略 ::-webkit-scrollbar 样式）：滚动能力保留（滚轮 /
+ * 触控板横扫 / Shift+滚轮仍横向可达），超长内容恒可达而行高恒为
+ * var(--diff-line-height)；可见的横向滚动指示（hover 浮层式）归 UI-015 打磨。
+ */
+.diff-content {
+  min-height: var(--diff-line-height);
+  min-width: 0;
+  padding: 0 12px;
+  white-space: pre;
+  overflow-x: auto;
+  overflow-y: hidden;
+  tab-size: 4;
+  scrollbar-width: none;
+  /* UI-011：内容格是「点击进入该侧编辑」的目标（两视图 emit editSide），
+     text 光标提供可编辑暗示；不加 hover 变色 —— 行底色是 del/add 语义色，
+     hover 改色噪音大于收益。拖拽选中后的 click 由组件内选中保护跳过。 */
+  cursor: text;
+}
+
+.diff-content::-webkit-scrollbar {
+  display: none;
+}
+
+/*
+ * 换行开关（wrapLongLines，viewStore 唯一真源，两视图根节点挂 .is-wrap）：
+ * pre-wrap + overflow-wrap: anywhere —— 无空格巨型 token（压缩行 / 长 URL /
+ * 万字符长行）按需逐字符断行，配合 minmax(0,1fr) 列宽保证任何行不撑破布局。
+ */
+.is-wrap .diff-content {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow-x: hidden;
+}
+
+/* 行底色 / 文字色：红删绿增（token 见上方 --diff-* 段，随宿主深浅主题切换） */
+.diff-content.is-tone-del {
+  background-color: var(--diff-del-bg);
+  color: var(--diff-del-text);
+}
+
+.diff-content.is-tone-add {
+  background-color: var(--diff-add-bg);
+  color: var(--diff-add-text);
+}
+
+.diff-sign.is-tone-del {
+  background-color: var(--diff-del-bg);
+  color: var(--diff-del-text);
+}
+
+.diff-sign.is-tone-add {
+  background-color: var(--diff-add-bg);
+  color: var(--diff-add-text);
+}
+
+/* 行号列底色恒为 gutter 灰，仅数字颜色跟随行色调（GitHub 风格弱化处理） */
+.diff-gutter.is-tone-del {
+  color: var(--diff-del-text);
+}
+
+.diff-gutter.is-tone-add {
+  color: var(--diff-add-text);
+}
+
+/*
+ * 当前 hunk 高亮（UI-010，并排 / 统一视图共用）：导航定位的 hunk 覆盖区间
+ * 内的行挂 is-current-hunk 行级 class（.diff-row 为 display:contents 无自身
+ * 盒子，高亮经后代选择器落在单元格上），gutter（行号）与记号（−/+）列底色
+ * 切为 hunk 头蓝（--diff-hunk-bg，与 unified @@ 头条同源 token）。
+ *
+ * 视觉决策（任务给定二选一，取轻量方案）：只给 gutter / 记号列上色、不动
+ * 内容列 —— 一条贯穿 hunk 区间的浅蓝侧标足以指示范围，内容行保留各自的
+ * 红 / 绿语义底色（可读性优先）；未定位（navStore.currentAnchor 为 null）
+ * 时不挂 class、无任何样式痕迹。行号数字颜色仍跟随行色调（is-tone-*），
+ * 与底色叠加后对比度足够。
+ */
+.diff-row.is-current-hunk .diff-gutter,
+.diff-row.is-current-hunk .diff-sign {
+  background-color: var(--diff-hunk-bg);
+}
+
+/*
+ * 长行截断（仅换行模式；非换行模式单行恒定高、横向滚动可达，不截断）：
+ * ENG-012 标记的超长行（is-long-line 挂在 .diff-row 上）max-height 4 行 +
+ * overflow hidden，右下角「展开」提示占位（非交互，完整截断/展开交互归
+ * UI-015/009）。
+ */
+.is-wrap .is-long-line .diff-content {
+  position: relative;
+  max-height: calc(var(--diff-line-height) * 4);
+  overflow: hidden;
+}
+
+/* 长行「展开」提示样式占位（非交互，pointer-events: none） */
+.diff-long-line-hint {
+  position: absolute;
+  right: 8px;
+  bottom: 2px;
+  padding: 0 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--text-color, #333333);
+  background-color: var(--diff-gutter-bg);
+  opacity: 0.9;
+  pointer-events: none;
+}
+
+/*
+ * ---------- 折叠未更改行（UI-008，并排 / 统一视图共用） ----------
+ *
+ * 视觉选择（与 unified hunk 头条的区分，报告口径）：折叠条用 --diff-gutter-bg
+ * 灰底 + 上下虚线边 + 次级文字色；hunk 头条保持 --diff-hunk-bg 蓝底 —— 头条
+ * 是「结构锚点」、折叠条是弱化的「操作条」，两者在统一视图相邻（折叠条紧跟
+ * 上一 hunk 末行、下一 hunk 的 @@ 头条紧随其后）时也能一眼区分。
+ *
+ * 文案「⋯ 展开未更改的 N 行」：N=2 时保持「行」不变 —— 中文量词无单复数
+ * 变化，「1 行」「2 行」均通顺，无需单数处理。「⋯」符号与文案整体水平
+ * 居中（UI-015：对齐 GitHub / Diffchecker 的展开条带惯例，居中比左贴边
+ * 更明确表达「这条带是操作入口而非行」）。
+ *
+ * 形态：真实 <button>（按钮语义：点击展开该区段），作为两视图网格的直接
+ * 子元素以 grid-column: 1 / -1 横跨整行宽度（两视图列数不同、跨度写法一致）。
+ * 颜色全部从既有 token / 宿主变量派生（color-mix），不硬编码色值。
+ *
+ * 行高恒定（UI-009 虚拟滚动前提）：折叠条是渲染单元之一，与 diff 行统一按
+ * --diff-line-height 计高 —— line-height 取行高减上下虚线边各 1px，总高恰为
+ * var(--diff-line-height)，与行单元严格等高（策略 A 的「统一编号」为精确
+ * 模型，见 src/composables/virtual.ts 文件头）。
+ */
+.diff-collapse-bar {
+  appearance: none;
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 0 12px;
+  border: none;
+  border-top: 1px dashed color-mix(in srgb, var(--text-color, #333333) 18%, transparent);
+  border-bottom: 1px dashed color-mix(in srgb, var(--text-color, #333333) 18%, transparent);
+  /* button 不继承字族 / 字号，显式接回 .diff-text 的等宽排版 */
+  font-family: inherit;
+  font-size: 12px;
+  line-height: calc(var(--diff-line-height) - 2px);
+  text-align: center;
+  background-color: var(--diff-gutter-bg);
+  color: color-mix(in srgb, var(--text-color, #333333) 55%, transparent);
+  cursor: pointer;
+  user-select: none;
+}
+
+/* hover 高亮：背景向文字色调和 8%（浅色主题加深、深色主题变浅，均为主题内
+   高亮），文字同步加深一档；键盘聚焦环用宿主主色描边 */
+.diff-collapse-bar:hover {
+  background-color: color-mix(in srgb, var(--diff-gutter-bg) 92%, var(--text-color, #333333));
+  color: color-mix(in srgb, var(--text-color, #333333) 80%, transparent);
+}
+
+.diff-collapse-bar:focus-visible {
+  outline: 1px solid var(--primary-color);
+  outline-offset: -1px;
+}
+
+/*
+ * ---------- 合并更改控制条（UI-012，并排 / 统一视图共用） ----------
+ *
+ * 每个 hunk 首行前的动作条：「⇤ 应用到左侧」（right-to-left）与
+ * 「应用到右侧 ⇥」（left-to-right）两个轻量小按钮，点击 emit applyHunk
+ * 由 App.vue 调 core/merge.ts 应用并重算。视觉与相邻条带的区分（报告口径）：
+ * - 底色 --diff-hunk-bg（hunk 头蓝）+ 上下 1px 实线描边 —— 折叠条是
+ *   --diff-gutter-bg 灰底 + 虚线边的「弱化操作条」，控制条是带按钮的
+ *   「动作条」；unified 视图里控制条与 @@ 头条相邻，实线描边把两者分开；
+ * - hover 时底色向文字色调和加深一档（同折叠条 hover 的派生方式）。
+ *
+ * 行高恒定（UI-009 虚拟滚动前提）：控制条与折叠条 / 行单元统一按
+ * --diff-line-height 计高 —— box-sizing: border-box + 显式 height，
+ * 上下描边计入高度内，总高恰为一行。
+ *
+ * 按钮用轻量原生 <button> 而非 ztools-ui ZButton：ZButton 最小档（small）
+ * 高 28px 且自带 2px 描边，放不进 20px 等高条带（会撑破虚拟滚动的等高
+ * 单元模型）；.diff-merge-btn 自绘 16px 高的轻量按钮，颜色全部从既有
+ * token / 宿主变量派生（color-mix），随主题切换，无硬编码色值。
+ */
+.diff-merge-bar {
+  box-sizing: border-box;
+  grid-column: 1 / -1;
+  height: var(--diff-line-height);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border-top: 1px solid color-mix(in srgb, var(--diff-hunk-bg) 60%, var(--text-color, #333333));
+  border-bottom: 1px solid color-mix(in srgb, var(--diff-hunk-bg) 60%, var(--text-color, #333333));
+  background-color: var(--diff-hunk-bg);
+}
+
+.diff-merge-bar:hover {
+  background-color: color-mix(in srgb, var(--diff-hunk-bg) 90%, var(--text-color, #333333));
+}
+
+.diff-merge-btn {
+  appearance: none;
+  flex: none;
+  margin: 0;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 14px;
+  height: 16px;
+  white-space: nowrap;
+  background-color: color-mix(in srgb, var(--bg-color, #f4f4f4) 70%, transparent);
+  color: var(--text-color, #333333);
+  cursor: pointer;
+  user-select: none;
+}
+
+.diff-merge-btn:hover {
+  background-color: var(--bg-color, #f4f4f4);
+  border-color: color-mix(in srgb, var(--primary-color, #0969da) 45%, transparent);
+  color: var(--primary-color, #0969da);
+}
+
+.diff-merge-btn:focus-visible {
+  outline: 1px solid var(--primary-color);
+  outline-offset: 0;
+}
+
+/*
+ * 「全部展开」工具条（UI-008，两视图共用）：视图内存在任一折叠条时显示在
+ * 结果视图（滚动容器）顶部，全部展开后隐藏（isAnyCollapsed 驱动）。sticky
+ * 钉顶保证滚动到任何位置都可达；z-index 3 高于行号 / 记号列（.diff-gutter /
+ * .diff-sign 的 z-index: 2），防止竖向滚动时 sticky 单元格穿透工具条。
+ */
+.diff-expand-all-bar {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  justify-content: flex-end;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--border-color, #e5e7eb);
+  background-color: var(--diff-gutter-bg);
+}
+
+/*
+ * ---------- 结果态编辑提示条（UI-011，App.vue 在工具栏与工作台之间渲染） ----------
+ *
+ * 保留编辑态（edit-from-result）的顶部提示条：主色轻底 + 主色文案表达
+ * 「处于临时编辑上下文」，右侧「重新对比 / 返回结果」按钮组由 margin-left:auto
+ * 推到行尾；窄窗下 flex-wrap 换行不裁切。颜色全部从宿主 token 派生
+ * （color-mix），随宿主深浅主题自动切换，无硬编码色值。
+ */
+.edit-notice {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border-color, #e5e7eb);
+  background-color: color-mix(in srgb, var(--primary-color, #0969da) 8%, var(--bg-color, #f4f4f4));
+}
+
+.edit-notice-text {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--primary-color, #0969da);
+}
+
+.edit-notice-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/*
+ * ---------- 虚拟滚动 spacer（UI-009，并排 / 统一视图共用） ----------
+ *
+ * 滚动容器内的渲染结构：「顶部 spacer + 可视切片 + 底部 spacer」。spacer 是
+ * 横跨全部网格列（grid-column: 1 / -1）的高度占位块，独占一条隐式行轨道，
+ * 轨道高由内联 style 的显式 height 决定（上方 spacer = range.offsetTop，
+ * 下方 spacer = totalHeight − offsetTop − 已渲染行高）。三者恒满足
+ * top + 渲染单元数 × 行高 + bottom = totalHeight —— 网格总高与滚动位置
+ * 无关，滚动条长度 / 滚动锚定不因切片而抖动；直通模式（换行）下两 spacer
+ * 恒为 0。aria-hidden + 空内容：纯布局量，不进入可访问树。
+ */
+.diff-vspacer {
+  grid-column: 1 / -1;
+}
+
+/*
+ * ---------- 无差异提示条（UI-013，App.vue 结果态包裹层顶部） ----------
+ *
+ * 「两侧相同」的常驻提示（判定与渲染见 App.vue 的 isIdenticalResult）：刻意
+ * 用常驻条而非 ZToast —— 「无差异」是结果的持续属性而非瞬时事件，提示条与
+ * 结果同生同灭、不遮挡下方可浏览的 equal 行。配色从 --diff-add-text 派生轻底
+ * （color-mix 混入宿主底色）：浅色主题是淡绿底深绿字、深色主题自动切换，
+ * 与「equal / 无变化」的绿色语义一致，无硬编码色值。
+ */
+.same-notice {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-bottom: 1px solid var(--border-color, #e5e7eb);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--diff-add-text, #116329);
+  background-color: color-mix(
+    in srgb,
+    var(--diff-add-text, #116329) 10%,
+    var(--bg-color, #f4f4f4)
+  );
+}
+
+/*
+ * ---------- 小窗口降级提示条（UI-015，App.vue 结果态包裹层顶部） ----------
+ *
+ * 小窗口（ZTools 面板）下并排视图自动降级为统一视图时的轻量告知条（两类
+ * 文案由 App.vue 按状态给出：自动降级 =「已自动切换为统一视图」、用户在
+ * 窄窗内坚持并排 =「建议使用统一视图」），右侧「×」可关闭（一次性 ——
+ * 关闭后本episode不再出现，窗口变宽再变窄时重置）。配色中性（次级文字色
+ * color-mix 派生轻底），与「两侧相同」的绿色 .same-notice、「保留编辑」的
+ * 主色 .edit-notice 在语义色上区分；随宿主深浅主题自动切换，无硬编码色值。
+ */
+.narrow-notice {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px 4px 12px;
+  border-bottom: 1px solid var(--border-color, #e5e7eb);
+  font-size: 12px;
+  color: var(--text-secondary, #6a737d);
+  background-color: color-mix(
+    in srgb,
+    var(--text-secondary, #6a737d) 8%,
+    var(--bg-color, #f4f4f4)
+  );
+}
+
+.narrow-notice-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* 关闭按钮：轻量原生 button（同 .diff-merge-btn 的自绘轻量档），token 着色 */
+.narrow-notice-close {
+  appearance: none;
+  flex: none;
+  margin: 0;
+  padding: 0 6px;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  line-height: 18px;
+  background-color: transparent;
+  color: var(--text-secondary, #6a737d);
+  cursor: pointer;
+}
+
+.narrow-notice-close:hover {
+  background-color: color-mix(in srgb, var(--text-secondary, #6a737d) 14%, transparent);
+  color: var(--text-color, #333333);
+}
+
+/* REL-001：自绘关闭钮的键盘焦点环（同 .diff-collapse-bar 的主色描边口径） */
+.narrow-notice-close:focus-visible {
+  outline: 1px solid var(--primary-color);
+  outline-offset: 0;
+}
+
+/*
+ * ---------- 结果区感知进度条（UI-013，App.vue 工作台顶部） ----------
+ *
+ * 不确定进度条（indeterminate）：compareFull 是同步计算、单次很快，没有真实
+ * 进度可言 —— 一段固定宽度的主色滑块从左到右循环滑动，纯感知优化，告诉用户
+ * 「结果正在重算、马上刷新」。absolute 钉在工作台顶部（App.vue .workbench 的
+ * 定位上下文），不参与 flex 布局、不引起内容跳动；pointer-events: none 不挡
+ * 交互；颜色用宿主 --primary-color，随主题切换。
+ */
+.result-progress {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  z-index: 5;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.result-progress::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 38%;
+  border-radius: 999px;
+  background-color: var(--primary-color, #0969da);
+  animation: result-progress-slide 1.1s ease-in-out infinite;
+}
+
+@keyframes result-progress-slide {
+  from {
+    left: -38%;
+  }
+  to {
+    left: 100%;
+  }
+}
+
+/* 减少动态效果偏好：不做滑动动画，改为静态半宽主色条（信息量保留） */
+@media (prefers-reduced-motion: reduce) {
+  .result-progress::before {
+    animation: none;
+    left: 31%;
+    opacity: 0.6;
+  }
+}
+
+/*
+ * ---------- 打印样式（INT-002 导出 PDF：window.print() → Electron 另存 PDF） ----------
+ *
+ * 「导出 PDF」的路径与 roadmap §4 一致：ZTools 是 Electron，window.print()
+ * 唤起 Chromium 打印对话框（目的地自带「另存为 PDF」），全程无网。本块把
+ * 打印输出裁剪为「只有差异结果」：
+ *
+ * - 布局解锁：app-shell 的 100% 高 + overflow: hidden（FND-005 滚动策略）
+ *   与 body 的 overflow: hidden 在打印时改为 auto / visible —— 打印没有视口
+ *   滚动概念，锁高会把多页内容截断；body 背景白（纸张语义，不随宿主主题）；
+ * - 隐藏一切非结果元素：工具栏 / 底部操作区（action-bar）/ 编辑提示条 /
+ *   进度条 / 错误块 / 各类提示条 / 双栏编辑器与拖拽覆盖层 —— app-shell 内
+ *   仅 .result-stage 可见（输入态本就无结果可打印，导出入口在无结果 /
+ *   ok:false 时已禁用，见 App.vue 的 exportDisabled）；
+ * - 结果区铺开：结果视图根（.result-view，即 SplitDiffView / UnifiedDiffView
+ *   挂载根）与滚动容器解除 100% 高度与 overflow: auto（打印中滚动容器会把
+ *   非首屏内容整体裁掉）；diff 内容列切换 pre-wrap —— 打印纸张无横向滚动，
+ *   white-space: pre 会把超长行在页宽处截断丢失内容；换行模式的 longLine
+ *   4 行截断（max-height）同步解除（打印 / 存档语义下内容完整性优先）；
+ * - 配色保留：print-color-adjust: exact（含 -webkit- 前缀）—— Chromium
+ *   默认不打印背景色，不加会让红删绿增的 --diff-* 行底色全部丢失；
+ * - 分页友好：行单元格 break-inside: avoid，一行不跨页断开（.diff-row 是
+ *   display:contents 无自身盒子，声明落到行号 / 记号 / 内容单元格上）。
+ *
+ * 已知边界（记录）：结果视图的虚拟滚动（UI-009）只把可视窗口的行留在 DOM，
+ * window.print() 打印的是「当前已渲染的行」—— 大 diff 的完整存档请用
+ * 「导出 HTML」（buildExportHtml 输出全量行序列的单文件，可独立打开再打印）。
+ * 上述覆盖用 !important 压过组件 scoped 样式（.unified-view[data-v-…] 等
+ * 与打印规则的优先级竞争不依赖样式表注入顺序）。
+ */
+@media print {
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* 布局解锁：html/body/#app/app-shell 不再锁视口高度，页面级滚动放开 */
+  html,
+  body,
+  #app,
+  .app-shell {
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  body {
+    background-color: #ffffff;
+  }
+
+  /* 工作台与结果区铺开：解除 flex 收缩与内部滚动，让全部已渲染行参与分页 */
+  .workbench,
+  .result-stage,
+  .result-stage .result-view {
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+  }
+
+  /* 内容列：打印切 pre-wrap（纸张无横向滚动，超长行换行而非被裁切），
+     并解除换行模式的 longLine max-height 截断（.result-stage 前缀压过
+     .is-wrap .is-long-line .diff-content 的同文件先序规则） */
+  .result-stage .diff-content {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    overflow-x: visible;
+  }
+
+  .result-stage .is-long-line .diff-content {
+    max-height: none;
+    position: static;
+  }
+
+  /* 隐藏一切非结果元素：app-shell 内仅 .result-stage 参与打印 */
+  .toolbar,
+  .action-bar,
+  .edit-notice,
+  .result-progress,
+  .result-error,
+  .same-notice,
+  .narrow-notice,
+  .editor-pane,
+  .pane-divider,
+  .drop-overlay {
+    display: none !important;
+  }
+
+  /* 分页友好：行号 / 记号 / 内容单元格不跨页断开（行号列打印保留：
+     .diff-gutter 的 gutter 灰底与数字随配色保留，无需额外隐藏） */
+  .result-stage .diff-gutter,
+  .result-stage .diff-sign,
+  .result-stage .diff-content,
+  .result-stage .diff-row {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+}
+
+/*
+ * ---------- 本地历史（INT-004）：工具栏徽标 + 历史侧栏（HistoryDrawer） ----------
+ *
+ * 侧栏容器是 ztools-ui 的 ZDrawer（右侧滑出、body teleport、自带遮罩与
+ * Esc/焦点圈定），本段只负责抽屉【内部】的排版与工具栏徽标；颜色全部走
+ * 宿主 token（--bg-color 系）与 --diff-* 语义色，深浅主题自动跟随。
+ *
+ * 打印边界：历史抽屉不参与「导出 PDF」的打印输出（打印对象是差异结果），
+ * 追加一条 @media print 隐藏规则（自包含于本段，不动上方 INT-002 打印块）。
+ */
+
+/* 工具栏「历史」按钮：徽标 pill 内嵌按钮文案尾部 */
+.history-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.history-button-count {
+  min-width: 16px;
+  padding: 0 5px;
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 15px;
+  text-align: center;
+  color: var(--primary-color, #0969da);
+  background-color: color-mix(in srgb, var(--primary-color, #0969da) 12%, transparent);
+}
+
+/* 抽屉内部：顶部工具行（搜索 + 清空） */
+.history-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ZInput 默认 min-width 过宽，搜索框占据清空按钮以外的整行 */
+.history-search {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* 条目数 / 上限说明行（搜索中变为「匹配 x / 共 y 条」） */
+.history-count {
+  margin: 8px 0 4px;
+  font-size: 11px;
+  color: var(--text-secondary, #6a737d);
+}
+
+/* 历史列表：纵向排布，行间以分隔线区分 */
+.history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.history-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-color, #e5e7eb);
+}
+
+.history-item:last-child {
+  border-bottom: none;
+}
+
+.history-item-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+/* 标题：单行省略，完整内容经 title 提示 */
+.history-item-title {
+  font-size: 12px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* 相对时间（相对时间方案，超过 7 天回退绝对日期，见组件 formatSavedAt） */
+.history-item-time {
+  font-size: 11px;
+  color: var(--text-secondary, #6a737d);
+  flex: none;
+}
+
+/* +N / −M 徽标：与底部统计条 .stat-pill 同族（--diff-* 语义色，弱底强字） */
+.history-badge {
+  flex: none;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+}
+
+.history-badge.is-add {
+  color: var(--diff-add-text, #116329);
+  background-color: color-mix(in srgb, var(--diff-add-text, #116329) 10%, transparent);
+}
+
+.history-badge.is-del {
+  color: var(--diff-del-text, #82071a);
+  background-color: color-mix(in srgb, var(--diff-del-text, #82071a) 10%, transparent);
+}
+
+.history-item-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* 删除（次动作 danger 图标钮）：危险红着色 + hover 加深底色 */
+.history-item-delete {
+  color: var(--diff-del-text, #82071a);
+}
+
+.history-item-delete:hover {
+  background-color: color-mix(in srgb, var(--diff-del-text, #82071a) 10%, transparent);
+}
+
+/* 空态：无历史 / 搜索无命中共用，居中弱化文案 */
+.history-empty {
+  padding: 32px 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-secondary, #6a737d);
+}
+
+/* 历史抽屉不参与打印输出（见段首「打印边界」） */
+@media print {
+  .zt-drawer {
+    display: none !important;
+  }
+}
