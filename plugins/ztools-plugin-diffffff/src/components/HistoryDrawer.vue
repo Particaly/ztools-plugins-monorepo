@@ -1,14 +1,13 @@
 <!--
-  历史侧栏（roadmap 任务 INT-004）：「已保存差异」的浏览与恢复入口。
-  - 触发：App.vue 工具栏「历史」按钮（带条目数徽标）写入 show；
-  - 容器：ztools-ui 的 ZDrawer（右侧滑出， 能力清点见 App.vue INT-004 段：
-    组件库有 Drawer / DrawerContent，scripty 工程已有同款用法先例）+
-    ZDrawerContent（title + closable 关闭钮，关闭经 update:show 冒泡回 App）；
+  历史侧栏（INT-004）：「已保存差异」的浏览与恢复入口。
+  - 触发：App.vue 侧边栏「历史」按钮（带条目数徽标）写入 show；
+  - 容器：本地 UiDrawer（右侧滑出，reka-ui Dialog 侧边形态 —— Esc / 遮罩
+    点击 / 关闭钮统一经 update:show 冒泡回 App）；
   - 能力：顶部搜索框（即时过滤，走 core/historyModel 的 searchHistoryItems）、
-    条目数/上限说明、「清空」（ZConfirmDialog 确认，复用 App 挂载的同一
-    单例确认框 —— useConfirmDialog 是模块级单例，与 useFileLoad 的覆盖确认
-    同一条通道）、列表项（标题 / 相对时间 / +N −M 徽标）、每项「恢复」（主）
-    与「删除」（次，danger 图标钮）；
+    条目数/上限说明、「清空」（确认弹窗确认，复用 App 挂载的同一单例确认框
+    —— useConfirmDialog 是本地模块级单例，与 useFileLoad 的覆盖确认同一条
+    通道）、列表项（标题 / 相对时间 / +N −M 徽标）、每项「恢复」（主）与
+    「删除」（次，陶土红 ghost 图标钮）；
   - 恢复链路：本组件只 emit('restore', item) —— 写回文本 / 选项 / 语言、
     diffStore.run() 重算、关闭抽屉、切结果态的编排全部归 App.vue 的
     handleRestoreHistory（保持「store 动作 + 态切换」都在 App 层接线）。
@@ -19,12 +18,16 @@
 -->
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { ZButton, ZDrawer, ZDrawerContent, ZInput, useConfirmDialog } from 'ztools-ui'
+import UiButton from './ui/UiButton.vue'
+import UiDrawer from './ui/UiDrawer.vue'
+import UiIcon from './ui/UiIcon.vue'
+import UiInput from './ui/UiInput.vue'
+import { useConfirmDialog } from '../composables/useConfirm'
 import { HISTORY_MAX_ITEMS, searchHistoryItems } from '../core/historyModel'
 import type { HistoryItem } from '../core/historyModel'
 import { historyStore } from '../stores/history'
 
-/** 抽屉显隐（App.vue 工具栏「历史」按钮 v-model 接线）。 */
+/** 抽屉显隐（App.vue 侧边栏「历史」按钮 v-model 接线）。 */
 const props = defineProps<{ show: boolean }>()
 
 /** restore 上抛：App.vue 据此执行写回 + 重算 + 关抽屉 + 切结果态。 */
@@ -42,10 +45,10 @@ const filtered = computed(() => searchHistoryItems(historyStore.items, query.val
 /** 是否处于搜索过滤中（条目数说明与空态文案的分流条件）。 */
 const isSearching = computed(() => query.value.trim() !== '')
 
-/** 确认框单例：清空确认复用 App.vue 挂载的 ZConfirmDialog（同一模块级单例）。 */
+/** 确认框单例：清空确认复用 App.vue 挂载的 UiConfirmDialog（同一模块级单例）。 */
 const { confirm } = useConfirmDialog()
 
-/** 关闭请求统一出口：ZDrawer 的遮罩点击 / Esc / closable 都经 update:show 冒泡到此。 */
+/** 关闭请求统一出口：UiDrawer 的遮罩点击 / Esc / 关闭钮都经 update:show 冒泡到此。 */
 function handleShowChange(value: boolean): void {
   emit('update:show', value)
 }
@@ -108,92 +111,88 @@ function formatSavedAt(savedAt: number): string {
 
 <template>
   <!--
-    ZDrawer：右侧滑出、宽 340px（主面板可能较窄，取窄抽屉）；trapFocus 焦点
-    圈定在抽屉内、Esc / 遮罩点击关闭（ZDrawer 内建），关闭统一走 update:show。
+    UiDrawer：右侧滑出纸面抽屉、宽 340px（主面板可能较窄，取窄抽屉）；
+    焦点圈定在抽屉内、Esc / 遮罩点击关闭（reka Dialog 内建），关闭统一走
+    update:show。抽屉内部排版（工具行 / 列表 / 空态）见 main.css 的
+    history-* 段。
   -->
-  <ZDrawer
-    :show="props.show"
-    placement="right"
-    width="340"
-    trap-focus
-    @update:show="handleShowChange"
-  >
-    <ZDrawerContent title="历史对比" closable>
-      <!-- 顶部工具行：搜索框 + 清空按钮 -->
-      <div class="history-toolbar">
-        <ZInput
-          v-model="query"
-          class="history-search"
-          type="text"
-          size="small"
-          clearable
-          placeholder="搜索标题或文本内容"
-          aria-label="搜索历史对比"
-        />
-        <ZButton
-          size="small"
-          type="default"
-          native-type="button"
-          title="清空全部已保存差异"
-          @click="handleClearAll"
-        >
-          清空
-        </ZButton>
-      </div>
+  <UiDrawer :show="props.show" title="历史对比" @update:show="handleShowChange">
+    <!-- 顶部工具行：搜索框 + 清空按钮 -->
+    <div class="history-toolbar">
+      <UiInput
+        v-model="query"
+        class="history-search"
+        type="text"
+        clearable
+        placeholder="搜索标题或文本内容"
+        aria-label="搜索历史对比"
+      />
+      <UiButton
+        variant="secondary"
+        class="history-clear"
+        title="清空全部已保存差异"
+        @click="handleClearAll"
+      >
+        清空
+      </UiButton>
+    </div>
 
-      <!-- 条目数 / 上限说明：搜索中显示命中数 -->
-      <p class="history-count" role="status">
-        <template v-if="isSearching">
-          匹配 {{ filtered.length }} 条 / 共 {{ historyStore.items.length }} 条
-        </template>
-        <template v-else>{{ historyStore.items.length }} / {{ HISTORY_MAX_ITEMS }} 条</template>
-      </p>
+    <!-- 条目数 / 上限说明：搜索中显示命中数 -->
+    <p class="history-count" role="status">
+      <template v-if="isSearching">
+        匹配 {{ filtered.length }} 条 / 共 {{ historyStore.items.length }} 条
+      </template>
+      <template v-else>{{ historyStore.items.length }} / {{ HISTORY_MAX_ITEMS }} 条</template>
+    </p>
 
-      <!-- 列表：最新在前（store 维护的 savedAt 降序） -->
-      <ul v-if="filtered.length > 0" class="history-list">
-        <li v-for="item in filtered" :key="item.id" class="history-item">
-          <div class="history-item-main">
-            <!-- 标题：溢出省略，完整内容经 title 提示（deriveHistoryTitle 产物） -->
-            <span class="history-item-title" :title="item.title">{{ item.title }}</span>
-            <span class="history-item-meta">
-              <span class="history-item-time">{{ formatSavedAt(item.savedAt) }}</span>
-              <span class="history-badge is-add">+{{ item.stats.addedLines }}</span>
-              <span class="history-badge is-del">−{{ item.stats.removedLines }}</span>
-            </span>
-          </div>
-          <div class="history-item-actions">
-            <!-- 恢复（主按钮）：emit 给 App 编排写回 + 重算 + 切结果态 -->
-            <ZButton
-              size="small"
-              type="primary"
-              native-type="button"
-              :title="`恢复「${item.title}」到工作台`"
-              @click="handleRestore(item)"
-            >
-              恢复
-            </ZButton>
-            <!-- 删除（次动作，danger 图标钮）：直接执行不弹确认（见 handleRemove） -->
-            <ZButton
-              size="small"
-              type="default"
-              native-type="button"
-              class="history-item-delete"
-              title="删除该条历史"
-              aria-label="删除该条历史"
-              @click="handleRemove(item)"
-            >
-              <span class="i-z-trash" aria-hidden="true"></span>
-            </ZButton>
-          </div>
-        </li>
-      </ul>
-      <!--
-        空态：无历史（未搜索）→ 引导文案；有历史但搜索无命中 → 精确说明。
-        样式（.history-empty）见 main.css 的 INT-004 段。
-      -->
-      <div v-else class="history-empty">
-        {{ isSearching ? '未找到匹配的历史' : '暂无历史对比' }}
-      </div>
-    </ZDrawerContent>
-  </ZDrawer>
+    <!-- 列表：最新在前（store 维护的 savedAt 降序） -->
+    <ul v-if="filtered.length > 0" class="history-list">
+      <li v-for="item in filtered" :key="item.id" class="history-item">
+        <div class="history-item-main">
+          <!-- 标题：溢出省略，完整内容经 title 提示（deriveHistoryTitle 产物） -->
+          <span class="history-item-title" :title="item.title">{{ item.title }}</span>
+          <span class="history-item-meta">
+            <span class="history-item-time">{{ formatSavedAt(item.savedAt) }}</span>
+            <span class="history-badge is-add">+{{ item.stats.addedLines }}</span>
+            <span class="history-badge is-del">−{{ item.stats.removedLines }}</span>
+          </span>
+        </div>
+        <div class="history-item-actions">
+          <!-- 恢复（主按钮）：emit 给 App 编排写回 + 重算 + 切结果态 -->
+          <UiButton
+            variant="primary"
+            :title="`恢复「${item.title}」到工作台`"
+            @click="handleRestore(item)"
+          >
+            恢复
+          </UiButton>
+          <!-- 删除（次动作，陶土红 ghost 图标钮）：直接执行不弹确认（见 handleRemove） -->
+          <UiButton
+            variant="ghost"
+            tone="danger"
+            class="history-item-delete"
+            title="删除该条历史"
+            aria-label="删除该条历史"
+            @click="handleRemove(item)"
+          >
+            <UiIcon name="trash" :size="14" />
+          </UiButton>
+        </div>
+      </li>
+    </ul>
+    <!--
+      空态：无历史（未搜索）→ 引导文案；有历史但搜索无命中 → 精确说明。
+      样式（.history-empty）见 main.css 的 history 段。
+    -->
+    <div v-else class="history-empty">
+      {{ isSearching ? '未找到匹配的历史' : '暂无历史对比' }}
+    </div>
+  </UiDrawer>
 </template>
+
+<style scoped>
+/* 清空按钮：不随 UiInput 满宽（flex 定宽，与搜索框同行） */
+.history-clear {
+  flex: none;
+}
+</style>

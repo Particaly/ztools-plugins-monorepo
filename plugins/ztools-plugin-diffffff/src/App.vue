@@ -99,18 +99,19 @@
 // setup 与 onMounted，保证下方 onMounted 的「实时对比默认值注入」读到的是
 // 恢复后的持久化值而非缺省 false。
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import {
-  ZButton,
-  ZConfirmDialog,
-  ZSelect,
-  ZSwitch,
-  ZTabPane,
-  ZTabs,
-  ZToast,
-  useConfirmDialog,
-  useToast,
-} from 'ztools-ui'
-import type { SelectModelValue } from 'ztools-ui'
+// UI 组件层（Scandi 重构）：本地轻量组件 + reka-ui 原语，ztools-ui 组件已全部
+// 移除（仅 main.ts 保留其 useZtoolsTheme 做宿主亮暗同步）。
+import UiButton from './components/ui/UiButton.vue'
+import UiConfirmDialog from './components/ui/UiConfirmDialog.vue'
+import UiDrawer from './components/ui/UiDrawer.vue'
+import UiIcon from './components/ui/UiIcon.vue'
+import UiInput from './components/ui/UiInput.vue'
+import UiSegmented from './components/ui/UiSegmented.vue'
+import UiSelect from './components/ui/UiSelect.vue'
+import UiSwitch from './components/ui/UiSwitch.vue'
+import UiToastHost from './components/ui/UiToastHost.vue'
+import { useToast } from './composables/useToast'
+import { useConfirmDialog } from './composables/useConfirm'
 import InputEditor from './components/InputEditor.vue'
 import HistoryDrawer from './components/HistoryDrawer.vue'
 import SettingsDialog from './components/SettingsDialog.vue'
@@ -165,48 +166,15 @@ function focusLeftEditor(): void {
 usePluginLifecycle(focusLeftEditor)
 
 /*
- * 全局反馈（UI-002）：useToast / useConfirmDialog 持有模块级单例状态
- * （toastState / confirmState），但 ZToast / ZConfirmDialog 组件只读 props、
- * 不会自动订阅单例，必须在此把单例状态绑定到组件 props 上。
- * - ZToast 自动消失是「倒计时结束 emit('update:visible', false)」，传入 visible
- *   prop 时组件不自改值，必须 v-model:visible 把回写接回单例，否则 toast 永不消失；
- * - @confirm / @cancel 转发回 useConfirmDialog，兑现 confirm() 返回的 Promise。
- * 状态驱动方是 useFileLoad（同一单例）：读取失败 toast.error、覆盖确认 confirm()。
- * UI-014 起新增消费：success（复制成功）、confirm（清空 / 载入示例的覆盖确认）。
+ * 全局反馈（UI-002 → Scandi 重构）：useToast / useConfirmDialog 来自本地
+ * composables（模块级单例状态，API 与原 ztools-ui 完全一致）。渲染端：
+ * UiToastHost / UiConfirmDialog 各自内部读取单例，App 只需挂载组件、
+ * 无需再手工绑定 props（原 v-model:visible / @confirm 接线随组件移除）。
+ * 状态驱动方不变：useFileLoad / useDropLoad / useClipboardLoad 与 App 的
+ * success / confirm 动作共用同一单例。
  */
 const { toastState, info: toastInfo, error: toastError, success: toastSuccess } = useToast()
-const { confirmState, confirm, handleConfirm, handleCancel } = useConfirmDialog()
-
-/*
- * REL-001：确认弹窗的键盘可达性（包装层补齐 ztools-ui ZConfirmDialog 的能力
- * 缺口 —— 组件本体既不响应 Esc、也不做任何焦点管理，属组件库缺陷，按修复
- * 约束在消费侧包装而非改库）：
- * - Esc 关闭：在下方 onGlobalKeydown 的捕获监听内分支处理（见该函数注释）；
- * - 焦点移入：打开时记录触发元素，nextTick 后把焦点移到弹窗「取消」次按钮
- *   （warning / danger 场景回车默认落在安全侧，Tab 一步可达「确定」）；
- * - 焦点返回：关闭后焦点还原到触发元素（元素已随视图卸载则交给浏览器默认）。
- */
-const confirmDialogRef = ref<InstanceType<typeof ZConfirmDialog> | null>(null)
-let confirmReturnFocus: HTMLElement | null = null
-
-watch(
-  () => confirmState.value.visible,
-  (visible) => {
-    if (visible) {
-      confirmReturnFocus =
-        document.activeElement instanceof HTMLElement ? document.activeElement : null
-      void nextTick(() => {
-        // $el 为遮罩根节点（v-if 在 nextTick 后已渲染）；「取消」次按钮缺省聚焦
-        const root = confirmDialogRef.value?.$el as HTMLElement | null | undefined
-        const cancelBtn = root?.querySelector<HTMLElement>('.dialog-footer .btn-secondary')
-        ;(cancelBtn ?? root?.querySelector<HTMLElement>('.dialog-footer .btn'))?.focus()
-      })
-      return
-    }
-    confirmReturnFocus?.focus({ preventScroll: true })
-    confirmReturnFocus = null
-  },
-)
+const { confirm } = useConfirmDialog()
 
 // 剪贴板复制单出口（INT-003 抽取共享）：UI-014 的「复制原始 / 复制更改后」
 // 与 INT-003 的「复制报告」三个动作共用同一条宿主优先降级链（见 useCopy.ts）
@@ -232,7 +200,7 @@ const ENCODING_SELECT_OPTIONS: { label: string; value: FileEncoding }[] = [
 ]
 
 /** 编码选择器回调：与精度/语言下拉同款字面量收窄，拒绝越界载荷 */
-function setFileEncoding(value: SelectModelValue): void {
+function setFileEncoding(value: string): void {
   if (value === 'utf-8' || value === 'gbk' || value === 'utf-16') {
     fileEncoding.value = value
   }
@@ -632,20 +600,12 @@ const findDiffLabel = computed(() => (diffStore.isRunning ? '对比中…' : '�
  *   所有（不触发原生粘贴为纯文本）。e.key 同时接受 'v'/'V'（Shift 按下
  *   时 Chromium 上报 'V'，CapsLock 组合下为 'v'）。
  *
- * Escape 分支（REL-001）：确认弹窗（ZConfirmDialog）的 Esc 关闭 —— 组件
- * 本体无 Esc 处理（ztools-ui 能力缺口），在此包装层补齐；捕获阶段先于
- * ZDrawer / ZModal 的内部 Esc 处理执行，stopPropagation 保证「历史抽屉
- * 清空确认」等叠加场景只关确认框、不连带关闭抽屉。ZModal（设置弹窗）与
- * ZDrawer（历史抽屉）的 Esc 关闭由组件内建（closeOnEsc 默认开启），不在此处理。
+ * Escape 说明（Scandi 重构后）：确认弹窗 / 设置弹窗 / 历史抽屉的 Esc 关闭
+ * 均由 reka-ui 的 AlertDialog / Dialog 内建（DismissableLayer 层级栈保证
+ * 叠加场景只关最上层，「历史抽屉上的清空确认」等组合不再需要本监听代管），
+ * 原先补齐 ZConfirmDialog 能力缺口的手工 Esc 分支随之移除。
  */
 function onGlobalKeydown(e: KeyboardEvent): void {
-  // REL-001：Esc 关闭确认弹窗（焦点管理见上方确认弹窗焦点段注释）。
-  if (e.key === 'Escape' && confirmState.value.visible) {
-    e.preventDefault()
-    e.stopPropagation()
-    handleCancel()
-    return
-  }
   if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
     e.preventDefault()
     e.stopPropagation()
@@ -763,30 +723,34 @@ watch(
  * ============================================================================
  */
 
+/** 视图分段控件候选（并排 / 统一）：value 语义见 setViewMode */
+const VIEW_MODE_OPTIONS: { label: string; value: string }[] = [
+  { label: '并排', value: 'split' },
+  { label: '统一', value: 'unified' },
+]
+
 /**
  * 视图分段控件回调：非 'unified' 一律归一为 'split'（两值控件，天然兜底）。
  * UI-015 窄窗语义：窄窗内用户主动点「并排」= 坚持使用并排（keepSplitInNarrow，
  * 本episode内不再自动降级并显示建议提示）；点「统一」或窗口已宽 = 清除坚持
  * 标志（恢复 autoUnified 的正常判定）。
  */
-function setViewMode(value: string | number): void {
+function setViewMode(value: string): void {
   const mode: 'split' | 'unified' = value === 'unified' ? 'unified' : 'split'
   viewStore.viewMode = mode
   viewStore.keepSplitInNarrow = mode === 'split' && viewStore.narrowWindow
 }
 
 /** 精度下拉回调：仅接受 DiffPrecision 四个字面量，其余载荷忽略 */
-function setPrecision(value: SelectModelValue): void {
+function setPrecision(value: string): void {
   if (value === 'smart' || value === 'line' || value === 'word' || value === 'char') {
     viewStore.precision = value as DiffPrecision
   }
 }
 
-/** 语言下拉回调：候选恒为字符串，仅接受 string 载荷（高亮消费归 INT-001） */
-function setLanguage(value: SelectModelValue): void {
-  if (typeof value === 'string') {
-    viewStore.language = value
-  }
+/** 语言下拉回调：字符串载荷直接透传（高亮消费归 INT-001） */
+function setLanguage(value: string): void {
+  viewStore.language = value
 }
 
 /** 设置弹窗显隐：工具栏齿轮按钮触发（弹窗本体见 components/SettingsDialog.vue） */
@@ -924,7 +888,7 @@ function openErrorSettings(): void {
  */
 
 /** 示例数据下拉的当前值：动作菜单语义 —— 选中即回弹为 null，触发器恒显占位文案 */
-const sampleValue = ref<SelectModelValue>(null)
+const sampleValue = ref<string | null>(null)
 
 /** 示例数据下拉候选：value 到 SAMPLES 条目的映射见 handleSampleSelect */
 const SAMPLE_SELECT_OPTIONS: { label: string; value: string }[] = [
@@ -939,7 +903,7 @@ const SAMPLE_SELECT_OPTIONS: { label: string; value: string }[] = [
  * SAMPLE_SELECT_OPTIONS 映射到 SAMPLES 条目后交给 loadSampleIntoInputs
  * 执行（防御：未知值直接忽略，不载入）。
  */
-function handleSampleSelect(value: SelectModelValue): void {
+function handleSampleSelect(value: string): void {
   sampleValue.value = null
   const sample = value === 'zh' ? SAMPLES[0] : value === 'code' ? SAMPLES[1] : undefined
   if (sample === undefined) return
@@ -1102,7 +1066,7 @@ async function handleCopySide(side: 'left' | 'right'): Promise<void> {
  */
 
 /** 导出动作下拉的当前值：动作菜单语义 —— 选中即回弹为 null（同示例数据下拉） */
-const exportValue = ref<SelectModelValue>(null)
+const exportValue = ref<string | null>(null)
 
 /** 导出动作下拉候选：value 到导出动作的映射见 handleExportSelect */
 const EXPORT_SELECT_OPTIONS: { label: string; value: string }[] = [
@@ -1137,7 +1101,7 @@ function requireOkResult(): DiffResultOk | null {
  * 「导出」占位文案，语义见示例数据下拉 handleSampleSelect），再按 value
  * 分发到对应导出动作；未知值直接忽略（防御）。
  */
-function handleExportSelect(value: SelectModelValue): void {
+function handleExportSelect(value: string): void {
   exportValue.value = null
   if (value === 'pdf') {
     void handleExportPdf()
@@ -1299,7 +1263,7 @@ function downloadHtmlViaBlob(html: string): void {
  */
 
 /** 复制报告动作下拉的当前值：动作菜单语义 —— 选中即回弹为 null（同导出下拉） */
-const reportCopyValue = ref<SelectModelValue>(null)
+const reportCopyValue = ref<string | null>(null)
 
 /** 复制报告动作下拉候选：value 到复制动作的映射见 handleCopyReportSelect */
 const REPORT_COPY_SELECT_OPTIONS: { label: string; value: string }[] = [
@@ -1313,7 +1277,7 @@ const REPORT_COPY_SELECT_OPTIONS: { label: string; value: string }[] = [
  * 「复制报告」占位文案，语义同导出下拉 handleExportSelect），再按 value
  * 分发到对应复制动作；未知值直接忽略（防御）。
  */
-function handleCopyReportSelect(value: SelectModelValue): void {
+function handleCopyReportSelect(value: string): void {
   reportCopyValue.value = null
   if (value === 'patch') {
     void handleCopyPatchReport()
@@ -1658,13 +1622,11 @@ const navPositionText = computed(() => {
         -->
         <div class="sidebar-header">
           <span class="sidebar-brand">
-            <span class="i-z-window sidebar-brand-icon" aria-hidden="true"></span>
-            工具
+            <UiIcon name="window" :size="15" class="sidebar-brand-icon" />
+            文本对比
           </span>
-          <ZButton
-            size="small"
-            type="default"
-            native-type="button"
+          <UiButton
+            variant="secondary"
             class="history-button sidebar-history"
             title="已保存差异历史"
             @click="historyDrawerOpen = true"
@@ -1674,78 +1636,77 @@ const navPositionText = computed(() => {
               v-if="historyStore.items.length > 0"
               class="history-button-count"
             >{{ historyStore.items.length }}</span>
-          </ZButton>
+          </UiButton>
           <button
             type="button"
             class="sidebar-collapse"
             aria-label="折叠侧边栏"
             title="折叠侧边栏"
             @click="toggleSidebar"
-          >‹</button>
+          >
+            <UiIcon name="chevron-left" :size="15" />
+          </button>
         </div>
         <div class="sidebar-body">
           <!--
-            选项开关组（UI-016）：四个开关改为左文右钮的 ZSwitch 行（对齐
-            参考稿的 toggle 列表）；两个引擎开关 + 两个渲染开关，v-model 直写
-            viewStore（「忽略空白 / 忽略大小写」变化经脚本区 watch 自动重跑）。
+            选项开关组：四个开关为左文右钮的 UiSwitch 行（对齐参考稿的 toggle
+            列表）；两个引擎开关 + 两个渲染开关，v-model 直写 viewStore
+            （「忽略空白 / 忽略大小写」变化经脚本区 watch 自动重跑）。
           -->
           <div class="sidebar-section" role="group" aria-label="对比选项">
             <div class="sidebar-option-row">
               <span class="sidebar-option-label">忽略空白</span>
-              <ZSwitch v-model="viewStore.ignoreWhitespace" size="small" />
+              <UiSwitch v-model="viewStore.ignoreWhitespace" aria-label="忽略空白" />
             </div>
             <div class="sidebar-option-row">
               <span class="sidebar-option-label">忽略大小写</span>
-              <ZSwitch v-model="viewStore.ignoreCase" size="small" />
+              <UiSwitch v-model="viewStore.ignoreCase" aria-label="忽略大小写" />
             </div>
             <div class="sidebar-option-row">
               <span class="sidebar-option-label">折叠未变更</span>
-              <ZSwitch v-model="viewStore.showCollapsed" size="small" />
+              <UiSwitch v-model="viewStore.showCollapsed" aria-label="折叠未变更" />
             </div>
             <div class="sidebar-option-row">
               <span class="sidebar-option-label">换行</span>
-              <ZSwitch v-model="viewStore.wrapLongLines" size="small" />
+              <UiSwitch v-model="viewStore.wrapLongLines" aria-label="换行" />
             </div>
           </div>
 
-          <!-- 视图分组（UI-016）：分段控件吃满侧边栏宽度（两栏均分） -->
+          <!-- 视图分组：分段控件吃满侧边栏宽度 -->
           <div class="sidebar-section" role="group" aria-label="视图模式">
             <h2 class="sidebar-section-title">视图</h2>
-        <!-- 视图模式分段控件：并排 / 统一（value 处理器见 setViewMode）。
-             回显消费 effectiveViewMode（UI-015）：窄窗自动降级时控件如实
-             反映「当前看到的视图」，用户点选走 setViewMode（窄窗内点并排
-             = 坚持并排，见该函数注释）。 -->
-        <ZTabs
-            type="segment"
-            size="small"
-            :value="viewStore.effectiveViewMode"
-            @update:value="setViewMode"
-          >
-            <ZTabPane name="split" tab="并排" />
-            <ZTabPane name="unified" tab="统一" />
-          </ZTabs>
+            <!--
+              视图模式分段控件：并排 / 统一（value 处理器见 setViewMode）。
+              回显消费 effectiveViewMode：窄窗自动降级时控件如实反映「当前看到
+              的视图」，用户点选走 setViewMode（窄窗内点并排 = 坚持并排）。
+            -->
+            <UiSegmented
+              :model-value="viewStore.effectiveViewMode"
+              :options="VIEW_MODE_OPTIONS"
+              aria-label="视图模式"
+              @update:model-value="setViewMode"
+            />
+          </div>
 
-        </div>
+          <div class="sidebar-section" role="group" aria-label="对比精度">
+            <h2 class="sidebar-section-title">比对精度</h2>
+            <UiSelect
+              :model-value="viewStore.precision"
+              :options="PRECISION_OPTIONS"
+              aria-label="比对精度"
+              @update:model-value="setPrecision"
+            />
+          </div>
 
-        <div class="sidebar-section" role="group" aria-label="对比精度">
-          <h2 class="sidebar-section-title">比对精度</h2>
-          <ZSelect
-            :model-value="viewStore.precision"
-            :options="PRECISION_OPTIONS"
-            size="small"
-            @update:model-value="setPrecision"
-          />
-        </div>
-
-        <div class="sidebar-section" role="group" aria-label="对比语言">
-          <h2 class="sidebar-section-title">语法高亮</h2>
-          <ZSelect
-            :model-value="viewStore.language"
-            :options="LANGUAGE_OPTIONS"
-            size="small"
-            @update:model-value="setLanguage"
-          />
-        </div>
+          <div class="sidebar-section" role="group" aria-label="对比语言">
+            <h2 class="sidebar-section-title">语法高亮</h2>
+            <UiSelect
+              :model-value="viewStore.language"
+              :options="LANGUAGE_OPTIONS"
+              aria-label="语法高亮语言"
+              @update:model-value="setLanguage"
+            />
+          </div>
 
       <!--
          操作分组（UI-016）：原「操作便捷项」组迁入侧边栏 —— 动作下拉
@@ -1760,11 +1721,11 @@ const navPositionText = computed(() => {
             <div class="sidebar-section" role="group" aria-label="操作便捷项">
         <h2 class="sidebar-section-title">操作</h2>
         <div class="sidebar-quick">
-        <ZSelect
+        <UiSelect
           :model-value="sampleValue"
           :options="SAMPLE_SELECT_OPTIONS"
-          size="small"
           placeholder="示例数据"
+          aria-label="载入示例数据"
           @update:model-value="handleSampleSelect"
         />
         <!--
@@ -1772,68 +1733,58 @@ const navPositionText = computed(() => {
           handlePasteAndCompare（isRunning / 空剪贴板 / 覆盖确认等守卫都在
           该处理器内，按钮不需要禁用态 —— 与其他便捷小按钮同策略）。
         -->
-        <ZButton
-          size="small"
-          type="default"
-          native-type="button"
+        <UiButton
+          variant="secondary"
           title="粘贴剪贴板到空侧并立即对比（⌘/Ctrl+Shift+V）；两侧均有内容时覆盖「原始文本」前会确认"
           @click="handlePasteAndCompare"
         >
           粘贴并对比
-        </ZButton>
+        </UiButton>
         <div class="sidebar-quick-grid">
-        <ZButton
-          size="small"
-          type="default"
-          native-type="button"
+        <UiButton
+          variant="secondary"
           title="交换左右两侧文本"
           @click="handleSwapSides"
         >
           交换
-        </ZButton>
-        <ZButton
-          size="small"
-          type="default"
-          native-type="button"
+        </UiButton>
+        <UiButton
+          variant="secondary"
           title="清空两侧输入"
           @click="handleClearInputs"
         >
           清空
-        </ZButton>
-        <ZButton
-          size="small"
-          type="default"
-          native-type="button"
+        </UiButton>
+        <UiButton
+          variant="secondary"
           title="复制原始文本到剪贴板"
           @click="handleCopySide('left')"
         >
           复制原始
-        </ZButton>
-        <ZButton
-          size="small"
-          type="default"
-          native-type="button"
+        </UiButton>
+        <UiButton
+          variant="secondary"
           title="复制更改后文本到剪贴板"
           @click="handleCopySide('right')"
         >
           复制更改后
-        </ZButton>
+        </UiButton>
         </div>
         <!-- 复制报告动作下拉（INT-003）：分发见 handleCopyReportSelect，可用性与「导出」共用 exportDisabled -->
-        <ZSelect
+        <UiSelect
           :model-value="reportCopyValue"
           :options="REPORT_COPY_SELECT_OPTIONS"
-          size="small"
           placeholder="复制报告"
+          aria-label="复制差异报告"
           :disabled="exportDisabled"
           @update:model-value="handleCopyReportSelect"
         />
         <!-- 导出动作下拉（INT-002）：分发见 handleExportSelect，可用性见 exportDisabled -->
-        <ZSelect
+        <UiSelect
           :model-value="exportValue"
           :options="EXPORT_SELECT_OPTIONS"
-          size="small"
           placeholder="导出"
+          aria-label="导出差异结果"
           :disabled="exportDisabled"
           @update:model-value="handleExportSelect"
         />
@@ -1841,35 +1792,31 @@ const navPositionText = computed(() => {
       </div>
         <div class="sidebar-footer">
           <!--
-            侧边栏底部（UI-016）：结果态「返回编辑」出口 + 「实时对比」开关行
+            侧边栏底部：结果态「返回编辑」出口 + 「实时对比」开关行
             （左文右钮同选项行样式）+ 「设置」入口（齿轮图标 + 文字）。
           -->
-          <ZButton
+          <UiButton
             v-if="inResultMode && diffStore.result !== null"
-            size="small"
-            type="default"
-            native-type="button"
+            variant="secondary"
             class="sidebar-block-btn"
             @click="backToEditing"
           >
             返回编辑
-          </ZButton>
+          </UiButton>
           <div class="sidebar-footer-row">
             <span class="sidebar-option-label">实时对比</span>
-            <ZSwitch v-model="diffStore.realtime" size="small" />
+            <UiSwitch v-model="diffStore.realtime" aria-label="实时对比" />
           </div>
-          <ZButton
-            size="small"
-            type="default"
-            native-type="button"
+          <UiButton
+            variant="secondary"
             class="sidebar-block-btn sidebar-settings-btn"
             aria-label="设置"
             title="设置"
             @click="settingsOpen = true"
           >
             设置
-            <span class="i-z-settings sidebar-gear" aria-hidden="true"></span>
-          </ZButton>
+            <UiIcon name="settings" :size="14" class="sidebar-gear" />
+          </UiButton>
         </div>
       </div>
       </div>
@@ -1886,7 +1833,9 @@ const navPositionText = computed(() => {
         aria-label="展开侧边栏"
         title="展开侧边栏"
         @click="sidebarCollapsed = false"
-      >›</button>
+      >
+        <UiIcon name="chevron-right" :size="15" />
+      </button>
     </div>
 
     <!-- 主区（UI-016）：工作台 + 底部操作区从 app-shell 列内迁入本列 -->
@@ -1902,18 +1851,16 @@ const navPositionText = computed(() => {
     <div v-if="editingFromResult" class="edit-notice" role="status">
       <span class="edit-notice-text">{{ editNoticeText }}</span>
       <div class="edit-notice-actions">
-        <ZButton
-          size="small"
-          type="primary"
-          native-type="button"
+        <UiButton
+          variant="primary"
           :disabled="diffStore.isRunning"
           @click="runAndShowResult"
         >
           重新对比
-        </ZButton>
-        <ZButton size="small" type="default" native-type="button" @click="backToResultFromEdit">
+        </UiButton>
+        <UiButton variant="secondary" @click="backToResultFromEdit">
           返回结果
-        </ZButton>
+        </UiButton>
       </div>
     </div>
 
@@ -2005,9 +1952,9 @@ const navPositionText = computed(() => {
           {{ line }}
         </p>
         <div v-if="resultErrorView?.openSettings" class="result-error-actions">
-          <ZButton size="small" type="default" native-type="button" @click="openErrorSettings">
+          <UiButton variant="secondary" @click="openErrorSettings">
             打开设置
-          </ZButton>
+          </UiButton>
         </div>
       </div>
       <template v-else>
@@ -2036,33 +1983,33 @@ const navPositionText = computed(() => {
               INT-005：全局「打开编码」选择器（两侧绑定同一 fileEncoding，
               决策见脚本区注释）。title 为原生 tooltip：GBK 等编码对非法字节
               序列按 TextDecoder 标准以替换符呈现不抛错，乱码时用户在此切换
-              编码重新载入。
+              编码重新载入。外层定宽 span 控制触发器宽度（88px）。
             -->
-            <ZSelect
-              :model-value="fileEncoding"
-              :options="ENCODING_SELECT_OPTIONS"
-              size="small"
-              title="打开文件与拖入文件的解码编码；若出现乱码请切换编码"
-              @update:model-value="setFileEncoding"
-            />
-            <!-- UI-002：打开文件（小尺寸/次级样式），走 useFileLoad 降级安全链路 -->
-            <ZButton size="small" type="default" native-type="button" @click="openLeftFile">
+            <span class="pane-encoding">
+              <UiSelect
+                :model-value="fileEncoding"
+                :options="ENCODING_SELECT_OPTIONS"
+                title="打开文件与拖入文件的解码编码；若出现乱码请切换编码"
+                aria-label="文件解码编码"
+                @update:model-value="setFileEncoding"
+              />
+            </span>
+            <!-- UI-002：打开文件（次级样式），走 useFileLoad 降级安全链路 -->
+            <UiButton variant="secondary" @click="openLeftFile">
               打开文件
-            </ZButton>
+            </UiButton>
             <!--
-              INT-006：粘贴（小尺寸/次级样式）—— 读剪贴板写入本侧：空剪贴板
+              INT-006：粘贴（次级样式）—— 读剪贴板写入本侧：空剪贴板
               toast info「剪贴板为空」、本侧已有内容弹覆盖确认（与「打开文件」
               语义一致）、不自动对比；降级链与确认流程见 useClipboardLoad。
             -->
-            <ZButton
-              size="small"
-              type="default"
-              native-type="button"
+            <UiButton
+              variant="secondary"
               title="粘贴剪贴板文本到「原始文本」"
               @click="pasteLeftClipboard"
             >
               粘贴
-            </ZButton>
+            </UiButton>
           </div>
         </div>
         <div class="pane-body">
@@ -2106,27 +2053,27 @@ const navPositionText = computed(() => {
           <span class="pane-title">更改后文本</span>
           <div class="pane-header-actions">
             <!-- INT-005：全局「打开编码」选择器（同左栏，两侧同值，tooltip 见左栏注释） -->
-            <ZSelect
-              :model-value="fileEncoding"
-              :options="ENCODING_SELECT_OPTIONS"
-              size="small"
-              title="打开文件与拖入文件的解码编码；若出现乱码请切换编码"
-              @update:model-value="setFileEncoding"
-            />
-            <!-- UI-002：打开文件（小尺寸/次级样式），走 useFileLoad 降级安全链路 -->
-            <ZButton size="small" type="default" native-type="button" @click="openRightFile">
+            <span class="pane-encoding">
+              <UiSelect
+                :model-value="fileEncoding"
+                :options="ENCODING_SELECT_OPTIONS"
+                title="打开文件与拖入文件的解码编码；若出现乱码请切换编码"
+                aria-label="文件解码编码"
+                @update:model-value="setFileEncoding"
+              />
+            </span>
+            <!-- UI-002：打开文件（次级样式），走 useFileLoad 降级安全链路 -->
+            <UiButton variant="secondary" @click="openRightFile">
               打开文件
-            </ZButton>
+            </UiButton>
             <!-- INT-006：粘贴（同左栏，写入本侧；语义见左栏注释与 useClipboardLoad） -->
-            <ZButton
-              size="small"
-              type="default"
-              native-type="button"
+            <UiButton
+              variant="secondary"
               title="粘贴剪贴板文本到「更改后文本」"
               @click="pasteRightClipboard"
             >
               粘贴
-            </ZButton>
+            </UiButton>
           </div>
         </div>
         <div class="pane-body">
@@ -2170,14 +2117,14 @@ const navPositionText = computed(() => {
           <template v-else>{{ resultSummary.text }}</template>
         </div>
       </div>
-      <ZButton
-        type="primary"
-        native-type="button"
+      <UiButton
+        variant="primary"
+        size="medium"
         :disabled="diffStore.isRunning"
         @click="handleFindDiff"
       >
         {{ findDiffLabel }}
-      </ZButton>
+      </UiButton>
       <div class="action-bar-side action-bar-side-end">
         <!--
           hunk 导航组（UI-010）：仅在成功结果时渲染；hunks 为空（无差异）时
@@ -2190,27 +2137,23 @@ const navPositionText = computed(() => {
           role="group"
           aria-label="差异块导航"
         >
-          <ZButton
-            size="small"
-            type="default"
-            native-type="button"
+          <UiButton
+            variant="secondary"
             :disabled="navDisabled"
             title="上一处差异（Shift+F3）"
             @click="navStore.goPrev"
           >
             <span class="hunk-nav-arrow" aria-hidden="true">▲</span>上一处
-          </ZButton>
+          </UiButton>
           <span class="hunk-nav-position" aria-live="polite">{{ navPositionText }}</span>
-          <ZButton
-            size="small"
-            type="default"
-            native-type="button"
+          <UiButton
+            variant="secondary"
             :disabled="navDisabled"
             title="下一处差异（F3）"
             @click="navStore.goNext"
           >
             下一处<span class="hunk-nav-arrow" aria-hidden="true">▼</span>
-          </ZButton>
+          </UiButton>
         </div>
       </div>
     </footer>
@@ -2219,56 +2162,42 @@ const navPositionText = computed(() => {
   </div>
 
   <!--
-    全局反馈（UI-002）：ztools-ui 的 useToast / useConfirmDialog 是模块级单例
-    状态，组件只读 props —— 状态绑定与事件回写见 script 区注释。
-    Toast / 确认框均为 fixed 定位（z-index 20000），挂载位置不影响布局。
-    REL-001：ref 供确认弹窗焦点管理（script 区确认弹窗焦点段）；组件本体无
-    dialog 语义（ztools-ui 缺口），经属性透传补 role="dialog" + aria-modal。
+    全局反馈（Scandi 重构后）：UiToastHost / UiConfirmDialog 各自读取本地
+    composables 的模块级单例状态并渲染，无需 props 接线。Toast / 确认框均为
+    fixed 定位（z-index 23000 / 22100），挂载位置不影响布局；确认弹窗的
+    Esc / 焦点圈定 / 焦点还原由 reka-ui AlertDialog 内建。
   -->
-  <ZToast
-    :message="toastState.message"
-    :type="toastState.type"
-    :duration="toastState.duration"
-    v-model:visible="toastState.visible"
-  />
-  <ZConfirmDialog
-    ref="confirmDialogRef"
-    role="dialog"
-    aria-modal="true"
-    :visible="confirmState.visible"
-    :title="confirmState.title"
-    :message="confirmState.message"
-    :type="confirmState.type"
-    :confirm-text="confirmState.confirmText"
-    :cancel-text="confirmState.cancelText"
-    @confirm="handleConfirm"
-    @cancel="handleCancel"
-  />
+  <UiToastHost />
+  <UiConfirmDialog />
 
   <!-- UI-005：设置弹窗（上下文行数 / 自定义忽略规则 / 实时对比默认值） -->
   <SettingsDialog v-model:show="settingsOpen" />
 
   <!--
-    INT-004：历史侧栏（ZDrawer 自带 body teleport，挂载位置不影响布局）。
-    show 走 v-model（遮罩 / Esc / closable 关闭经 update:show 回写）；restore
-    事件的编排见脚本区 handleRestoreHistory。
+    INT-004：历史侧栏（UiDrawer 自带 body teleport，挂载位置不影响布局）。
+    show 走 v-model（遮罩 / Esc / 关闭钮 / 恢复后自动收起经 update:show 回写）；
+    restore 事件的编排见脚本区 handleRestoreHistory。
   -->
   <HistoryDrawer v-model:show="historyDrawerOpen" @restore="handleRestoreHistory" />
 </template>
 
+
 <style scoped>
 /*
- * FND-005 窗口最小尺寸与滚动策略（UI-015 调整）：
- * ZTools 清单 / API 的 minWidth、minHeight 只作用于 ztools.run() 自建窗口，
- * 主面板窗口尺寸由宿主管理，可能很窄。原方案是 .workbench 设 min-width:
- * 640px + app-shell 横向滚动兜底；UI-015 起改为真正的降级布局：
- * 1) .workbench 不再设最小宽度 —— 允许容器真实收缩，App.vue 以 ResizeObserver
- *    观察其宽度（见脚本区「小窗口降级布局」），低于 620px 时并排结果视图
- *    自动降级为统一视图（viewStore.narrowWindow / autoUnified）；
- * 2) .app-shell 纵向保持 overflow: hidden（无页面级滚动，滚动只发生在
- *    CodeMirror 编辑器 / diff 视图内部）；横向保留 overflow-x: auto 作为
- *    最后防线 —— 极窄下个别不可收缩内容（如长正则错误文案）出横向滚动
- *    而非被裁切。
+ * ============================================================================
+ * Scandi 版式（2026-08 北欧极简重构）：
+ * 「亚麻桌面上放纸卡」—— 页面底为暖亚麻白（--bg-color），工作台里的编辑器
+ * 与结果视图是两张纸卡（--surface 白面 + 发丝边 + 1px 轻阴影 + 大圆角），
+ * 侧边栏是桌面左缘的浅色工具墙。全部颜色消费 main.css 令牌，无硬编码色值。
+ * ============================================================================
+ */
+
+/*
+ * FND-005 窗口最小尺寸与滚动策略：
+ * .workbench 不设最小宽度 —— 允许容器真实收缩，App 以 ResizeObserver 观察
+ * 其宽度，低于 620px 时并排结果视图自动降级为统一视图（见脚本区降级大注释）；
+ * .app-shell 纵向 overflow: hidden（无页面级滚动，滚动只发生在 CodeMirror
+ * 编辑器 / diff 视图内部）；横向 overflow-x: auto 作为最后防线。
  */
 .app-shell {
   display: flex;
@@ -2276,107 +2205,103 @@ const navPositionText = computed(() => {
   height: 100%;
   overflow: hidden;
   overflow-x: auto;
-  background-color: var(--bg-color, #f4f4f4);
-  color: var(--text-color, #333333);
+  background-color: var(--bg-color, #f7f5f1);
+  color: var(--text-color, #2e2c28);
 }
 
 /*
  * ============================================================================
- * UI-016 左侧可折叠侧边栏：浅色面板 + 分组（小标题）+ 顶部折叠按钮
- * （布局对齐参考稿；配色走宿主 token --bg-color / --border-color / --hover-bg）。
- * 结构：.app-body（横向 flex）内 =侧边栏 + 窄轨（折叠时）+ 主区
- * （.app-main：工作台 + 底部操作区，从原 app-shell 纵向列内迁入本列）。
- * - 折叠：.sidebar 宽度 244px（--sidebar-w）→ 收起为 0（.is-collapsed），
- *   内容经 .sidebar-inner 固定宽不换行挤压（宽度同步 --sidebar-w）→ 过渡期
- *   内联控件不被挤变形，宽度过渡由 .sidebar 的 transition 承担；收起后
- *   .sidebar-rail 窄轨提供重开按钮（头部折叠钮与窄轨按钮互逆）。
+ * 左侧可折叠侧边栏：浅色工具墙 + 分组（小标题）+ 顶部折叠按钮。
+ * 结构：.app-body（横向 flex）内 = 侧边栏 + 窄轨（折叠时）+ 主区
+ * （.app-main：工作台 + 底部操作区）。
+ * - 折叠：.sidebar 宽度 248px（--sidebar-w）→ 收起为 0（.is-collapsed），
+ *   内容经 .sidebar-inner 固定宽不换行挤压 → 过渡期内联控件不被挤变形；
  * - 窄窗自动收起见脚本区 UI-016 大注释（不自动展开）。
  * ============================================================================
  */
 .app-body {
-  flex:  1 1 auto;
-  min-height:  0;
+  flex: 1 1 auto;
+  min-height: 0;
   display: flex;
   align-items: stretch;
 }
 
 .sidebar {
-  --sidebar-w: 244px;
+  --sidebar-w: 248px;
   flex: none;
   width: var(--sidebar-w);
   overflow: hidden;
-  border-right: 1px solid var(--border-color, #e5e7eb);
-  background-color: var(--bg-color, #f4f4f4);
-  transition: width 0.18s ease, border-color 0.18s ease;
+  border-right: 1px solid var(--border-color, #e8e4dc);
+  background-color: var(--bg-color, #f7f5f1);
+  transition: width 0.18s var(--ease-quiet), border-color 0.18s var(--ease-quiet);
 }
 
 .sidebar.is-collapsed {
-  width:   0;
+  width: 0;
   border-right-color: transparent;
 }
 
 .sidebar-inner {
   width: var(--sidebar-w);
-  height:    100%;
-  display:  flex;
-  flex-direction:  column;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
-/* 头部：品牌 +「历史」+ 折叠按钮（「历史」徽标样式复用 main.css 的 INT-004 段） */
+/* 头部：品牌 +「历史」+ 折叠按钮 */
 .sidebar-header {
   flex: none;
-  display:  flex;
-  align-items:  center;
-  gap:  6px;
-  padding:  8px 10px;
-  border-bottom:  1px solid var(--border-color, #e5e7eb);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--divider-color, #edeae3);
 }
 
-/* 品牌「工具」：图标 + 文字，flex:1 把「历史」/ 折叠推到右；超长省略 */
+/* 品牌「文本对比」：图标 + 文字，flex:1 把「历史」/ 折叠推到右 */
 .sidebar-brand {
-  flex:  1 1 auto;
+  flex: 1 1 auto;
   min-width: 0;
-  display:  inline-flex;
-  align-items:  center;
-  gap: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   font-size: 13px;
   font-weight: 600;
-  overflow:  hidden;
-  white-space:  nowrap;
-  text-overflow:  ellipsis;
+  letter-spacing: 0.2px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .sidebar-brand-icon {
-  font-size: 14px;
-  opacity: 0.8;
-}
-
-/*「历史」入口：头部内保持紧凑（徽标样式消费 main.css 的 .history-button 族） */
-.sidebar-history {
   flex: none;
+  color: var(--primary-color, #4e7a60);
 }
 
-/* 折叠按钮：扁平图标钮（chevron），hover 有轻量底色（--hover-bg token） */
+/* 折叠按钮：扁平图标钮（chevron），hover 轻底色 */
 .sidebar-collapse {
   flex: none;
-  width: 22px;
-  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
   padding: 0;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-s, 6px);
   background: transparent;
-  color: var(--text-secondary, #6a737d);
-  font-size: 15px;
-  line-height: 1;
+  color: var(--text-secondary, #8a8377);
   cursor: pointer;
+  transition: background-color 0.12s var(--ease-quiet), color 0.12s var(--ease-quiet);
 }
 
 .sidebar-collapse:hover {
-  background-color: var(--hover-bg, color-mix(in srgb, var(--text-color, #333333) 6%, transparent));
+  background-color: var(--hover-bg, #f2f0ea);
+  color: var(--text-color, #2e2c28);
 }
 
 .sidebar-collapse:focus-visible {
-  outline: 2px solid var(--primary-color);
+  outline: 1.5px solid var(--primary-color);
   outline-offset: 1px;
 }
 
@@ -2385,66 +2310,56 @@ const navPositionText = computed(() => {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  display:  flex;
-  flex-direction:  column;
+  display: flex;
+  flex-direction: column;
 }
 
-/* 分组：小标题 + 控件列；组间以分隔线 + 间距区隔 */
+/* 分组：小标题 + 控件列；组间以发丝分隔线 + 呼吸间距区隔 */
 .sidebar-section {
-  display:  flex;
-  flex-direction:  column;
-  gap: 6px;
-  padding: 10px;
-  border-bottom: 1px solid var(--border-color, #e5e7eb);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--divider-color, #edeae3);
 }
 
-.sidebar-section:last-child {
-  border-bottom: none;
-}
-
-/* 分组小标题：比正文小一号、弱一档的灰字（--text-secondary token） */
+/* 分组小标题：弱灰小字 + 略宽字距（安静的分类标记，不加图形装饰） */
 .sidebar-section-title {
   margin: 0;
   font-size: 11px;
-  font-weight: 500;
-  color: var(--text-secondary, #6a737d);
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  color: var(--text-secondary, #8a8377);
 }
 
-/* 开关行：标签居左、开关居右（ZSwitch 尺寸 small） */
+/* 开关行：标签居左、开关居右 */
 .sidebar-option-row {
-  display:  flex;
-  align-items:  center;
-  justify-content:  space-between;
-  min-height:  24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 26px;
   font-size: 12px;
-  color: var(--text-color, #333333);
+  color: var(--text-color, #2e2c28);
 }
 
 .sidebar-option-label {
   font-size: 12px;
 }
 
-/* 侧边栏内 ZSelect 下拉：满宽（浮层 teleport 到 body，不受
-    .sidebar overflow:hidden 裁剪） */
-.sidebar :deep(.z-select) {
-  width: 100%;
-  min-width: 0;
-}
-
-/* 便捷项列：按钮满宽 + 四个小按钮两列网格 */
+/* 便捷项列：控件满宽 + 四个小按钮两列网格 */
 .sidebar-quick {
-  display:  flex;
-  flex-direction:  column;
+  display: flex;
+  flex-direction: column;
   gap: 6px;
 }
 
 .sidebar-quick-grid {
-  display:  grid;
+  display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 6px;
 }
 
-/* 满宽按钮：快捷列里的块按钮（class 透传到 ZButton 根） */
+/* 满宽按钮：快捷列里的块按钮（class 透传到 UiButton 根） */
 .sidebar-block-btn {
   width: 100%;
 }
@@ -2452,95 +2367,69 @@ const navPositionText = computed(() => {
 /* 侧边栏底部：实时对比开关行 + 设置（返回编辑随结果态出现，见模板 v-if） */
 .sidebar-footer {
   flex: none;
-  display:  flex;
-  flex-direction:  column;
-  gap: 6px;
-  padding:  10px;
-  border-top:  1px solid var(--border-color, #e5e7eb);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border-top: 1px solid var(--divider-color, #edeae3);
 }
 
 .sidebar-footer-row {
-  display:  flex;
-  align-items:  center;
-  justify-content:  space-between;
-  min-height:  24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 26px;
 }
 
-/* 设置入口：齿轮图标 + 文字，满宽 */
 .sidebar-settings-btn {
-  justify-content:  center;
+  justify-content: center;
 }
 
 .sidebar-gear {
-  font-size: 14px;
+  color: var(--text-secondary, #8a8377);
 }
 
-/* 折叠窄轨：收起后的细条（vue-if 渲染，宽度固定不占编辑区空间） */
+/* 折叠窄轨：收起后的细条（v-if 渲染，宽度固定不占编辑区空间） */
 .sidebar-rail {
   flex: none;
-  width:  18px;
-  display:  flex;
-  flex-direction:  column;
-  align-items:  center;
-  border-right:  1px solid var(--border-color, #e5e7eb);
-  background-color: var(--bg-color, #f4f4f4);
+  width: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  border-right: 1px solid var(--border-color, #e8e4dc);
+  background-color: var(--bg-color, #f7f5f1);
 }
 
 /* 窄轨展开钮：扁平图标钮，顶部悬挂（hover/焦点态同头部折叠钮） */
 .sidebar-rail-toggle {
   flex: none;
-  width:  22px;
-  height:  22px;
-  margin-top:  8px;
-  padding:  0;
-  border:  none;
-  border-radius:  6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-top: 10px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-s, 6px);
   background: transparent;
-  color: var(--text-secondary, #6a737d);
-  font-size:  15px;
-  line-height:   1;
+  color: var(--text-secondary, #8a8377);
   cursor: pointer;
+  transition: background-color 0.12s var(--ease-quiet), color 0.12s var(--ease-quiet);
 }
 
 .sidebar-rail-toggle:hover {
-  background-color: var(--hover-bg, color-mix(in srgb, var(--text-color, #333333) 6%, transparent));
+  background-color: var(--hover-bg, #f2f0ea);
+  color: var(--text-color, #2e2c28);
 }
 
 .sidebar-rail-toggle:focus-visible {
-  outline:  2px solid var(--primary-color);
-  outline-offset:   1px;
+  outline: 1.5px solid var(--primary-color);
+  outline-offset: 1px;
 }
 
-/* 主区（工作台 + 底部操作区列）：从 app-shell 列内迁入本列，
-   占满侧边栏右侧剩余空间（.workbench 既有 flex:1 契约原位生效） */
+/* 主区（工作台 + 底部操作区列）：占满侧边栏右侧剩余空间 */
 .app-main {
-  flex:   1 1 auto;
-  min-width:   0;
-  min-height:   0;
-  display:   flex;
-  flex-direction:   column;
-}
-
-
-/*
- * 中部双栏工作台：min-height: 0 保证子区域可收缩并内部滚动。
- * UI-015 起不再设 min-width（原 640px 兜底由小窗口降级布局取代，见上方
- * app-shell 处注释与脚本区「小窗口降级布局」段）；position: relative 是
- * 感知加载态进度条（.result-progress，absolute 钉顶覆盖，见 main.css
- * UI-013 段）的定位上下文。
- */
-.workbench {
-  flex: 1 1 auto;
-  display: flex;
-  min-height: 0;
-  position: relative;
-}
-
-/*
- * 结果态包裹层（UI-013）：纵向 flex —— 顶部可选「两侧相同」提示条
- * （.same-notice，flex:none 不收缩），下方结果视图占满剩余空间。
- */
-.result-stage {
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
@@ -2549,9 +2438,39 @@ const navPositionText = computed(() => {
 }
 
 /*
- * 结果态（UI-006/007）：SplitDiffView / UnifiedDiffView 占满工作台
- * （单一滚动容器在组件内部，此处只负责 flex 尺寸收缩）。
+ * 中部工作台：纸卡容器。padding + gap 构成「桌面留白」，子卡（编辑器 /
+ * 结果视图）互不贴边。min-height: 0 保证子区域可收缩并内部滚动；
+ * position: relative 是感知加载态进度条（.result-progress，main.css）的
+ * 定位上下文。
  */
+.workbench {
+  flex: 1 1 auto;
+  display: flex;
+  gap: 12px;
+  min-height: 0;
+  padding: 12px 16px;
+  position: relative;
+}
+
+/*
+ * 结果态包裹层：纸卡（白面 + 发丝边 + 大圆角 + 轻阴影）。顶部承载「两侧
+ * 相同」等提示条（卡内首行），下方结果视图占满剩余空间（滚动容器在
+ * .result-view 内部）。overflow: hidden 让圆角裁掉行底色直角。
+ */
+.result-stage {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-color, #e8e4dc);
+  border-radius: var(--radius-l, 12px);
+  background-color: var(--surface, #ffffff);
+  box-shadow: var(--shadow-1);
+  overflow: hidden;
+}
+
+/* 结果视图：占满工作台（单一滚动容器在组件内部） */
 .result-view {
   flex: 1 1 auto;
   min-width: 0;
@@ -2559,9 +2478,8 @@ const navPositionText = computed(() => {
 }
 
 /*
- * 结果态错误块（UI-011 引入结构，UI-013 强化文案与动作）：占满工作台居中
- * 呈现失败原因（标题 + 类别主文案 + 追加详情行 + 动作区）；配色与底部摘要
- * 条的错误态同源（--danger-color / 弱化文字），不引入新色值。
+ * 结果态错误块：纸卡内居中呈现失败原因（标题 + 类别主文案 + 追加详情行 +
+ * 动作区）；标题陶土红、正文次级暖灰，安静不刺眼。
  */
 .result-error {
   flex: 1 1 auto;
@@ -2579,27 +2497,24 @@ const navPositionText = computed(() => {
   margin: 0;
   font-size: 14px;
   font-weight: 600;
-  color: var(--danger-color, #d1242f);
+  color: var(--danger-color, #b3563e);
 }
 
 .result-error-text {
   margin: 0;
   font-size: 13px;
-  color: var(--text-secondary, #6a737d);
+  color: var(--text-secondary, #8a8377);
 }
 
-/*
- * 错误块追加详情行（UI-013）：比主文案再弱一档（不加粗、更淡），等宽字体
- * 承载「大小 / 上限」这类数字信息（对齐统计徽标的等宽惯例）。
- */
+/* 错误块追加详情行：比主文案再弱一档，等宽字体承载「大小 / 上限」数字 */
 .result-error-detail {
   margin: 0;
   font-family: var(--font-mono);
   font-size: 12px;
-  color: color-mix(in srgb, var(--text-secondary, #6a737d) 85%, transparent);
+  color: color-mix(in srgb, var(--text-secondary, #8a8377) 85%, transparent);
 }
 
-/* 错误块动作区（UI-013）：「打开设置」等动作按钮与文案拉开间距 */
+/* 错误块动作区：与文案拉开间距 */
 .result-error-actions {
   margin-top: 8px;
   display: flex;
@@ -2608,8 +2523,9 @@ const navPositionText = computed(() => {
 }
 
 /*
- * 编辑器 pane（UI-003 起为拖放目标）：加 position: relative 作为
- * 拖拽覆盖层（.drop-overlay，absolute inset:0）的定位上下文。
+ * 编辑器 pane：纸卡（同 .result-stage 的白面 + 发丝边 + 圆角 + 轻阴影）。
+ * 两卡之间的呼吸感由 .workbench 的 gap 提供（原 1px 分隔线取消）。
+ * position: relative 是拖拽覆盖层（.drop-overlay）的定位上下文。
  */
 .editor-pane {
   flex: 1 1 50%;
@@ -2617,44 +2533,36 @@ const navPositionText = computed(() => {
   flex-direction: column;
   min-width: 0;
   position: relative;
+  border: 1px solid var(--border-color, #e8e4dc);
+  border-radius: var(--radius-l, 12px);
+  background-color: var(--surface, #ffffff);
+  box-shadow: var(--shadow-1);
+  overflow: hidden;
 }
 
-/*
- * pane 头部（UI-002 起含「打开文件」按钮）：标题居左、按钮居右。
- * padding 由 6px 收窄为 2px：small 按钮 28px + 2px*2 = 32px，与原
- * 20px 文案行 + 6px*2 的头部高度一致，加按钮后布局不跳动。
- */
+/* pane 头部：标题居左、按钮居右（发丝下边线，卡内首行） */
 .pane-header {
   flex: none;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 2px 12px;
+  padding: 5px 10px 5px 14px;
   font-size: 12px;
   line-height: 20px;
-  border-bottom: 1px solid var(--border-color, #e5e7eb);
+  border-bottom: 1px solid var(--divider-color, #edeae3);
 }
 
 /* 标题弱化：opacity 只作用于文案本身，避免连带按钮一起变淡 */
 .pane-title {
-  color: var(--text-color, #333333);
-  opacity: 0.75;
-  /*
-   * INT-005：头部右侧并入编码选择器后窄窗更紧 —— 标题收缩时以省略号
-   * 截断，保证 pane header 不横向溢出（.editor-pane 已 min-width: 0，
-   * flex 子项默认可收缩，省略号兜底极窄场景）。
-   */
+  color: var(--text-color, #2e2c28);
+  opacity: 0.72;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
-/*
- * INT-005 pane 头部右侧动作组：全局「打开编码」选择器 + 「打开文件」按钮
- * 并排（space-between 头部的右端聚合，标题仍居左）。min-width: 0 允许
- * 窄窗下整体收缩，与 .pane-title 的省略号截断配合防溢出。
- */
+/* pane 头部右侧动作组：编码选择器 + 打开文件 + 粘贴 */
 .pane-header-actions {
   display: flex;
   align-items: center;
@@ -2662,40 +2570,25 @@ const navPositionText = computed(() => {
   min-width: 0;
 }
 
-/*
- * 编码选择器：ZSelect 默认 min-width: 150px 在 pane 头部过宽 —— 候选最长
- * 「UTF-16」5 字符 + 箭头，88px 足够（与工具栏「示例数据」下拉同款收窄
- * 手法），size="small" 触发器与「打开文件」small 按钮同档对齐。
- */
-.pane-header-actions :deep(.z-select) {
-  min-width: 0;
+/* 编码选择器外层定宽（88px）：候选最长「UTF-16」+ 箭头足够 */
+.pane-encoding {
+  flex: none;
+  display: inline-flex;
   width: 88px;
+  min-width: 0;
 }
 
-/*
- * 编辑器挂载区域：内容自身滚动（UI-001 起为 CodeMirror 的 .cm-scroller），
- * 不撑破外壳。编辑器排版/配色由 InputEditor 组件内部主题消费
- * --font-mono 与 --diff-* token，此处不再重复定义。
- */
+/* 编辑器挂载区域：内容自身滚动（CodeMirror 的 .cm-scroller） */
 .pane-body {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
 }
 
-.pane-divider {
-  flex: none;
-  width: 1px;
-  background-color: var(--border-color, #e5e7eb);
-}
-
 /*
- * 拖拽覆盖层（UI-003）：半透明遮罩 + 虚线框 + 居中文案。
- * 颜色全部从既有 token 派生（color-mix 透明化 --bg-color / --primary-color），
- * 不硬编码新色值，随宿主深浅主题自动切换。
- * pointer-events: none 是防闪烁的配套措施：覆盖层不参与拖拽命中测试，
- * 其插入 / 移除不会成为 dragenter/dragleave 的目标而扰动深度计数
- * （计数机制本身见 useDropLoad.ts 的 depth 注释）。
+ * 拖拽覆盖层：半透明暖白遮罩 + 主色虚线框 + 居中主色徽标文案。
+ * pointer-events: none 是防闪烁的配套措施（覆盖层不参与拖拽命中测试，
+ * 其插入 / 移除不会扰动 enter/leave 深度计数）。
  */
 .drop-overlay {
   position: absolute;
@@ -2705,24 +2598,26 @@ const navPositionText = computed(() => {
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
-  border: 2px dashed var(--primary-color);
-  background-color: color-mix(in srgb, var(--bg-color, #f4f4f4) 82%, transparent);
+  border: 2px dashed color-mix(in srgb, var(--primary-color, #4e7a60) 70%, transparent);
+  border-radius: inherit;
+  background-color: color-mix(in srgb, var(--surface, #ffffff) 85%, transparent);
   pointer-events: none;
 }
 
-/* 覆盖层文案：主色底 + 主色字的小徽标（底色由主色透明化派生） */
 .drop-overlay-label {
   padding: 6px 14px;
-  border-radius: 6px;
+  border-radius: var(--radius-m, 8px);
   font-size: 13px;
   font-weight: 600;
-  color: var(--primary-color);
-  background-color: color-mix(in srgb, var(--primary-color) 12%, transparent);
+  color: var(--primary-color, #4e7a60);
+  background-color: color-mix(in srgb, var(--primary-color, #4e7a60) 10%, var(--surface, #ffffff));
+  box-shadow: var(--shadow-1);
 }
 
 /*
- * 底部操作区（UI-004）：三列 grid（1fr auto 1fr）保证主按钮恒居中——
- * 左列放结果摘要条，右列留白（UI-010 升级完整统计条时占用）。
+ * 底部操作区：三列 grid（1fr auto 1fr）保证主按钮恒居中。
+ * 左列 = 统计徽标条（+N/−M/~K/H 处差异 pill，错误时为错误摘要）；
+ * 右列 = hunk 导航按钮组（▲ 上一处 / 位置 / ▼ 下一处）。
  */
 .action-bar {
   flex: none;
@@ -2731,7 +2626,8 @@ const navPositionText = computed(() => {
   align-items: center;
   gap: 12px;
   padding: 10px 16px;
-  border-top: 1px solid var(--border-color, #e5e7eb);
+  border-top: 1px solid var(--border-color, #e8e4dc);
+  background-color: var(--bg-color, #f7f5f1);
 }
 
 /* 左右列容器：min-width: 0 允许统计条在窄窗下收缩裁切，不挤偏居中按钮 */
@@ -2741,17 +2637,11 @@ const navPositionText = computed(() => {
   align-items: center;
 }
 
-/* 右列（导航组）：贴行尾对齐（与左列统计条形成左右平衡） */
 .action-bar-side-end {
   justify-content: flex-end;
 }
 
-/*
- * 统计条容器（UI-010 升级自 UI-004 摘要条）：小字号一行。
- * 错误摘要用宿主 --danger-color；背景用宿主 --hover-bg 做轻量底色
- * （回退值从文字色 color-mix 派生而非固定色，深浅主题语义一致，
- * UI-015 硬编码色值走查调整），不引入新色值。
- */
+/* 统计条容器：小字号一行，轻底圆角（错误摘要为陶土红文案） */
 .result-summary {
   display: flex;
   align-items: center;
@@ -2759,21 +2649,20 @@ const navPositionText = computed(() => {
   overflow: hidden;
   white-space: nowrap;
   padding: 3px 10px;
-  border-radius: 6px;
+  border-radius: var(--radius-m, 8px);
   font-size: 12px;
-  background-color: var(--hover-bg, color-mix(in srgb, var(--text-color, #333333) 4%, transparent));
+  background-color: var(--hover-bg, #f2f0ea);
 }
 
-/* 错误摘要：错误文案是文本节点直挂本容器，容器色即文案色 */
 .result-summary.is-error {
-  color: var(--danger-color, #d1242f);
+  color: var(--danger-color, #b3563e);
   font-weight: 600;
 }
 
 /*
- * 统计徽标（UI-010）：pill 形 + 等宽字体（数字对齐、与 diff 视图同字体族）。
- * 各徽标底色由自身文字色 10% 透明化派生（color-mix）—— 浅色是淡彩、深色是
- * 暗彩，随 token 自动适配宿主主题，无硬编码色值。
+ * 统计徽标：pill 形 + 等宽字体（数字对齐、与 diff 视图同字体族）。
+ * 各徽标底色由自身文字色透明化派生（color-mix）—— 浅色是淡彩、深色是暗彩，
+ * 随 token 自动适配主题，无硬编码色值。
  */
 .stat-pill {
   flex: none;
@@ -2786,31 +2675,31 @@ const navPositionText = computed(() => {
 }
 
 .stat-pill.is-add {
-  color: var(--diff-add-text, #116329);
-  background-color: color-mix(in srgb, var(--diff-add-text, #116329) 10%, transparent);
+  color: var(--diff-add-text, #3f6d4b);
+  background-color: color-mix(in srgb, var(--diff-add-text, #3f6d4b) 10%, transparent);
 }
 
 .stat-pill.is-del {
-  color: var(--diff-del-text, #82071a);
-  background-color: color-mix(in srgb, var(--diff-del-text, #82071a) 10%, transparent);
+  color: var(--diff-del-text, #96482f);
+  background-color: color-mix(in srgb, var(--diff-del-text, #96482f) 10%, transparent);
 }
 
-/* ~K 修改对徽标：宿主主色（修改语义与主操作同源，避免引入第四种色相） */
+/* ~K 修改对徽标：浅雾蓝（信息语义，与 hunk 头同族色相） */
 .stat-pill.is-mod {
-  color: var(--primary-color, #0969da);
-  background-color: color-mix(in srgb, var(--primary-color, #0969da) 10%, transparent);
+  color: var(--accent-blue, #5e86a8);
+  background-color: color-mix(in srgb, var(--accent-blue, #5e86a8) 10%, transparent);
 }
 
 /* 「H 处差异」计数徽标：中性弱化，让 +/− 数字成为视觉重心 */
 .stat-pill.is-count {
-  color: var(--text-secondary, #6a737d);
-  background-color: color-mix(in srgb, var(--text-secondary, #6a737d) 12%, transparent);
+  color: var(--text-secondary, #8a8377);
+  background-color: color-mix(in srgb, var(--text-secondary, #8a8377) 12%, transparent);
   font-family: inherit;
   font-weight: 500;
 }
 
 /*
- * hunk 导航组（UI-010，右列）：▲/▼ 按钮 + 位置文案。位置用等宽字体与
+ * hunk 导航组（右列）：▲/▼ 按钮 + 位置文案。位置用等宽字体与
  * tabular-nums，跳转时数字宽度稳定不抖动。
  */
 .hunk-nav {
@@ -2830,7 +2719,7 @@ const navPositionText = computed(() => {
   font-family: var(--font-mono);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
-  color: var(--text-secondary, #6a737d);
+  color: var(--text-secondary, #8a8377);
   overflow: hidden;
   white-space: nowrap;
 }

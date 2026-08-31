@@ -193,7 +193,7 @@
  * 颜色一律消费 main.css 的 --diff-* token 与 ztools-ui 宿主变量，无硬编码色值。
  */
 import { computed, nextTick, ref, watch } from 'vue'
-import { ZButton } from 'ztools-ui'
+import UiButton from './ui/UiButton.vue'
 import { isDiffOk } from '../core/types'
 import type { CollapseRange, DiffRow, DiffRowSide, DiffRowType } from '../core/types'
 import { computeSpans } from '../core/inline'
@@ -770,9 +770,9 @@ function emitApplyHunk(hunkIndex: number, direction: MergeDirection): void {
       （z-index 3 高于行号 / 记号列，防竖向滚动时 sticky 单元格穿透）。
     -->
     <div v-if="isAnyCollapsed" class="diff-expand-all-bar">
-      <ZButton size="small" type="default" native-type="button" @click="expandAll">
+      <UiButton variant="secondary" @click="expandAll">
         全部展开
-      </ZButton>
+      </UiButton>
     </div>
     <div class="split-grid">
       <!--

@@ -76,43 +76,43 @@ export function escapeHtml(s: string): string {
  * 导出文档的内联 CSS（单文件自包含）。
  *
  * 取值约定（与 main.css 逐项一致，改一处需同步另一处）：
- * - --diff-* 八个 token：roadmap §3.2 的浅/深两套字面值（导出文档脱离插件
- *   环境，无法消费宿主变量，必须写成字面 CSS 自定义属性）；
- * - 等宽字体栈与排版：§3.2 同款 ui-monospace 栈，13px / 20px 行高；
- * - 中性色复用项目既有色板：正文 #333333 / 次级 #6a737d（main.css 浅色回退
- *   值），深色正文 #c9d1d9 / 次级 #8b949e（main.css 深色语法注释色），画布
- *   深色取 --diff-gutter-bg 深色值 #161b22，不引入新色相；
+ * - --diff-* 八个 token：Scandi 色板的浅/深两套字面值（导出文档脱离插件
+ *   环境，无法消费插件 CSS 变量，必须写成字面 CSS 自定义属性）；
+ * - 等宽字体栈与排版：同款 ui-monospace 栈，13px / 20px 行高；
+ * - 中性色复用项目既有色板：正文 #2e2c28 / 次级 #8a8377（main.css 浅色令牌
+ *   值），深色正文 #eae6de / 次级 #a39c8f（main.css 深色令牌值），画布深色
+ *   取 --diff-gutter-bg 深色值 #322f2a，不引入新色相；
  * - print 段：打印导出文件时保留红绿底色（print-color-adjust: exact）并
  *   逐行避免跨页断开。
  */
 const EXPORT_CSS = `
 :root {
   color-scheme: light dark;
-  --diff-del-bg: #ffebe9;
-  --diff-del-word-bg: #ffc1bc;
-  --diff-del-text: #82071a;
-  --diff-add-bg: #dafbe1;
-  --diff-add-word-bg: #aceebb;
-  --diff-add-text: #116329;
-  --diff-gutter-bg: #f6f8fa;
-  --diff-hunk-bg: #ddf4ff;
-  --fg: #333333;
-  --fg-soft: #6a737d;
+  --diff-del-bg: #f6e7e1;
+  --diff-del-word-bg: #ecc9bd;
+  --diff-del-text: #96482f;
+  --diff-add-bg: #e5eee1;
+  --diff-add-word-bg: #c5dcbf;
+  --diff-add-text: #3f6d4b;
+  --diff-gutter-bg: #f1efe9;
+  --diff-hunk-bg: #e3ebef;
+  --fg: #2e2c28;
+  --fg-soft: #8a8377;
   --bg: #ffffff;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --diff-del-bg: #78191b;
-    --diff-del-word-bg: #9c3231;
-    --diff-del-text: #ff8181;
-    --diff-add-bg: #1a4721;
-    --diff-add-word-bg: #2ea04366;
-    --diff-add-text: #7ee787;
-    --diff-gutter-bg: #161b22;
-    --diff-hunk-bg: #121d2f;
-    --fg: #c9d1d9;
-    --fg-soft: #8b949e;
-    --bg: #161b22;
+    --diff-del-bg: #43302a;
+    --diff-del-word-bg: #5d3e33;
+    --diff-del-text: #e2a58f;
+    --diff-add-bg: #2f3a2e;
+    --diff-add-word-bg: #44593f;
+    --diff-add-text: #a9cba9;
+    --diff-gutter-bg: #322f2a;
+    --diff-hunk-bg: #303a41;
+    --fg: #eae6de;
+    --fg-soft: #a39c8f;
+    --bg: #322f2a;
   }
 }
 * { box-sizing: border-box; }

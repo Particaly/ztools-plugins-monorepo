@@ -248,21 +248,21 @@ describe('buildExportHtml：unified 模式', () => {
 /* -------------------------------------------------------------------------- */
 
 describe('buildExportHtml：内联样式与导出语义', () => {
-  it('--diff-* 浅/深两套字面值存在（与 main.css / roadmap §3.2 一致）', () => {
+  it('--diff-* 浅/深两套字面值存在（与 main.css Scandi 色板一致）', () => {
     const html = buildExportHtml(makeInput())
-    // 浅色默认值。
-    expect(html).toContain('--diff-del-bg: #ffebe9')
-    expect(html).toContain('--diff-add-bg: #dafbe1')
-    expect(html).toContain('--diff-gutter-bg: #f6f8fa')
-    expect(html).toContain('--diff-del-text: #82071a')
-    expect(html).toContain('--diff-add-text: #116329')
+    // 浅色默认值（陶土红删 / 鼠尾草绿增）。
+    expect(html).toContain('--diff-del-bg: #f6e7e1')
+    expect(html).toContain('--diff-add-bg: #e5eee1')
+    expect(html).toContain('--diff-gutter-bg: #f1efe9')
+    expect(html).toContain('--diff-del-text: #96482f')
+    expect(html).toContain('--diff-add-text: #3f6d4b')
     // 深色覆盖（prefers-color-scheme: dark）。
     expect(html).toContain('@media (prefers-color-scheme: dark)')
-    expect(html).toContain('--diff-del-bg: #78191b')
-    expect(html).toContain('--diff-add-bg: #1a4721')
-    expect(html).toContain('--diff-gutter-bg: #161b22')
-    expect(html).toContain('--diff-del-text: #ff8181')
-    expect(html).toContain('--diff-add-text: #7ee787')
+    expect(html).toContain('--diff-del-bg: #43302a')
+    expect(html).toContain('--diff-add-bg: #2f3a2e')
+    expect(html).toContain('--diff-gutter-bg: #322f2a')
+    expect(html).toContain('--diff-del-text: #e2a58f')
+    expect(html).toContain('--diff-add-text: #a9cba9')
   })
 
   it('print 友好：无 JS、无外部资源引用，含 print-color-adjust 保留配色', () => {

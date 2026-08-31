@@ -25,7 +25,7 @@
  * 误判为「载入」而整侧覆盖。
  */
 import { reactive, ref } from 'vue'
-import { useToast } from 'ztools-ui'
+import { useToast } from './useToast'
 import { readFileIntoStore, type FileEncoding, type PaneSide } from './useFileLoad'
 import { workbenchStore } from '../stores/workbench'
 

@@ -12,17 +12,16 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
-/** roadmap §3.2 表格的 8 组 token 期望值（浅色 / 深色） */
+/** Scandi 色板（2026-08 北欧重构）的 8 组 token 期望值（浅色 / 深色） */
 const EXPECTED_DIFF_TOKENS: ReadonlyArray<{ name: string; light: string; dark: string }> = [
-  { name: '--diff-del-bg', light: '#ffebe9', dark: '#78191b' },
-  { name: '--diff-del-word-bg', light: '#ffc1bc', dark: '#9c3231' },
-  { name: '--diff-del-text', light: '#82071a', dark: '#ff8181' },
-  { name: '--diff-add-bg', light: '#dafbe1', dark: '#1a4721' },
-  // 深色值带 alpha 通道（#2ea04366），按 roadmap 原样保留
-  { name: '--diff-add-word-bg', light: '#aceebb', dark: '#2ea04366' },
-  { name: '--diff-add-text', light: '#116329', dark: '#7ee787' },
-  { name: '--diff-gutter-bg', light: '#f6f8fa', dark: '#161b22' },
-  { name: '--diff-hunk-bg', light: '#ddf4ff', dark: '#121d2f' },
+  { name: '--diff-del-bg', light: '#f6e7e1', dark: '#43302a' },
+  { name: '--diff-del-word-bg', light: '#ecc9bd', dark: '#5d3e33' },
+  { name: '--diff-del-text', light: '#96482f', dark: '#e2a58f' },
+  { name: '--diff-add-bg', light: '#e5eee1', dark: '#2f3a2e' },
+  { name: '--diff-add-word-bg', light: '#c5dcbf', dark: '#44593f' },
+  { name: '--diff-add-text', light: '#3f6d4b', dark: '#a9cba9' },
+  { name: '--diff-gutter-bg', light: '#f1efe9', dark: '#322f2a' },
+  { name: '--diff-hunk-bg', light: '#e3ebef', dark: '#303a41' },
 ]
 
 const mainCss = readFileSync(new URL('../../src/main.css', import.meta.url), 'utf8')
@@ -65,7 +64,7 @@ describe('main.css：排版与滚动条 token', () => {
   })
 
   it('内部滚动条 token 浅 / 深两档齐备', () => {
-    expect(lightBlock).toContain('--scrollbar-thumb: #d0d7de;')
-    expect(darkBlock).toContain('--scrollbar-thumb: #30363d;')
+    expect(lightBlock).toContain('--scrollbar-thumb: #d9d3c8;')
+    expect(darkBlock).toContain('--scrollbar-thumb: #4a463d;')
   })
 })

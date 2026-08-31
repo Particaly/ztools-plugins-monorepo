@@ -174,7 +174,7 @@
  * 宿主变量，无硬编码色值。
  */
 import { computed, nextTick, ref, watch } from 'vue'
-import { ZButton } from 'ztools-ui'
+import UiButton from './ui/UiButton.vue'
 import { isDiffOk } from '../core/types'
 import type { CollapseRange, DiffRow, DiffRowSide } from '../core/types'
 import { hunkAnchorRows } from '../core/stats'
@@ -629,9 +629,9 @@ function emitApplyHunk(hunkIndex: number, direction: MergeDirection): void {
       公共样式 .diff-expand-all-bar 见 main.css（与并排视图共用同一份）。
     -->
     <div v-if="isAnyCollapsed" class="diff-expand-all-bar">
-      <ZButton size="small" type="default" native-type="button" @click="expandAll">
+      <UiButton variant="secondary" @click="expandAll">
         全部展开
-      </ZButton>
+      </UiButton>
     </div>
     <!-- 4 列网格：旧行号 | 新行号 | 记号 | 内容（列定义见 scoped 样式） -->
     <div class="unified-grid">

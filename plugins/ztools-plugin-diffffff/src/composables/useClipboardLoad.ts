@@ -37,7 +37,8 @@
  * 复刻引擎阈值，双份上限易漂移。
  * ============================================================================
  */
-import { useConfirmDialog, useToast } from 'ztools-ui'
+import { useConfirmDialog } from './useConfirm'
+import { useToast } from './useToast'
 import { workbenchStore } from '../stores/workbench'
 import type { PaneSide } from './useFileLoad'
 

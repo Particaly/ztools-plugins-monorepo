@@ -29,7 +29,8 @@
  * UTF-8/GBK/UTF-16 三项）；GBK 等编码遇非法字节序列不抛错，按 TextDecoder
  * 标准以 U+FFFD 替换符呈现 —— 用户可感知乱码后切换编码重试。
  */
-import { useConfirmDialog, useToast } from 'ztools-ui'
+import { useConfirmDialog } from '../composables/useConfirm'
+import { useToast } from '../composables/useToast'
 import { workbenchStore } from '../stores/workbench'
 
 /*
