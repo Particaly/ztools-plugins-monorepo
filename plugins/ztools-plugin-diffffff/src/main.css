@@ -721,7 +721,10 @@ body {
     background-color: #ffffff;
   }
 
-  /* 工作台与结果区铺开：解除 flex 收缩与内部滚动，让全部已渲染行参与分页 */
+  /* 工作台与结果区铺开：解除 flex 收缩与内部滚动，让全部已渲染行参与分页。
+
+  .app-body,
+  .app-main,
   .workbench,
   .result-stage,
   .result-stage .result-view {
@@ -745,7 +748,8 @@ body {
   }
 
   /* 隐藏一切非结果元素：app-shell 内仅 .result-stage 参与打印 */
-  .toolbar,
+  .sidebar,
+  .sidebar-rail,
   .action-bar,
   .edit-notice,
   .result-progress,

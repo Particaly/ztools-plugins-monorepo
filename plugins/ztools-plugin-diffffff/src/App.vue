@@ -101,7 +101,6 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   ZButton,
-  ZCheckbox,
   ZConfirmDialog,
   ZSelect,
   ZSwitch,
@@ -825,6 +824,42 @@ let narrowObserver: ResizeObserver | null = null
 
 /** 窄窗提示条关闭态：关闭后本episode不再出现（窗口退出窄窗时重置） */
 const narrowNoticeDismissed = ref(false)
+
+/*
+ * ============================================================================
+ * 左侧可折叠侧边栏（UI-016：顶部工具栏改为左侧侧边栏，样式对齐参考稿
+ * 「浅色面板 + 分组列表 + 顶部折叠按钮」）：折叠态为纯会话级 UI 态
+ * （不进 store、不持久化 —— 与「窄窗坚持」等偏好语义有本质区别，侧边栏
+ * 收合是浏览时的临时姿势，重开插件回到展开态最可预期）。两个出口：
+ * - 展开态：侧边栏头部的 `‹` 折叠按钮收起（留下窄轨 `.sidebar-rail`
+ *   上的 `›` 按钮可重新展开，窄轨不占位不挡编辑区）；
+ * - 窄窗自动收起：进入窄窗（narrowWindow 变 true，窗口确实被宿主压
+ *   窄）时主动收起侧边栏，把水平空间让给编辑器 / 结果视图 —— 窄窗下
+ *   固定 244px 的侧边栏会让双栏编辑器每侧只剩百余 px，不可用；仅「进入
+ *   窄窗」时自动收起一次，不自动展开（宽窗回来时保持用户当前姿势 ——
+ *   用户主动收起在宽窗里也该被尊重），窄窗内用户仍可手动重新展开。
+
+ */
+
+const sidebarCollapsed = ref(false)
+
+/** 折叠 / 展开侧边栏：头部 `‹` 按钮与窄轨 `›` 按钮的共用出口 */
+function toggleSidebar(): void {
+  sidebarCollapsed.value = !sidebarCollapsed.value
+}
+
+/*
+ * 侧边栏窄窗自动收起（UI-016）：只在「进入窄窗」的沿边触发——
+ * narrowWindow 变 true 时收起；（退出窄窗不展开，理由见上方大注释；用户
+ * 在窄窗内手动重新展开后，若窗口在窄阈附近抖动、再次进入窄窗，会
+ * 再度自动收起 —— 与「进入窄窗」的既定语义一致，可接受阈值内代价）。
+ */
+watch(
+  () => viewStore.narrowWindow,
+  (narrow) => {
+    if (narrow) sidebarCollapsed.value = true
+  },
+)
 
 /**
  * 结果视图行号列宽（UI-015「宽随位数自适应」）：按结果总行数位数映射
@@ -1599,27 +1634,88 @@ const navPositionText = computed(() => {
 
 <template>
   <div class="app-shell">
-    <!--
-      UI-005 工具栏：三区布局「左标题 | 中视图/精度/语言 | 右选项开关+实时+设置」。
-      - 分段控件用 ZTabs type="segment"（ztools-ui .d.ts 能力清点结论：无独立
-        Segmented 组件，Tabs 的 segment 变体即分段控件）；
-      - 精度/语言用 ZSelect（ztools-ui 原生下拉，含键盘与浮层定位）；
-      - 四个选项开关用 ZCheckbox（带文字的紧凑复选样式，任务允许）——其中
-        忽略空白/忽略大小写经 watch 联动引擎（见脚本区「选项变化自动重跑」），
-        折叠未变更/换行只留给渲染层（UI-006/007/008）消费；
-      - 实时对比开关（UI-004 原位保留）+ 设置齿轮按钮（打开 SettingsDialog）。
-      小窗降级：.toolbar flex-wrap: wrap，分组依次换行不裁切（详见样式区注释）。
+<!--
+      UI-016 侧边栏布局：顶部工具栏整体迁入左侧可折叠侧边栏
+      （对齐参考稿「浅色面板 + 分组列表 + 顶部折叠按钮」）：
+      - 分组结构：选项开关（四个 ZSwitch toggle 行）→ 视图（分段控件）→
+        比对精度 / 语法高亮（ZSelect 下拉）→ 操作（动作下拉 + 按钮格）；
+      - 底部操作区：「实时对比」开关行 + 「设置」入口 + 结果态「返回编辑」；
+      - 「历史」入口与折叠按钮在侧边栏头部（徽标复用 INT-004 样式）；
+      - 折叠：头部 `‹` 收起，窄轨 `›` 展开；窄窗进入时自动收起
+        （见脚本区 UI-016 大注释）。样式见本文件样式区 UI-016 段。
     -->
-    <header class="toolbar">
-      <h1 class="toolbar-title">文本差异对比</h1>
+    <div class="app-body">
+    <aside
+      class="sidebar"
+      :class="{ 'is-collapsed': sidebarCollapsed }"
+      aria-label="对比选项"
+    >
+      <div class="sidebar-inner">
+        <!--
+          UI-016 侧边栏头部：品牌「工具」+「历史」入口（徽标复用 INT-004
+          的 .history-button 样式）+ 折叠按钮（`‹` 收起，窄轨 `›` 展开，
+          见 sidebar-rail。折叠态为会话级 UI 态（见脚本区大注释）。
+        -->
+        <div class="sidebar-header">
+          <span class="sidebar-brand">
+            <span class="i-z-window sidebar-brand-icon" aria-hidden="true"></span>
+            工具
+          </span>
+          <ZButton
+            size="small"
+            type="default"
+            native-type="button"
+            class="history-button sidebar-history"
+            title="已保存差异历史"
+            @click="historyDrawerOpen = true"
+          >
+            历史
+            <span
+              v-if="historyStore.items.length > 0"
+              class="history-button-count"
+            >{{ historyStore.items.length }}</span>
+          </ZButton>
+          <button
+            type="button"
+            class="sidebar-collapse"
+            aria-label="折叠侧边栏"
+            title="折叠侧边栏"
+            @click="toggleSidebar"
+          >‹</button>
+        </div>
+        <div class="sidebar-body">
+          <!--
+            选项开关组（UI-016）：四个开关改为左文右钮的 ZSwitch 行（对齐
+            参考稿的 toggle 列表）；两个引擎开关 + 两个渲染开关，v-model 直写
+            viewStore（「忽略空白 / 忽略大小写」变化经脚本区 watch 自动重跑）。
+          -->
+          <div class="sidebar-section" role="group" aria-label="对比选项">
+            <div class="sidebar-option-row">
+              <span class="sidebar-option-label">忽略空白</span>
+              <ZSwitch v-model="viewStore.ignoreWhitespace" size="small" />
+            </div>
+            <div class="sidebar-option-row">
+              <span class="sidebar-option-label">忽略大小写</span>
+              <ZSwitch v-model="viewStore.ignoreCase" size="small" />
+            </div>
+            <div class="sidebar-option-row">
+              <span class="sidebar-option-label">折叠未变更</span>
+              <ZSwitch v-model="viewStore.showCollapsed" size="small" />
+            </div>
+            <div class="sidebar-option-row">
+              <span class="sidebar-option-label">换行</span>
+              <ZSwitch v-model="viewStore.wrapLongLines" size="small" />
+            </div>
+          </div>
 
-      <div class="toolbar-center">
+          <!-- 视图分组（UI-016）：分段控件吃满侧边栏宽度（两栏均分） -->
+          <div class="sidebar-section" role="group" aria-label="视图模式">
+            <h2 class="sidebar-section-title">视图</h2>
         <!-- 视图模式分段控件：并排 / 统一（value 处理器见 setViewMode）。
              回显消费 effectiveViewMode（UI-015）：窄窗自动降级时控件如实
              反映「当前看到的视图」，用户点选走 setViewMode（窄窗内点并排
              = 坚持并排，见该函数注释）。 -->
-        <div class="toolbar-group toolbar-viewmode" role="group" aria-label="视图模式">
-          <ZTabs
+        <ZTabs
             type="segment"
             size="small"
             :value="viewStore.effectiveViewMode"
@@ -1628,10 +1724,11 @@ const navPositionText = computed(() => {
             <ZTabPane name="split" tab="并排" />
             <ZTabPane name="unified" tab="统一" />
           </ZTabs>
+
         </div>
 
-        <!-- 精度下拉：智能/行级/词级/字符级（候选常量见 stores/view.ts） -->
-        <div class="toolbar-group toolbar-precision" role="group" aria-label="对比精度">
+        <div class="sidebar-section" role="group" aria-label="对比精度">
+          <h2 class="sidebar-section-title">比对精度</h2>
           <ZSelect
             :model-value="viewStore.precision"
             :options="PRECISION_OPTIONS"
@@ -1640,8 +1737,8 @@ const navPositionText = computed(() => {
           />
         </div>
 
-        <!-- 语言下拉：自动检测 + 手动语言列表（本任务只存状态，高亮归 INT-001） -->
-        <div class="toolbar-group toolbar-language" role="group" aria-label="对比语言">
+        <div class="sidebar-section" role="group" aria-label="对比语言">
+          <h2 class="sidebar-section-title">语法高亮</h2>
           <ZSelect
             :model-value="viewStore.language"
             :options="LANGUAGE_OPTIONS"
@@ -1649,38 +1746,20 @@ const navPositionText = computed(() => {
             @update:model-value="setLanguage"
           />
         </div>
-      </div>
 
       <!--
-        选项开关组：两个引擎开关 + 两个渲染开关。v-model 直写 viewStore；
-        「忽略空白/忽略大小写」变化经脚本区 watch 触发自动重跑（有结果时）。
+         操作分组（UI-016）：原「操作便捷项」组迁入侧边栏 —— 动作下拉
+         （示例数据 / 复制报告 / 导出，选中即回弹占位态）满宽排布，
+         四个小按钮（粘贴并对比 / 交换 / 清空 / 复制原始 / 复制更改后）
+         两列网格布局；三个写文本的动作在对比进行中忽略点击（可用性语义与
+         导出 / 复制报告共用 exportDisabled 闸门，见脚本区 INT-002/003
+         与 UI-014 大注释）。INT-006「粘贴并对比」与 ⌘/Ctrl+Shift+V
+         共用 handlePasteAndCompare。
       -->
-      <div class="toolbar-options" role="group" aria-label="对比选项">
-        <ZCheckbox v-model="viewStore.ignoreWhitespace" label="忽略空白" />
-        <ZCheckbox v-model="viewStore.ignoreCase" label="忽略大小写" />
-        <ZCheckbox v-model="viewStore.showCollapsed" label="折叠未变更" />
-        <ZCheckbox v-model="viewStore.wrapLongLines" label="换行" />
-      </div>
 
-      <!--
-        UI-014 操作便捷项（选项开关组与行尾区之间）：「示例数据」是动作下拉
-        （选中即回弹占位态，语义为发起一次载入而非持久选择，见
-        handleSampleSelect），交换 / 清空 / 复制为小尺寸按钮。三个写文本的
-        动作在对比进行中忽略点击（无禁用态，与 handleApplyHunk 同策略）；
-        放工具栏而非 action-bar 左区的取舍见脚本区 UI-014 大注释块。
-        INT-002：「复制报告」后追加「导出」动作下拉（PDF / HTML，同款动作
-        菜单模式，选中即回弹）—— 无结果 / ok:false 时禁用（exportDisabled，
-        任务 D）。
-        INT-003：「导出」前追加「复制报告」动作下拉（unified patch /
-        Markdown / HTML 三种格式到剪贴板，同款动作菜单模式）—— 与「导出」
-        共用 exportDisabled 闸门（无结果 / ok:false 时禁用）；unified patch
-        在两侧无差异时 toast info 引导（handleCopyPatchReport）。
-        INT-006：「示例数据」后追加「粘贴并对比」按钮（载入类便捷项聚在
-        组首）—— 读剪贴板 → 目标侧决策（两侧均空 → 左侧 / 仅一侧空 → 空侧 /
-        两侧均非空 → 左侧 + 覆盖确认）→ 写入后立即对比（与主按钮同语义，
-        见 handlePasteAndCompare）；⌘/Ctrl+Shift+V 同走该处理器。
-      -->
-      <div class="toolbar-quick" role="group" aria-label="操作便捷项">
+            <div class="sidebar-section" role="group" aria-label="操作便捷项">
+        <h2 class="sidebar-section-title">操作</h2>
+        <div class="sidebar-quick">
         <ZSelect
           :model-value="sampleValue"
           :options="SAMPLE_SELECT_OPTIONS"
@@ -1702,6 +1781,7 @@ const navPositionText = computed(() => {
         >
           粘贴并对比
         </ZButton>
+        <div class="sidebar-quick-grid">
         <ZButton
           size="small"
           type="default"
@@ -1738,6 +1818,7 @@ const navPositionText = computed(() => {
         >
           复制更改后
         </ZButton>
+        </div>
         <!-- 复制报告动作下拉（INT-003）：分发见 handleCopyReportSelect，可用性与「导出」共用 exportDisabled -->
         <ZSelect
           :model-value="reportCopyValue"
@@ -1756,59 +1837,60 @@ const navPositionText = computed(() => {
           :disabled="exportDisabled"
           @update:model-value="handleExportSelect"
         />
+</div>
       </div>
+        <div class="sidebar-footer">
+          <!--
+            侧边栏底部（UI-016）：结果态「返回编辑」出口 + 「实时对比」开关行
+            （左文右钮同选项行样式）+ 「设置」入口（齿轮图标 + 文字）。
+          -->
+          <ZButton
+            v-if="inResultMode && diffStore.result !== null"
+            size="small"
+            type="default"
+            native-type="button"
+            class="sidebar-block-btn"
+            @click="backToEditing"
+          >
+            返回编辑
+          </ZButton>
+          <div class="sidebar-footer-row">
+            <span class="sidebar-option-label">实时对比</span>
+            <ZSwitch v-model="diffStore.realtime" size="small" />
+          </div>
+          <ZButton
+            size="small"
+            type="default"
+            native-type="button"
+            class="sidebar-block-btn sidebar-settings-btn"
+            aria-label="设置"
+            title="设置"
+            @click="settingsOpen = true"
+          >
+            设置
+            <span class="i-z-settings sidebar-gear" aria-hidden="true"></span>
+          </ZButton>
+        </div>
+      </div>
+      </div>
+    </aside>
 
-      <!--
-        行尾区（UI-004 原位保留 + UI-005 齿轮 + UI-006/011 返回编辑）：
-        margin-left:auto 推到行尾。「实时对比」开关状态在 diffStore.realtime
-        （触发方式归属结果 store），初值由 viewStore.realtimeDefault 在
-        onMounted 注入。
-        「返回编辑」在结果态显示（含错误结果态 —— 错误块的回编辑出口）：
-        进入保留编辑态（edit-from-result(null)，不聚焦特定侧）、不清
-        diffStore.result（语义见状态机大注释）。
-      -->
-      <div class="toolbar-right">
-        <ZButton
-          v-if="inResultMode && diffStore.result !== null"
-          size="small"
-          type="default"
-          native-type="button"
-          @click="backToEditing"
-        >
-          返回编辑
-        </ZButton>
-        <!--
-          INT-004「历史」按钮：打开 HistoryDrawer（右侧抽屉）。徽标显示当前
-          条目数（无历史时不渲染 —— 0 个徽标没有信息量），样式见 main.css 的
-          INT-004 段（.history-button / .history-button-count）。
-        -->
-        <ZButton
-          size="small"
-          type="default"
-          native-type="button"
-          class="history-button"
-          title="已保存差异历史"
-          @click="historyDrawerOpen = true"
-        >
-          历史
-          <span
-            v-if="historyStore.items.length > 0"
-            class="history-button-count"
-          >{{ historyStore.items.length }}</span>
-        </ZButton>
-        <ZSwitch v-model="diffStore.realtime" size="small" inactive-text="实时对比" />
-        <ZButton
-          size="small"
-          type="default"
-          native-type="button"
-          aria-label="设置"
-          title="设置"
-          @click="settingsOpen = true"
-        >
-          <span class="i-z-settings toolbar-gear" aria-hidden="true"></span>
-        </ZButton>
-      </div>
-    </header>
+    <!--
+      UI-016 折叠窄轨：侧边栏收起后留下的细条（不参与布局内容），
+      `›` 按钮点开重新展开侧边栏（与头部 `‹` 按钮互逆）。
+    -->
+    <div v-if="sidebarCollapsed" class="sidebar-rail" aria-hidden="true">
+      <button
+        type="button"
+        class="sidebar-rail-toggle"
+        aria-label="展开侧边栏"
+        title="展开侧边栏"
+        @click="sidebarCollapsed = false"
+      >›</button>
+    </div>
+
+    <!-- 主区（UI-016）：工作台 + 底部操作区从 app-shell 列内迁入本列 -->
+    <div class="app-main">
 
     <!--
       UI-011 编辑提示条（edit-from-result 态专属）：告知当前编辑侧 + 两个出口
@@ -2132,6 +2214,8 @@ const navPositionText = computed(() => {
         </div>
       </div>
     </footer>
+    </div>
+    </div>
   </div>
 
   <!--
@@ -2196,115 +2280,247 @@ const navPositionText = computed(() => {
   color: var(--text-color, #333333);
 }
 
-/* 顶部工具栏样式见下方 UI-005 段（三区布局 + flex-wrap 小窗降级） */
-
 /*
- * UI-005 顶部工具栏：三区布局（标题 | 视图/精度/语言 | 选项开关 | 行尾区）。
- * 小窗降级策略：flex-wrap: wrap —— ZTools 主面板宽度由宿主管理、可能很窄，
- * 放不下时各分组按序换行（row-gap 拉开行距），不横向裁切、不挤压控件；
- * 行尾区 margin-left: auto 在换行后仍把「实时+设置」推到所在行行尾。
- * （.workbench 已有 min-width: 640px 兜底 + app-shell 横向滚动，双层防溢出）
+ * ============================================================================
+ * UI-016 左侧可折叠侧边栏：浅色面板 + 分组（小标题）+ 顶部折叠按钮
+ * （布局对齐参考稿；配色走宿主 token --bg-color / --border-color / --hover-bg）。
+ * 结构：.app-body（横向 flex）内 =侧边栏 + 窄轨（折叠时）+ 主区
+ * （.app-main：工作台 + 底部操作区，从原 app-shell 纵向列内迁入本列）。
+ * - 折叠：.sidebar 宽度 244px（--sidebar-w）→ 收起为 0（.is-collapsed），
+ *   内容经 .sidebar-inner 固定宽不换行挤压（宽度同步 --sidebar-w）→ 过渡期
+ *   内联控件不被挤变形，宽度过渡由 .sidebar 的 transition 承担；收起后
+ *   .sidebar-rail 窄轨提供重开按钮（头部折叠钮与窄轨按钮互逆）。
+ * - 窄窗自动收起见脚本区 UI-016 大注释（不自动展开）。
+ * ============================================================================
  */
-.toolbar {
-  flex: none;
+.app-body {
+  flex:  1 1 auto;
+  min-height:  0;
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 12px;
-  padding: 6px 12px;
+  align-items: stretch;
+}
+
+.sidebar {
+  --sidebar-w: 244px;
+  flex: none;
+  width: var(--sidebar-w);
+  overflow: hidden;
+  border-right: 1px solid var(--border-color, #e5e7eb);
+  background-color: var(--bg-color, #f4f4f4);
+  transition: width 0.18s ease, border-color 0.18s ease;
+}
+
+.sidebar.is-collapsed {
+  width:   0;
+  border-right-color: transparent;
+}
+
+.sidebar-inner {
+  width: var(--sidebar-w);
+  height:    100%;
+  display:  flex;
+  flex-direction:  column;
+}
+
+/* 头部：品牌 +「历史」+ 折叠按钮（「历史」徽标样式复用 main.css 的 INT-004 段） */
+.sidebar-header {
+  flex: none;
+  display:  flex;
+  align-items:  center;
+  gap:  6px;
+  padding:  8px 10px;
+  border-bottom:  1px solid var(--border-color, #e5e7eb);
+}
+
+/* 品牌「工具」：图标 + 文字，flex:1 把「历史」/ 折叠推到右；超长省略 */
+.sidebar-brand {
+  flex:  1 1 auto;
+  min-width: 0;
+  display:  inline-flex;
+  align-items:  center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  overflow:  hidden;
+  white-space:  nowrap;
+  text-overflow:  ellipsis;
+}
+
+.sidebar-brand-icon {
+  font-size: 14px;
+  opacity: 0.8;
+}
+
+/*「历史」入口：头部内保持紧凑（徽标样式消费 main.css 的 .history-button 族） */
+.sidebar-history {
+  flex: none;
+}
+
+/* 折叠按钮：扁平图标钮（chevron），hover 有轻量底色（--hover-bg token） */
+.sidebar-collapse {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary, #6a737d);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.sidebar-collapse:hover {
+  background-color: var(--hover-bg, color-mix(in srgb, var(--text-color, #333333) 6%, transparent));
+}
+
+.sidebar-collapse:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 1px;
+}
+
+/* 主体：纵向滚动（侧边栏内控件高度超出时内滚，不撑破面板） */
+.sidebar-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display:  flex;
+  flex-direction:  column;
+}
+
+/* 分组：小标题 + 控件列；组间以分隔线 + 间距区隔 */
+.sidebar-section {
+  display:  flex;
+  flex-direction:  column;
+  gap: 6px;
+  padding: 10px;
   border-bottom: 1px solid var(--border-color, #e5e7eb);
 }
 
-.toolbar-title {
+.sidebar-section:last-child {
+  border-bottom: none;
+}
+
+/* 分组小标题：比正文小一号、弱一档的灰字（--text-secondary token） */
+.sidebar-section-title {
   margin: 0;
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary, #6a737d);
 }
 
-/* 中部选择器区：分段控件 + 两个下拉，空间不足时整体换行 */
-.toolbar-center {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-
-/* 选择器分组容器：min-width:0 允许在极窄下行内收缩，无障碍语义挂这里 */
-.toolbar-group {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-}
-
-/*
- * ZTabs 根默认 width: 100%（组件库样式会在工具栏里吃满整行），
- * 收窄为内容宽度；segment 选中指示器按布局实时度量，尺寸自适应。
- */
-.toolbar-viewmode :deep(.z-tabs) {
-  width: auto;
-}
-
-/*
- * ZSelect 默认 min-width: 150px，工具栏内太宽：按候选文案收窄
- * （精度四项 92px、语言最长「自动检测/JavaScript」128px），触发器
- * size="small"（28px 高 / 12px 字号）与分段控件、按钮同档对齐。
- */
-.toolbar-precision :deep(.z-select) {
-  min-width: 0;
-  width: 92px;
-}
-
-.toolbar-language :deep(.z-select) {
-  min-width: 0;
-  width: 128px;
-}
-
-/* 选项开关组：紧凑复选样式（12px 文字 + 收紧间距），窄下可整组换行 */
-.toolbar-options {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 10px;
-}
-
-.toolbar-options :deep(.zt-checkbox) {
+/* 开关行：标签居左、开关居右（ZSwitch 尺寸 small） */
+.sidebar-option-row {
+  display:  flex;
+  align-items:  center;
+  justify-content:  space-between;
+  min-height:  24px;
   font-size: 12px;
-  gap: 4px;
+  color: var(--text-color, #333333);
 }
 
-/*
- * UI-014 操作便捷项组：动作下拉 + 四个小按钮。组内 flex-wrap 与
- * .toolbar-options / .toolbar-center 同款降级 —— 窄窗下按钮按序流式换行，
- * 不横向裁切（外层 .toolbar 的分组级换行是第一道，组内流式是第二道）。
- */
-.toolbar-quick {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 6px;
+.sidebar-option-label {
+  font-size: 12px;
 }
 
-/*
- * 「示例数据」动作下拉：按精度下拉同款方式收窄（ZSelect 默认
- * min-width: 150px 在工具栏内过宽）—— 占位文案 4 字 + 箭头，88px 足够。
- */
-.toolbar-quick :deep(.z-select) {
+/* 侧边栏内 ZSelect 下拉：满宽（浮层 teleport 到 body，不受
+    .sidebar overflow:hidden 裁剪） */
+.sidebar :deep(.z-select) {
+  width: 100%;
   min-width: 0;
-  width: 88px;
 }
 
-/* 行尾区：实时对比开关（UI-004 原位保留）+ 设置齿轮按钮（UI-005 新增） */
-.toolbar-right {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 10px;
+/* 便捷项列：按钮满宽 + 四个小按钮两列网格 */
+.sidebar-quick {
+  display:  flex;
+  flex-direction:  column;
+  gap: 6px;
 }
 
-/* 齿轮图标：ztools-ui 内置 uno 图标类 i-z-settings（currentColor 上色，1em 盒） */
-.toolbar-gear {
+.sidebar-quick-grid {
+  display:  grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+/* 满宽按钮：快捷列里的块按钮（class 透传到 ZButton 根） */
+.sidebar-block-btn {
+  width: 100%;
+}
+
+/* 侧边栏底部：实时对比开关行 + 设置（返回编辑随结果态出现，见模板 v-if） */
+.sidebar-footer {
+  flex: none;
+  display:  flex;
+  flex-direction:  column;
+  gap: 6px;
+  padding:  10px;
+  border-top:  1px solid var(--border-color, #e5e7eb);
+}
+
+.sidebar-footer-row {
+  display:  flex;
+  align-items:  center;
+  justify-content:  space-between;
+  min-height:  24px;
+}
+
+/* 设置入口：齿轮图标 + 文字，满宽 */
+.sidebar-settings-btn {
+  justify-content:  center;
+}
+
+.sidebar-gear {
   font-size: 14px;
 }
+
+/* 折叠窄轨：收起后的细条（vue-if 渲染，宽度固定不占编辑区空间） */
+.sidebar-rail {
+  flex: none;
+  width:  18px;
+  display:  flex;
+  flex-direction:  column;
+  align-items:  center;
+  border-right:  1px solid var(--border-color, #e5e7eb);
+  background-color: var(--bg-color, #f4f4f4);
+}
+
+/* 窄轨展开钮：扁平图标钮，顶部悬挂（hover/焦点态同头部折叠钮） */
+.sidebar-rail-toggle {
+  flex: none;
+  width:  22px;
+  height:  22px;
+  margin-top:  8px;
+  padding:  0;
+  border:  none;
+  border-radius:  6px;
+  background: transparent;
+  color: var(--text-secondary, #6a737d);
+  font-size:  15px;
+  line-height:   1;
+  cursor: pointer;
+}
+
+.sidebar-rail-toggle:hover {
+  background-color: var(--hover-bg, color-mix(in srgb, var(--text-color, #333333) 6%, transparent));
+}
+
+.sidebar-rail-toggle:focus-visible {
+  outline:  2px solid var(--primary-color);
+  outline-offset:   1px;
+}
+
+/* 主区（工作台 + 底部操作区列）：从 app-shell 列内迁入本列，
+   占满侧边栏右侧剩余空间（.workbench 既有 flex:1 契约原位生效） */
+.app-main {
+  flex:   1 1 auto;
+  min-width:   0;
+  min-height:   0;
+  display:   flex;
+  flex-direction:   column;
+}
+
 
 /*
  * 中部双栏工作台：min-height: 0 保证子区域可收缩并内部滚动。
