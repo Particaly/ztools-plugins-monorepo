@@ -18,5 +18,41 @@
       "icon": "logo.png",
       "cmds": ["图标"]
     }
-  ]
+  ],
+  "tools": {
+    "command_dispatcher": {
+      "description": "图标创建工具编辑器操作入口。通过 operation 参数路由到具体编辑能力：查询画布概览/对象列表/选区/画板/历史，画布设置（尺寸/背景/像素网格/参考线），添加对象（基础图形/文本/SVG/Iconify 图标/内置模板），对象操作（属性/层级/显隐/锁定/复制/删除/翻转/编组），选区管理，撤销重做与历史跳转，工程文档（新建/保存/读写 JSON），画板管理（切换/新建/删除/重命名），导出（SVG 文本/文件、PNG dataURL/文件）与视口缩放。所有操作直接作用于当前打开的编辑器窗口。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "type": "string",
+            "description": "要执行的操作名。常用：get_overview（画布概览）、list_objects（对象列表）、get_selection（选区查询）、add_shape（添加图形）、add_text（添加文本）、insert_svg（导入 SVG）、insert_iconify_icon（插入 Iconify 图标）、set_object_props（修改对象属性）、delete_objects（删除对象）、undo（撤销）、redo（重做）、export_svg_text（导出 SVG 文本）、export_png_file（导出 PNG 文件）、save_project（保存工程）。完整操作名列表：get_overview, list_objects, get_object, get_selection, get_selection_svg, list_artboards, list_history, resize_canvas, set_canvas_background, set_pixel_grid, set_keyline, add_shape, add_text, insert_svg, insert_iconify_icon, insert_icon_template, apply_icon_template, select_objects, select_all, set_object_props, move_layer, set_object_visible, set_object_locked, duplicate_objects, delete_objects, flip_object, group_objects, ungroup_object, undo, redo, jump_to_history, new_document, save_project, get_project_json, load_project_json, switch_artboard, add_artboard, delete_artboard, rename_artboard, export_svg_text, export_png_data_url, export_svg_file, export_png_file, set_viewport。传错操作名会返回全部可用操作列表。"
+          },
+          "args": {
+            "type": "object",
+            "description": "操作参数对象，具体字段由 operation 决定。示例：add_shape 传 {\"shape\":\"circle\",\"x\":256,\"y\":256}；add_text 传 {\"text\":\"你好\",\"preset\":\"title\"}；set_object_props 传 {\"objectId\":\"editor-object-1\",\"props\":{\"fill\":\"#ff0000\",\"angle\":45}}；export_png_file 传 {\"size\":512,\"fileName\":\"my-icon\",\"transparentBackground\":true}。"
+          }
+        },
+        "required": ["operation"]
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "操作是否成功执行。"
+          },
+          "message": {
+            "type": "string",
+            "description": "ok=false 时的可读错误说明。"
+          },
+          "data": {
+            "type": "object",
+            "description": "操作结果数据，结构由 operation 决定。"
+          }
+        }
+      }
+    }
+  }
 }

@@ -25,6 +25,9 @@ export interface HomeLayersCommands {
   openLayerContextMenu: (obj: FabricObject, event: MouseEvent) => void
   removeObject: (obj: FabricObject) => void
   reorderLayers: () => void
+  /** 批量设置对象可见性（MCP 与右键菜单共用的底层入口）。 */
+  setObjectsLocked: (objects: FabricObject[], locked: boolean) => void
+  setObjectsVisible: (objects: FabricObject[], visible: boolean) => void
   toggleLock: (obj: FabricObject) => void
   toggleVisible: (obj: FabricObject) => void
 }
@@ -575,6 +578,8 @@ export function createHomeLayersModule(options: CreateHomeLayersModuleOptions): 
         openLayerContextMenu,
         removeObject,
         reorderLayers,
+        setObjectsLocked,
+        setObjectsVisible,
         toggleLock,
         toggleVisible
       },

@@ -1,6 +1,6 @@
 # icon-creator
 
-一个用于制作和导出图标的 ZTools 插件。编辑器基于 Vue 3、FabricJS 和 PathKit 构建，支持基础形状、文字、图片、图层管理、撤销重做、PNG/SVG 导出，以及矢量布尔运算。
+一个用于制作和导出图标的 ZTools 插件。编辑器基于 Vue 3、FabricJS 和 PathKit 构建，支持基础形状、文字、图片、图层管理、撤销重做、PNG/SVG 导出，以及矢量布尔运算。内置 MCP 工具，可让 AI 对正在打开的编辑器进行任意操作（见下方「MCP 支持」）。
 
 ## 功能
 
@@ -131,6 +131,12 @@
 │       └── home/
 │           ├── index.vue
 │           ├── editorCatalog.ts
+│           ├── mcp/
+│           │   ├── mcpGatewayTypes.ts
+│           │   ├── mcpOperations.ts
+│           │   ├── mcpGatewayController.ts
+│           │   ├── createMcpEditorGateway.ts
+│           │   └── createHomeMcpModule.ts
 │           ├── fabric/
 │           │   └── shapeFactories.ts
 │           └── geometry/
@@ -294,6 +300,84 @@ npm run build
 - 导出 SVG
 - 矩形与圆形的并集、交集、差集、异或
 - 直线与闭合图形的布尔运算
+
+## MCP 支持
+
+本插件通过 ZTools 内置的 MCP 服务对外暴露编辑器操作能力，AI 客户端（Claude Desktop、Cursor、Claude Code 等）可以直接对正在打开的图标编辑器进行任意操作。
+
+### 开启方式
+
+1. 在 ZTools 设置中启用 MCP 服务（默认端口 `36579`，开启后会生成 API Key）。
+2. 确保本插件已安装且未被禁用 MCP 工具暴露。
+3. 在 AI 客户端中配置 MCP 接入（Streamable HTTP 模式）：
+
+```json
+{
+  "mcpServers": {
+    "ztools": {
+      "type": "http",
+      "url": "http://127.0.0.1:36579/mcp?key=<你的APIKey>"
+    }
+  }
+}
+```
+
+> 工具调用会自动唤起 ZTools 中的图标创建工具窗口（后台预加载），无需提前手动打开编辑器。
+
+### 工具说明
+
+插件对外暴露一个工具 `icon-creator_command_dispatcher`（实际名称以宿主聚合为准），通过 `operation` 参数路由到具体操作：
+
+```json
+{
+  "operation": "add_shape",
+  "args": { "shape": "circle", "x": 256, "y": 256, "width": 200, "height": 200 }
+}
+```
+
+返回结构统一为 `{ ok: boolean, message?: string, data?: object }`。
+
+### 操作清单
+
+| 分类 | 操作 |
+| --- | --- |
+| 查询 | `get_overview` `list_objects` `get_object` `get_selection` `get_selection_svg` `list_artboards` `list_history` |
+| 画布设置 | `resize_canvas` `set_canvas_background` `set_pixel_grid` `set_keyline` |
+| 添加对象 | `add_shape` `add_text` `insert_svg` `insert_iconify_icon` `insert_icon_template` `apply_icon_template` |
+| 选区 | `select_objects` `select_all` |
+| 对象操作 | `set_object_props` `move_layer` `set_object_visible` `set_object_locked` `duplicate_objects` `delete_objects` `flip_object` `group_objects` `ungroup_object` |
+| 历史 | `undo` `redo` `jump_to_history` |
+| 工程文档 | `new_document` `save_project` `get_project_json` `load_project_json` |
+| 画板 | `switch_artboard` `add_artboard` `delete_artboard` `rename_artboard` |
+| 导出 | `export_svg_text` `export_png_data_url` `export_svg_file` `export_png_file` |
+| 视图 | `set_viewport` |
+
+常用参数示例：
+
+```json
+{"operation": "add_text", "args": {"text": "Hello", "preset": "title", "fill": "#2563eb"}}
+{"operation": "insert_iconify_icon", "args": {"iconName": "mdi:home"}}
+{"operation": "set_object_props", "args": {"objectId": "editor-object-1", "props": {"fill": "#ff0000", "angle": 45, "strokeWidth": 4}}}
+{"operation": "export_png_file", "args": {"size": 512, "fileName": "my-icon", "transparentBackground": true}}
+{"operation": "export_svg_text", "args": {}}
+```
+
+对象 `id` 通过 `list_objects` / `get_overview` 获取（形如 `editor-object-1`）；形状名可用短名（`circle`）或全名（`base-circle`）。
+
+### 实现结构
+
+```text
+src/views/home/mcp/
+├── mcpGatewayTypes.ts        # 网关能力接口与数据结构定义
+├── mcpOperations.ts          # operation 路由表与参数校验（MCP 协议层）
+├── mcpGatewayController.ts   # ztools.registerTool 挂载与生命周期
+├── createMcpEditorGateway.ts # 编辑器能力适配（纯函数桥接）
+└── createHomeMcpModule.ts    # 编辑器运行时生命周期模块
+```
+
+- MCP 协议层（操作名、参数、错误结构）与编辑器实现解耦，编辑器内部重构不影响对外契约。
+- 操作名只增不改，保证已编排的 AI 工作流稳定。
+- 编辑器窗口未就绪时调用返回友好错误（`ok: false`），不会中断 MCP 连接。
 
 ## License
 

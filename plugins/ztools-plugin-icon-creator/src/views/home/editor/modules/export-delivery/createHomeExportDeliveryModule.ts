@@ -262,10 +262,27 @@ export function createHomeExportDeliveryModule(
   }
 
   /**
+   * 生成选中对象的优化 SVG 文本：基于临时裁剪画布输出，未选中时回退为整画布 SVG。
+   * 供 MCP 选中导出与后续只读消费场景复用，不触碰系统剪贴板。
+   */
+  async function createSelectionSvgText() {
+    const fabricCanvas = options.exportWorkflow.getFabricCanvas()
+    if (!fabricCanvas) return ''
+    const selectedObjects = fabricCanvas.getActiveObjects()
+    if (!selectedObjects.length) return createOptimizedSVG(false)
+    const tempCanvas = await createSelectionCanvas(selectedObjects)
+    if (!tempCanvas) return ''
+    try {
+      return await createOptimizedSVGFromCanvas(tempCanvas, tempCanvas.width!, tempCanvas.height!, '')
+    } finally {
+      tempCanvas.dispose()
+    }
+  }
+
+  /**
    * 将 Fabric 原始 SVG 输出压缩为更适合交付的图标资源：规范根节点、viewBox、可选背景并移除冗余元数据。
    */
-  async function createOptimizedSVG(includeBackground = false) {
-    const fabricCanvas = options.exportWorkflow.getFabricCanvas()
+  async function createOptimizedSVG(includeBackground = false) {    const fabricCanvas = options.exportWorkflow.getFabricCanvas()
     if (!fabricCanvas) return ''
     return createOptimizedSVGFromCanvas(
       fabricCanvas,
@@ -990,6 +1007,8 @@ export function createHomeExportDeliveryModule(
       helpers: {
         copySelectionToInternalClipboard,
         createCanvasSVGPreview,
+        createSelectionCanvas,
+        createSelectionSvgText,
         duplicateSelection,
         exportPNG,
         exportSVG,

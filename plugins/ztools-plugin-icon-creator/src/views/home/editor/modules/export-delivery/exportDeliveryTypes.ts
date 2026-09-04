@@ -45,6 +45,10 @@ export interface HomeExportDeliveryCommands {
 export interface HomeExportDeliveryHelpers {
   copySelectionToInternalClipboard: () => boolean
   createCanvasSVGPreview: (includeBackground?: boolean) => Promise<string>
+  /** 为选中对象构建裁剪后的临时画布，供选中内容导出 SVG 使用；无选中或边界无效返回 null。 */
+  createSelectionCanvas: (objects: FabricObject[]) => Promise<Canvas | null>
+  /** 生成选中对象的优化 SVG 文本（未选中时回退整画布），不触碰系统剪贴板。 */
+  createSelectionSvgText: () => Promise<string>
   duplicateSelection: () => Promise<boolean>
   exportPNG: (size?: number, fileName?: string, transparentBackground?: boolean) => string
   exportSVG: (fileName?: string, includeBackground?: boolean) => Promise<string>

@@ -45,6 +45,7 @@ import {
   type ShadowEffectItem
 } from './fabric/objectMetadata'
 import { createShape } from './fabric/shapeFactories'
+import { createHomeMcpModule } from './mcp/createHomeMcpModule'
 import {
   BITMAP_VECTOR_ALPHA_THRESHOLD,
   BITMAP_VECTOR_DEFAULT_THRESHOLD,
@@ -2255,6 +2256,7 @@ export function useHomeEditorRuntime() {
   const {
     copySelectionToInternalClipboard,
     createCanvasSVGPreview,
+    createSelectionSvgText,
     duplicateSelection,
     exportPNG,
     exportSVG,
@@ -8060,6 +8062,102 @@ export function useHomeEditorRuntime() {
     }
   }
 
+  // 组装 MCP 网关依赖：全部转发到已有闭包能力，网关模块本身不新增编辑器逻辑。
+  // 画板重命名走直接落值而非弹窗流程，MCP 场景没有用户在界面上确认重命名对话框。
+  function createMcpModuleOptions() {
+    return {
+      getFabricCanvas: () => fabricCanvas,
+      getActiveObject: () => activeObject.value,
+      getObjects: () => (fabricCanvas ? fabricCanvas.getObjects() : []),
+      getSelection: () => selectedObjects.value,
+      ensureEditorObjectId,
+      isBooleanPreviewObject,
+
+      canvasWidth: () => canvasWidth.value,
+      canvasHeight: () => canvasHeight.value,
+      canvasBg: () => canvasBg.value,
+      zoom: () => zoom.value,
+      showPixelGrid: () => showPixelGrid.value,
+      snapToPixelGrid: () => snapToPixelGrid.value,
+      pixelGridSize: () => pixelGridSize.value,
+      keylineTemplate: () => keylineTemplate.value,
+
+      setCanvasSize,
+      setCanvasBg,
+      setPixelGridVisible,
+      setSnapToPixelGrid,
+      setPixelGridSize,
+      setKeylineTemplate,
+      setKeylineMargin,
+      setSelectionMode,
+      setZoom,
+      fitCanvasInView,
+
+      addShape,
+      addText,
+      setObjProp,
+      applyActiveObjectsSelection,
+      selectAllByMode,
+      deleteObjects,
+      duplicateSelection,
+      flipObject,
+      layerUp,
+      layerDown,
+      layerTop,
+      layerBottom,
+      lockObject,
+      groupObjects,
+      ungroupObject,
+      scaleObjectToDisplaySize,
+      importSVGText,
+      insertIconifyIcon: (iconName: string, scenePoint?: { x: number; y: number } | null) =>
+        assetsImportCommands.insertIconifyIcon(iconName, scenePoint ?? null),
+      insertIconTemplate: (template: IconTemplateItem, scenePoint?: { x: number; y: number } | null) =>
+        assetsImportCommands.insertIconTemplate(template, scenePoint ?? null),
+      applyIconTemplateAsDocument: assetsImportCommands.applyIconTemplateAsDocument,
+
+      setObjectsVisible: layersCommands.setObjectsVisible,
+      setObjectsLocked: layersCommands.setObjectsLocked,
+
+      undo,
+      redo,
+      jumpToHistory,
+      undoStack: () => undoStack,
+      historyIndex: () => historyIndex.value,
+
+      newDoc,
+      saveActiveProjectTab,
+      hasSavedProjectPath: () => !!activeProjectTab.value?.savedFilePath,
+      createProjectFile,
+      loadProjectFile,
+
+      artboards: () => artboards.value,
+      activeArtboardId: () => activeArtboardId.value,
+      canRedo: () => canRedo.value,
+      switchArtboard,
+      addArtboard,
+      deleteArtboard,
+      renameArtboardDirect: (artboardId: string, name: string) => {
+        const artboard = artboards.value.find((item) => item.id === artboardId)
+        if (!artboard) return
+        artboard.name = name
+        markSmallPreviewsDirty()
+        snapshot({ description: `重命名画板: ${name}`, autoSave: true })
+      },
+
+      exportSvgText: (includeBackground = false) => createCanvasSVGPreview(includeBackground),
+      exportSvgSelection: () => createSelectionSvgText(),
+      exportPngDataUrl: (size?: number, transparentBackground?: boolean) =>
+        renderPNGDataUrl(size ?? canvasWidth.value, transparentBackground ?? false),
+      exportSvgFile: (fileName?: string, includeBackground?: boolean) =>
+        exportSVG(fileName, includeBackground ?? false),
+      exportPngFile: (size?: number, fileName?: string, transparentBackground?: boolean) =>
+        exportPNG(size, fileName, transparentBackground),
+
+      showToast
+    }
+  }
+
   // 创建窗口事件模块，统一注册和释放编辑器级全局监听，避免页面卸载时遗漏清理。
   function createHomeWindowEventsModule(): EditorModule {
     return {
@@ -8101,6 +8199,7 @@ export function useHomeEditorRuntime() {
     runtime.register(homeExportDelivery.module)
     runtime.register(createHomeStartupDataModule())
     runtime.register(createHomeWindowEventsModule())
+    runtime.register(createHomeMcpModule(createMcpModuleOptions()).module)
     return runtime
   }
 

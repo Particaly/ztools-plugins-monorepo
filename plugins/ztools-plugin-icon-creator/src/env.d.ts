@@ -17,6 +17,11 @@ interface Services {
   writeZipFile: (zipBlob: Blob, fileName?: string) => Promise<string>
 }
 
+// 插件工具处理器注册结果，由 ZTools 宿主在 MCP 工具被调用时回调执行。
+interface ZtoolsRegisterToolHandler {
+  (input: unknown): unknown
+}
+
 declare global {
   interface ThemeInfo {
     isDark: boolean
@@ -30,6 +35,11 @@ declare global {
     ztools: ZToolsApi & {
       getThemeInfo(): ThemeInfo
       onThemeChange(callback: (theme: ThemeInfo) => void): void
+      /**
+       * 注册 MCP 工具处理器（用于 ZTools 内置 MCP 服务对外暴露）。
+       * 工具必须先在 plugin.json 的 tools 字段中声明，名称需小写 snake_case。
+       */
+      registerTool(name: string, handler: ZtoolsRegisterToolHandler): void
     }
   }
 }
