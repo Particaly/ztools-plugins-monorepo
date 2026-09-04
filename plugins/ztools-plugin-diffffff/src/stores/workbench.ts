@@ -15,7 +15,10 @@
  * - INT-001（语言自动检测）新增 leftFileName / rightFileName：记录两侧
  *   内容的「来源文件名」，供 detectLanguagePair 的扩展名优先级消费。
  *   文件名字段不进 DraftState（不持久化 —— 草稿恢复后内容可能已与原文件
- *   无关，扩展名线索失效，检测自然落到内容启发式）。
+ *   无关，扩展名线索失效，检测自然落到内容启发式）；
+ * - 本任务新增 leftFilePath / rightFilePath：来源文件绝对路径（会话态，
+ *   不持久化），供「打开编码」切换时按新编码重读来源文件（消费编排见
+ *   App.vue 的 handleEncodingChange；与文件名的耦合约定见更新方法注释）。
  */
 import { reactive } from 'vue'
 
@@ -25,25 +28,40 @@ export interface DraftState {
   rightText: string
 }
 
-/** 对外 store 形状：两侧文本 + 来源文件名 + 对应更新方法 */
+/** 对外 store 形状：两侧文本 + 来源文件名/路径 + 对应更新方法 */
 export interface WorkbenchStore extends DraftState {
   /** 左侧（原始文本）来源文件名（basename，'' = 无文件来源 / 已清空） */
   leftFileName: string
   /** 右侧（更改后文本）来源文件名（basename，'' = 无文件来源 / 已清空） */
   rightFileName: string
+  /**
+   * 左侧来源文件绝对路径（'' = 无文件来源 / 已失效）。会话态：不进
+   * DraftState（不持久化 —— 重开后草稿内容可能已与原文件无关）。
+   * 消费方：「打开编码」切换时按新编码重读来源文件（App.vue 编排）。
+   */
+  leftFilePath: string
+  /** 右侧来源文件绝对路径（语义同 leftFilePath） */
+  rightFilePath: string
   setLeftText: (value: string) => void
   setRightText: (value: string) => void
   setLeftFileName: (value: string) => void
   setRightFileName: (value: string) => void
-  /** 交换两侧：文本与来源文件名一起互换（UI-014「交换」按钮语义） */
+  setLeftFilePath: (value: string) => void
+  setRightFilePath: (value: string) => void
+  /** 交换两侧：文本与来源文件名 / 路径一起互换（UI-014「交换」按钮语义） */
   swapSides: () => void
-  /** 清空两侧：文本置空 + 文件名清空（UI-014「清空」按钮 / 示例载入共用语义） */
+  /** 清空两侧：文本置空 + 文件名 / 路径清空（UI-014「清空」按钮 / 示例载入共用语义） */
   clearSides: () => void
 }
 
 /*
  * 更新方法：先声明普通函数、再并入 reactive 单例，
  * 不依赖 this，保证任何方式调用（含解构转发）行为一致。
+ *
+ * set*FileName 与来源路径的耦合约定：文件名清空（''）= 内容不再来自文件
+ * （粘贴 / 文本拖入 / 示例载入 / 清空共用语义），此时来源路径一并失效 ——
+ * 路径的维护收敛在两处：set*FileName 清空、set*FilePath 写入（文件成功
+ * 读取后调用，须在 set*FileName 之后，见 useFileLoad.readFileIntoStore）。
  */
 function setLeftText(value: string): void {
   workbenchStore.leftText = value
@@ -55,10 +73,20 @@ function setRightText(value: string): void {
 
 function setLeftFileName(value: string): void {
   workbenchStore.leftFileName = value
+  workbenchStore.leftFilePath = ''
 }
 
 function setRightFileName(value: string): void {
   workbenchStore.rightFileName = value
+  workbenchStore.rightFilePath = ''
+}
+
+function setLeftFilePath(value: string): void {
+  workbenchStore.leftFilePath = value
+}
+
+function setRightFilePath(value: string): void {
+  workbenchStore.rightFilePath = value
 }
 
 function swapSides(): void {
@@ -66,11 +94,16 @@ function swapSides(): void {
   const rightText = workbenchStore.rightText
   const leftName = workbenchStore.leftFileName
   const rightName = workbenchStore.rightFileName
+  const leftPath = workbenchStore.leftFilePath
+  const rightPath = workbenchStore.rightFilePath
   workbenchStore.leftText = rightText
   workbenchStore.rightText = leftText
-  // 文件名随内容互换：交换后各侧的「来源文件」也跟着换侧（INT-001）
+  // 文件名随内容互换：交换后各侧的「来源文件」也跟着换侧（INT-001）；
+  // 来源路径与文件名同进退（切编码重读的目标文件跟着内容走）
   workbenchStore.leftFileName = rightName
   workbenchStore.rightFileName = leftName
+  workbenchStore.leftFilePath = rightPath
+  workbenchStore.rightFilePath = leftPath
 }
 
 function clearSides(): void {
@@ -78,6 +111,8 @@ function clearSides(): void {
   workbenchStore.rightText = ''
   workbenchStore.leftFileName = ''
   workbenchStore.rightFileName = ''
+  workbenchStore.leftFilePath = ''
+  workbenchStore.rightFilePath = ''
 }
 
 /**
@@ -93,10 +128,14 @@ export const workbenchStore: WorkbenchStore = reactive({
   rightText: '',
   leftFileName: '',
   rightFileName: '',
+  leftFilePath: '',
+  rightFilePath: '',
   setLeftText,
   setRightText,
   setLeftFileName,
   setRightFileName,
+  setLeftFilePath,
+  setRightFilePath,
   swapSides,
   clearSides,
 })

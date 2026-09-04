@@ -94,20 +94,6 @@ const services = {
     return Array.isArray(picked) && picked.length > 0 ? picked[0] : null
   },
 
-  // 弹出系统「保存文件」对话框，默认过滤器为文本文件（txt）与所有文件。
-  // defaultPath 不传，交由宿主记住上次目录。
-  // 返回用户确认的保存路径（宿主 showSaveDialog 返回 string | undefined）；
-  // 用户取消时归一化为 null。
-  pickSaveFile() {
-    const picked = requireZtools().showSaveDialog({
-      filters: [
-        { name: '文本文件', extensions: ['txt'] },
-        { name: '所有文件', extensions: ['*'] }
-      ]
-    })
-    return typeof picked === 'string' && picked.length > 0 ? picked : null
-  },
-
   // 读取系统剪贴板纯文本。经 require('electron').clipboard（f-provider 已证明
   // preload 侧可 require('electron')）；任何失败（宿主未注入 clipboard 等）
   // 都吞掉异常返回空字符串，避免打断渲染层流程。
@@ -118,29 +104,8 @@ const services = {
     } catch (_) {
       return ''
     }
-  },
-
-  // 写入本地文本文件（同步，UTF-8；INT-002 导出 HTML 用）。渲染层先把整份
-  // 单文件 HTML 组装为字符串，再经本方法落盘 —— 编码入口与 readTextFile
-  // 对称（读有白名单、写固定 utf-8，导出物要求跨环境可读，无需多编码）。
-  //   path    目标文件路径，必须为非空字符串
-  //   content 待写入文本，必须为非空字符串（写空文件无业务场景，按非法参数拒绝）
-  // 返回 undefined（写即成功）；path/content 非法或写入失败（EACCES / ENOSPC
-  // 等）时抛出带中文信息的 Error（保留底层原始 message，便于定位真实原因）。
-  writeTextFile(path, content) {
-    if (typeof path !== 'string' || path.length === 0) {
-      throw new Error('写入文件失败: path 必须是非空字符串')
-    }
-    if (typeof content !== 'string' || content.length === 0) {
-      throw new Error('写入文件失败: content 必须是非空字符串')
-    }
-    try {
-      fs.writeFileSync(path, content, 'utf-8')
-    } catch (e) {
-      throw new Error('写入文件失败: ' + (e && e.message ? e.message : String(e)))
-    }
   }
 }
 
-// 仅暴露上述 5 个方法并整体冻结（最小暴露原则）。
+// 仅暴露上述 3 个方法并整体冻结（最小暴露原则）。
 window.services = Object.freeze(services)

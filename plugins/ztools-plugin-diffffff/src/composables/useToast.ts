@@ -60,7 +60,7 @@ export function useToast() {
     toastState,
     /** 中性提示（空输入 / 剪贴板为空等引导） */
     info: (message: string, duration = 2400) => showToast(message, 'info', duration),
-    /** 成功反馈（复制 / 导出完成） */
+    /** 成功反馈（复制完成） */
     success: (message: string, duration = 2000) => showToast(message, 'success', duration),
     /** 错误反馈（对比失败 / 读取失败，停留稍长） */
     error: (message: string, duration = 3200) => showToast(message, 'error', duration),

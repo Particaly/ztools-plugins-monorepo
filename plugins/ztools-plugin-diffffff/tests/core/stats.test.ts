@@ -15,10 +15,12 @@
  * - `hunkAnchorRows`：单 / 多 hunk 定位与 buildHunks 切片范围一致、modify
  *   行场景、首行 / 末行变更边界、纯增 / 纯删（header 行号回退场景）、四级
  *   定位策略逐级回退（引用 → 内容+行号 → 首尾文本 → 首行行号）、未命中
- *   返回 {-1, -1}、跨 contextLines 的不变量电池。
+ *   返回 {-1, -1}、跨 contextLines 的不变量电池；
+ * - `sideChangedChars`：纯增 / 纯删 / 混合（equal 不计入）/ 含 modify
+ *   （rowsWithPairing 产物：modify 两侧不计入）/ 空 rows。
  */
 import { describe, expect, it } from 'vitest'
-import { computeStats, hunkAnchorRows, nextHunkIndex } from '../../src/core/stats'
+import { computeStats, hunkAnchorRows, nextHunkIndex, sideChangedChars } from '../../src/core/stats'
 import { buildHunks } from '../../src/core/hunks'
 import { compare, compareFull, diffLinesCore } from '../../src/core/diff'
 import { rowsWithPairing } from '../../src/core/pairing'
@@ -458,4 +460,33 @@ describe('hunkAnchorRows：跨 contextLines 不变量电池', () => {
       })
     }
   }
+})
+
+describe('sideChangedChars：单侧变更字符数（UI-017）', () => {
+  it('纯删除：左侧计删除行文本长度、右侧无对应行计 0', () => {
+    const rows = makeRows('aa\nbbb\ncccc', 'x')
+    expect(sideChangedChars(rows, 'left')).toBe(2 + 3 + 4)
+    expect(sideChangedChars(rows, 'right')).toBe(1)
+  })
+
+  it('混合 equal：equal 行不计入，只计 del / add 行', () => {
+    const rows = makeRows('a\nb\nc\nd', 'a\nX\nc\nY')
+    expect(sideChangedChars(rows, 'left')).toBe(2)
+    expect(sideChangedChars(rows, 'right')).toBe(2)
+  })
+
+  it('含 modify（rowsWithPairing 产物）：modify 两侧不计入', () => {
+    const rows = rowsWithPairing(makeRows('const x =  1;\nkeep', 'const x =  2;\nkeep'))
+    expect(rows.some((row) => row.type === 'modify')).toBe(true)
+    expect(sideChangedChars(rows, 'left')).toBe(0)
+    expect(sideChangedChars(rows, 'right')).toBe(0)
+  })
+
+  it('边界：空 rows / 全 equal →  0', () => {
+    expect(sideChangedChars([], 'left')).toBe(0)
+    expect(sideChangedChars([], 'right')).toBe(0)
+    const rows = makeRows('a\nb\nc', 'a\nb\nc')
+    expect(sideChangedChars(rows, 'left')).toBe(0)
+    expect(sideChangedChars(rows, 'right')).toBe(0)
+  })
 })

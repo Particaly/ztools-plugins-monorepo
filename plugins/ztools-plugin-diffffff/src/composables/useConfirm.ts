@@ -3,7 +3,7 @@
  * useConfirmDialog + ZConfirmDialog）。
  *
  * - 状态（confirmState）是模块级单例：App.vue 挂载 UiConfirmDialog 渲染它，
- *   useFileLoad / useClipboardLoad / App 的覆盖确认与 HistoryDrawer 的清空
+ *   useFileLoad / useClipboardLoad / App 的覆盖确认与 HistoryPanel 的清空
  *   确认都走同一条 confirm() 通道（原行为一致）；
  * - API 与原 ztools-ui 对齐：confirm(options) 返回 Promise<boolean>，
  *   confirmState{ visible, title, message, type, confirmText, cancelText }，

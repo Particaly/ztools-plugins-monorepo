@@ -2,7 +2,7 @@
  * 设置持久化 store（roadmap 任务 INT-007）。
  *
  * 「设置」的持久化编排层：把持久化范围（默认精度、对比/视图选项、视图模式、
- * 语言、上下文行数、实时对比默认值、自定义忽略规则、历史自动保存开关）从
+ * 语言、上下文行数、自定义忽略规则、历史自动保存开关）从
  * dbStorage 载入并回写各 store 真源，再把这些字段的后续变更即时写回
  * dbStorage。纯模型逻辑（形状、默认值、逐字段归一化、版本迁移）下沉
  * core/settingsModel.ts 单测覆盖，本层只做「编排 + 持久化」（与
@@ -16,11 +16,7 @@
  * - 载入时机 = 模块初始化：模块顶层执行一次 load()（幂等守卫防 HMR 重复
  *   载入用旧快照覆盖内存新值，同 stores/history.ts 的 loaded 惯例）。App.vue
  *   import 本模块即完成载入 —— ESM 依赖模块的求值严格早于 App 组件的
- *   setup() 与 onMounted 回调，因此 App.vue onMounted 里的「实时对比默认值
- *   注入（diffStore.realtime = viewStore.realtimeDefault）」读到的必然是
- *   恢复后的持久化值而非缺省 false（该注入是 viewStore.realtimeDefault 的
- *   唯一消费时机，本层的载入必须先于它成立 —— 这条先后链由「模块求值早于
- *   组件挂载」的语言语义保证，不依赖任何运行时协作）；
+ *   setup()，工具栏 / 编辑器的首次渲染读到的必然是恢复后的持久化值；
  * - watch 注册时机在 load() 之后：Vue 的 watch 只在注册后才响应变更，load
  *   的回写发生在监听器建立之前，天然不会触发一轮「把刚载入的值原样写回」
  *   的多余持久化 —— 因此无需 isInitialLoad / suppressPersist 标志位
@@ -97,7 +93,6 @@ function applyToStores(settings: StoredSettings): void {
   viewStore.ignoreWhitespace = settings.ignoreWhitespace
   viewStore.ignoreCase = settings.ignoreCase
   viewStore.ignoreRules = settings.ignoreRules.map((rule) => ({ ...rule }))
-  viewStore.realtimeDefault = settings.realtimeDefault
   historyStore.autoSave = settings.autoSaveHistory
 }
 
@@ -120,7 +115,6 @@ function snapshotSettings(): StoredSettings {
     ignoreWhitespace: viewStore.ignoreWhitespace,
     ignoreCase: viewStore.ignoreCase,
     ignoreRules: viewStore.ignoreRules.map((rule) => ({ ...rule })),
-    realtimeDefault: viewStore.realtimeDefault,
     autoSaveHistory: historyStore.autoSave,
   }
 }

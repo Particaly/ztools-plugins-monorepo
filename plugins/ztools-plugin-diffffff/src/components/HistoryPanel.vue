@@ -1,16 +1,18 @@
 <!--
-  历史侧栏（INT-004）：「已保存差异」的浏览与恢复入口。
-  - 触发：App.vue 侧边栏「历史」按钮（带条目数徽标）写入 show；
-  - 容器：本地 UiDrawer（右侧滑出，reka-ui Dialog 侧边形态 —— Esc / 遮罩
-    点击 / 关闭钮统一经 update:show 冒泡回 App）；
-  - 能力：顶部搜索框（即时过滤，走 core/historyModel 的 searchHistoryItems）、
-    条目数/上限说明、「清空」（确认弹窗确认，复用 App 挂载的同一单例确认框
-    —— useConfirmDialog 是本地模块级单例，与 useFileLoad 的覆盖确认同一条
-    通道）、列表项（标题 / 相对时间 / +N −M 徽标）、每项「恢复」（主）与
-    「删除」（次，陶土红 ghost 图标钮）；
+  历史面板（本任务自 HistoryDrawer 抽屉重构）：侧边栏「历史」页签的内嵌
+  展示体（原右侧滑出抽屉随「文本对比 / 历史」头部切换方案撤除）。
+  - 触发：App.vue 侧边栏头部「文本对比 / 历史」分段切换（sidebarTab）的
+    history 页签下条件渲染，无独立显隐态；
+  - 能力保持：顶部搜索框（即时过滤，走 core/historyModel 的
+    searchHistoryItems）、条目数/上限说明、「清空」（确认弹窗，复用 App
+    挂载的同一单例确认框 —— useConfirmDialog 是本地模块级单例，与
+    useFileLoad 的覆盖确认同一条通道）、列表项（标题 / 相对时间 / +N −M
+    徽标）、每项「恢复」（主）与「删除」（次，陶土红 ghost 图标钮）；
   - 恢复链路：本组件只 emit('restore', item) —— 写回文本 / 选项 / 语言、
-    diffStore.run() 重算、关闭抽屉、切结果态的编排全部归 App.vue 的
-    handleRestoreHistory（保持「store 动作 + 态切换」都在 App 层接线）。
+    diffStore.run() 重算、切结果态的编排全部归 App.vue 的
+    handleRestoreHistory（保持「store 动作 + 态切换」都在 App 层接线；
+    面板自身不再关闭 —— 显隐由外层页签切换承担，恢复成功后由 App 把
+    页签切回 workbench，见 handleRestoreHistory）。
   - 时间展示：相对时间（刚刚 / N 分钟前 / N 小时前 / N 天前），超过 7 天
     回退绝对时间 YYYY-MM-DD HH:mm（「32 天前」不如具体日期可定位，该回退
     属同一相对时间方案的内部分段，非第二种格式方案）。
@@ -19,7 +21,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import UiButton from './ui/UiButton.vue'
-import UiDrawer from './ui/UiDrawer.vue'
 import UiIcon from './ui/UiIcon.vue'
 import UiInput from './ui/UiInput.vue'
 import { useConfirmDialog } from '../composables/useConfirm'
@@ -27,12 +28,8 @@ import { HISTORY_MAX_ITEMS, searchHistoryItems } from '../core/historyModel'
 import type { HistoryItem } from '../core/historyModel'
 import { historyStore } from '../stores/history'
 
-/** 抽屉显隐（App.vue 侧边栏「历史」按钮 v-model 接线）。 */
-const props = defineProps<{ show: boolean }>()
-
-/** restore 上抛：App.vue 据此执行写回 + 重算 + 关抽屉 + 切结果态。 */
+/** restore 上抛：App.vue 据此执行写回 + 重算 + 切回 workbench 页签并切结果态。 */
 const emit = defineEmits<{
-  'update:show': [value: boolean]
   'restore': [item: HistoryItem]
 }>()
 
@@ -47,11 +44,6 @@ const isSearching = computed(() => query.value.trim() !== '')
 
 /** 确认框单例：清空确认复用 App.vue 挂载的 UiConfirmDialog（同一模块级单例）。 */
 const { confirm } = useConfirmDialog()
-
-/** 关闭请求统一出口：UiDrawer 的遮罩点击 / Esc / 关闭钮都经 update:show 冒泡到此。 */
-function handleShowChange(value: boolean): void {
-  emit('update:show', value)
-}
 
 /**
  * 清空全部历史：先确认（防误触，沿用 useFileLoad / 清空输入的确认惯例），
@@ -111,12 +103,11 @@ function formatSavedAt(savedAt: number): string {
 
 <template>
   <!--
-    UiDrawer：右侧滑出纸面抽屉、宽 340px（主面板可能较窄，取窄抽屉）；
-    焦点圈定在抽屉内、Esc / 遮罩点击关闭（reka Dialog 内建），关闭统一走
-    update:show。抽屉内部排版（工具行 / 列表 / 空态）见 main.css 的
-    history-* 段。
+    面板主体：占满侧边栏 .sidebar-body（与 workbench 页签的分组列同一滚动
+    容器，纵向内滚不撑破面板）。内部排版（工具行 / 列表 / 空态）沿用原
+    main.css 的 history-* 段。
   -->
-  <UiDrawer :show="props.show" title="历史对比" @update:show="handleShowChange">
+  <div class="history-panel">
     <!-- 顶部工具行：搜索框 + 清空按钮 -->
     <div class="history-toolbar">
       <UiInput
@@ -187,10 +178,19 @@ function formatSavedAt(savedAt: number): string {
     <div v-else class="history-empty">
       {{ isSearching ? '未找到匹配的历史' : '暂无历史对比' }}
     </div>
-  </UiDrawer>
+  </div>
 </template>
 
 <style scoped>
+/* 面板主体：占满侧边栏主体区（padding 由 .history-panel 自理，与原抽屉 body 对齐） */
+.history-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 12px 14px;
+}
+
 /* 清空按钮：不随 UiInput 满宽（flex 定宽，与搜索框同行） */
 .history-clear {
   flex: none;

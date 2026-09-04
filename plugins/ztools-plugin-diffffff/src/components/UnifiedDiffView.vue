@@ -60,12 +60,10 @@
   - 滚动性能：容器 scroll（passive）由 useVirtualRows 内部监听，rAF 合帧
     （同帧多次滚动合并为一次 range 写入）；展开 / 收起改变 displayItems
     长度 → itemCount watch 同步重算，不做滚动位置锚定（视口上方展开时内容
-    下移，简单策略，见 virtual.ts 文件头）；
-  - 已知近似（可接受）：「全部展开」sticky 工具条（isAnyCollapsed 时）在
-    滚动内容中占 ~33px 常量高度，使 scrollTop→单元下标映射偏移约 1.6 行 ——
-    由 overscan=10 的缓冲吸收，不产生空白窗口；精确补偿如体验需要归后续
-    打磨。滚动容器声明 overflow-anchor: none 禁用浏览器滚动锚定（spacer
-    高度变化不需要锚定补偿，总高恒定，见 scoped 样式）。
+    下移，简单策略，见 virtual.ts 文件头）；滚动容器声明 overflow-anchor:
+    none 禁用浏览器滚动锚定（spacer 高度变化不需要锚定补偿，总高恒定，见
+    scoped 样式）。原「全部展开」sticky 工具条的 ~33px 常量高度已随 UI-017
+    迁移消除（工具条移至主区右上，滚动内容内不再有置顶条带）。
 
   hunk 头条（@@ -a,b +c,d @@，ENG-008 产出 hunk.header 原样展示）：
   - 在每个 hunk 的起始显示行之前插入一条头条；hunk 在 rows 中的定位用
@@ -92,8 +90,8 @@
     可能命中）随区段折叠暂不渲染，展开后恢复；主路径（引用精确匹配）的锚点
     恒在折叠条之后的行上，不受影响；
   - 展开态为纯 UI 态（useCollapse 内部 ref）：diff 重跑 / 输入变化（rows /
-    collapses 引用变化）时整体重置；视图顶部「全部展开」sticky 工具条在
-    存在任一折叠条时显示（isAnyCollapsed），全部展开后随折叠条一起消失。
+    collapses 引用变化）时整体重置；「全部展开」入口经 defineExpose 暴露给
+    主区右上工具条（UI-017，App.vue 接线），视图内不再维护置顶工具条。
 
   hunk 导航接入（UI-010，与 SplitDiffView 对等的统一视图侧实现）：
   - 导航态真源在 stores/nav.ts（currentIndex 基于 result.hunks 下标，键盘
@@ -114,8 +112,8 @@
     「原始行下标 → items 单元下标」映射，头条紧贴锚点行之前，映射优先取
     头条起始单元（滚动后 @@ 头可见）；
   - 滚动量：首选 DOM 量测（目标行已渲染时按 getBoundingClientRect 真实盒位
-    滚动 —— 精确，且天然规避「全部展开」工具条的 ~33px 常量偏移与换行模式
-    行高不均）；目标行未渲染（虚拟窗口外）时回退等行高公式
+    滚动 —— 精确，对换行模式的行高不均天然成立）；目标行未渲染（虚拟窗口外）
+    时回退等行高公式
     scrollTop = 单元下标 × DIFF_ROW_HEIGHT（顶部 spacer 已由虚拟模型给出，
     scrollTop 即内容坐标；非换行模式所有单元严格等高，公式精确）。
 
@@ -133,16 +131,10 @@
   滚动交互不重算）；折叠展开每次点击触发一次 displayItems / items 的 O(n)
   重算（UI-008，见 useCollapse.ts 性能注记）与一次 range 同步重算（UI-009）。
 
-  结果态编辑入口（UI-011）：每条显示行的内容格可点击，emit
-  editSide: [side, lineNo?] —— App 监听后进入「保留编辑态」并聚焦对应侧
-  编辑器（本组件只做行 → 侧别换算，状态机接线在 App.vue）。unified 推荐与
-  并排视图对齐提供点击编辑，侧别映射（单栏一行只承载一侧内容，按行色调决定
-  编辑侧）：del 行的内容只存在于原始文本 → left；add 行只存在于更改后文本
-  → right；equal 行两侧内容相同，约定编辑左侧（与「原始文本为主」的阅读
-  语义一致）；modify 防御性展开的 del / add 半行各自按上述映射。行号携带：
-  del / equal 携带 oldLineNo、add 携带 newLineNo，供 App 按行号定位光标
-  （精度取舍见 InputEditor.focusLine 注释）；选中保护：拖拽选中文本后的
-  click 不触发编辑（用户意图是复制差异文本）。
+  结果态编辑入口（已撤除）：原 UI-011 的「行内容格点击 emit editSide 进入
+  保留编辑态」已随 App.vue 的状态机简化（回编辑统一走主按钮「重新编辑」）
+  一并移除 —— 内容格现为纯展示，不挂点击事件；拖拽选中文本复制等阅读行为
+  不受影响。
 
   合并更改控制条（UI-012）：每个 hunk 的首行前渲染一条「合并控制条」（在
   @@ 头条之前：控制条是针对其下方 hunk 的动作条，@@ 头条保持与 hunk 首行
@@ -158,13 +150,12 @@
   - 定位失败（anchor.start < 0）时跳过该 hunk 的控制条并 console.debug（与
     头条同策略）；result 为 null / ok:false 时 items 为空序列，不渲染。
 
-  不在本组件范围：行内词级高亮（仅并排视图，见上）、编辑态的呈现与「重新
-  对比/返回结果」状态机（UI-011 接线在 App.vue，本组件只 emit editSide）、
+  不在本组件范围：行内词级高亮（仅并排视图，见上）、
   合并应用本身（UI-012 引擎纯函数在 core/merge.ts，applyHunk 事件接线在
   App.vue）、可见的横向滚动指示打磨（UI-015）。hunk 导航与当前 hunk 高亮
   （UI-010）已接入（见上方专节），统计条与导航按钮 / F3 快捷键在 App.vue
   （导航态真源 stores/nav.ts，两视图只读消费）。
-  折叠条 / 合并控制条 / 全部展开工具条 / 当前 hunk 高亮的公共样式在 main.css
+  折叠条 / 合并控制条 / 当前 hunk 高亮的公共样式在 main.css
   （与 SplitDiffView 共用）。
 -->
 <script setup lang="ts">
@@ -174,7 +165,6 @@
  * 宿主变量，无硬编码色值。
  */
 import { computed, nextTick, ref, watch } from 'vue'
-import UiButton from './ui/UiButton.vue'
 import { isDiffOk } from '../core/types'
 import type { CollapseRange, DiffRow, DiffRowSide } from '../core/types'
 import { hunkAnchorRows } from '../core/stats'
@@ -335,11 +325,24 @@ const collapseRanges = computed<CollapseRange[]>(() => {
  * 渲染，折叠条不出现，现有行为）；展开 / 全部展开 / isAnyCollapsed 由
  * useCollapse 提供（展开态重置时机见 useCollapse.ts 文件头）。
  */
-const { displayItems, expand, expandAll, isAnyCollapsed } = useCollapse(
+const { displayItems, expand, expandAll, collapseAll, hasCollapses, isAnyCollapsed } = useCollapse(
   resultRows,
   collapseRanges,
   () => viewStore.showCollapsed,
 )
+
+/**
+ * 折叠出口暴露（UI-017）：主区右上工具条的「全部展开 / 全部收起」双态按钮
+ * 经本组件 defineExpose 暴露的 expandAll / collapseAll / hasCollapses /
+ * isAnyCollapsed 接线（App.vue 按当前视图模式取对应 ref，与 SplitDiffView
+ * 同一暴露形状；hasCollapses = 按钮禁用依据，isAnyCollapsed = 双态依据）。
+ */
+defineExpose({
+  expandAll,
+  collapseAll,
+  hasCollapses: () => hasCollapses.value,
+  isAnyCollapsed: () => isAnyCollapsed.value,
+})
 
 /**
  * 数据管道：displayItems（折叠感知行序列）→ 合并控制条 + hunk 头条 + 折叠条
@@ -572,38 +575,20 @@ watch(
 )
 
 /* -------------------------------------------------------------------------- */
-/* 结果态编辑出口（UI-011）                                                      */
+/* 合并控制条事件出口（UI-012）                                                  */
 /* -------------------------------------------------------------------------- */
 
 /**
- * 行内容格点击 → 进入对应侧保留编辑的事件出口（映射与选中保护说明见组件
- * 文件头）。side = 编辑目标侧别；lineNo = 该侧 1-based 行号（防御形态下
- * side 缺失时无行号，App 侧仅聚焦不定位）。
  * 合并控制条（UI-012）：hunkIndex = result.hunks 下标、direction = 应用
  * 方向，App.vue 监听后调 core/merge.ts 更新两侧文本并重算（本组件不感知
- * 应用逻辑，与 editSide 同为「换算 + 上抛」出口）。
+ * 应用逻辑，只做「换算 + 上抛」）。原 editSide（行点击编辑）出口已随
+ * App.vue 的保留编辑态撤除而移除。
  */
 const emit = defineEmits<{
-  editSide: [side: 'left' | 'right', lineNo?: number]
   applyHunk: [hunkIndex: number, direction: MergeDirection]
 }>()
 
-/**
- * 内容格点击统一出口：选中保护（拖拽选择后的 click 不触发编辑）后按行色调
- * 换算（side, lineNo）转发 —— add → (right, newLineNo)；del / equal →
- * (left, oldLineNo)（映射理由见组件文件头）。
- */
-function contentClick(line: UnifiedLineVm): void {
-  const selection = window.getSelection()
-  if (selection !== null && !selection.isCollapsed) return
-  if (line.tone === 'add') {
-    emit('editSide', 'right', line.newLineNo ?? undefined)
-  } else {
-    emit('editSide', 'left', line.oldLineNo ?? undefined)
-  }
-}
-
-/** 合并控制条按钮统一出口：按（hunk 下标，方向）转发 applyHunk（无需选中保护） */
+/** 合并控制条按钮统一出口：按（hunk 下标，方向）转发 applyHunk */
 function emitApplyHunk(hunkIndex: number, direction: MergeDirection): void {
   emit('applyHunk', hunkIndex, direction)
 }
@@ -624,15 +609,10 @@ function emitApplyHunk(hunkIndex: number, direction: MergeDirection): void {
     aria-label="统一差异视图"
   >
     <!--
-      「全部展开」工具条（UI-008）：视图内存在任一折叠条时显示，全部展开后
-      随折叠条一起消失（isAnyCollapsed 驱动）。sticky 钉在滚动容器顶部，
-      公共样式 .diff-expand-all-bar 见 main.css（与并排视图共用同一份）。
+      原「全部展开」sticky 工具条已随 UI-017 迁至主区右上工具条（App.vue 经
+      本组件 defineExpose 暴露的 expandAll / isAnyCollapsed 接线），滚动内容
+      内不再有置顶条带。
     -->
-    <div v-if="isAnyCollapsed" class="diff-expand-all-bar">
-      <UiButton variant="secondary" @click="expandAll">
-        全部展开
-      </UiButton>
-    </div>
     <!-- 4 列网格：旧行号 | 新行号 | 记号 | 内容（列定义见 scoped 样式） -->
     <div class="unified-grid">
       <!--
@@ -728,14 +708,12 @@ function emitApplyHunk(hunkIndex: number, direction: MergeDirection): void {
             的 --syntax-* 段），否则纯文本（语义决策：unified 无词级 spans，
             行底色红绿不变，语法色只作用于文字）。spans 按序拼接恒等于 text；
             mustache 紧贴标签避免引入多余空白（内容列 white-space: pre，
-            空白节点会原样显示）。
-            内容格点击进入保留编辑（UI-011）：del→左 / add→右 / equal→左，
-            携带该侧行号供光标定位（换算见 script 的 contentClick）。
+            空白节点会原样显示）。内容格为纯展示（原点击编辑入口已撤除，
+            见文件头）。
           -->
           <div
             class="diff-content"
             :class="`is-tone-${item.line.tone}`"
-            @click="contentClick(item.line)"
           ><template v-if="item.line.spans !== null"><span
             v-for="(span, spanIndex) in item.line.spans"
             :key="spanIndex"

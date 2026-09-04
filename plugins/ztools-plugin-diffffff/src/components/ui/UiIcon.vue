@@ -10,12 +10,22 @@
 import type { Component } from 'vue'
 import {
   AppWindow,
+  ArrowLeftRight,
+  ArrowUpRight,
   Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
+  ClipboardPaste,
+  Copy,
+  FoldVertical,
+  FolderOpen,
+  Pencil,
+  Search,
   Settings,
   Trash2,
+  UnfoldVertical,
   X,
 } from 'lucide-vue-next'
 
@@ -27,8 +37,18 @@ export type IconName =
   | 'chevron-left'
   | 'chevron-right'
   | 'chevron-down'
+  | 'chevron-up'
   | 'x'
   | 'check'
+  | 'copy'
+  | 'swap'
+  | 'unfold'
+  | 'fold'
+  | 'folder-open'
+  | 'clipboard'
+  | 'pencil'
+  | 'search'
+  | 'detach'
 
 const props = withDefaults(
   defineProps<{
@@ -47,8 +67,18 @@ const ICONS: Record<IconName, Component> = {
   'chevron-left': ChevronLeft,
   'chevron-right': ChevronRight,
   'chevron-down': ChevronDown,
+  'chevron-up': ChevronUp,
   x: X,
   check: Check,
+  copy: Copy,
+  swap: ArrowLeftRight,
+  unfold: UnfoldVertical,
+  fold: FoldVertical,
+  'folder-open': FolderOpen,
+  clipboard: ClipboardPaste,
+  pencil: Pencil,
+  search: Search,
+  detach: ArrowUpRight,
 }
 </script>
 

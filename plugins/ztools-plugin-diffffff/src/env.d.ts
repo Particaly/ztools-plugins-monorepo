@@ -34,27 +34,25 @@ interface Services {
    */
   pickOpenFile: (filters?: { name: string, extensions: string[] }[]) => string | null
   /**
-   * 弹出系统「保存文件」对话框（默认过滤器为文本文件 txt 与所有文件）
-   * @returns 用户确认的保存路径；用户取消时返回 null
-   */
-  pickSaveFile: () => string | null
-  /**
    * 读取系统剪贴板纯文本
    * @returns 剪贴板文本内容；剪贴板为空或读取失败时返回空字符串
    */
   readClipboardText: () => string
-  /**
-   * 写入本地文本文件（同步，固定 UTF-8 编码；INT-002 导出 HTML 用）
-   * @param path 目标文件路径，必须为非空字符串
-   * @param content 待写入文本，必须为非空字符串
-   * @throws path/content 非法，或写入失败（EACCES / ENOSPC 等）时抛出带中文信息的 Error
-   */
-  writeTextFile: (path: string, content: string) => void
 }
 
 declare global {
   interface Window {
     services: Services
+    /**
+     * ZTools 宿主 API（由宿主注入，浏览器 dev / preview 环境不存在）。
+     * 类型来自 @ztools-center/ztools-api-types 的 ZToolsApi（宿主全局 `ztools`
+     * 的同一接口；本项目此前只经 preload services 间接消费，本任务起
+     * App.vue 直接消费其中的 getWindowType / onPluginDetach，故在此挂到
+     * Window 上；消费方必须做空值兜底 —— 缺失时视为浏览器 dev，走降级
+     * 行为，不抛错）。注意宿主 API 类型声明文件在全局只声明了 `declare var
+     * ztools`，不含 Window 挂载，因此需要这里自行补充。
+     */
+    ztools?: ZToolsApi
   }
 
   /**

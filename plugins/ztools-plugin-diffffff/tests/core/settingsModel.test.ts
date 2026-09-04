@@ -40,7 +40,6 @@ describe('defaultSettings', () => {
       ignoreWhitespace: false,
       ignoreCase: false,
       ignoreRules: [],
-      realtimeDefault: false,
       autoSaveHistory: true,
     })
   })
@@ -98,14 +97,12 @@ describe('normalizeSettings 逐字段非法回退', () => {
       wrapLongLines: 1,
       ignoreWhitespace: null,
       ignoreCase: 0,
-      realtimeDefault: 'on',
       autoSaveHistory: undefined,
     })
     expect(s.showCollapsed).toBe(true)
     expect(s.wrapLongLines).toBe(false)
     expect(s.ignoreWhitespace).toBe(false)
     expect(s.ignoreCase).toBe(false)
-    expect(s.realtimeDefault).toBe(false)
     expect(s.autoSaveHistory).toBe(true)
   })
 
@@ -115,14 +112,12 @@ describe('normalizeSettings 逐字段非法回退', () => {
       wrapLongLines: true,
       ignoreWhitespace: true,
       ignoreCase: true,
-      realtimeDefault: true,
       autoSaveHistory: false,
     })
     expect(s.showCollapsed).toBe(false)
     expect(s.wrapLongLines).toBe(true)
     expect(s.ignoreWhitespace).toBe(true)
     expect(s.ignoreCase).toBe(true)
-    expect(s.realtimeDefault).toBe(true)
     expect(s.autoSaveHistory).toBe(false)
   })
 
@@ -130,6 +125,8 @@ describe('normalizeSettings 逐字段非法回退', () => {
     const s = normalizeSettings({ schemaVersion: 999, futureField: 'x' })
     expect(s.schemaVersion).toBe(SETTINGS_SCHEMA_VERSION)
     expect('futureField' in s).toBe(false)
+    // 已移除的「实时对比默认值」字段按未知字段处理：旧持久化数据载入时自然忽略。
+    expect('realtimeDefault' in normalizeSettings({ realtimeDefault: true })).toBe(false)
   })
 })
 
@@ -262,7 +259,6 @@ describe('往返一致性（幂等）', () => {
         { id: 'a', pattern: '\\d+', flags: 'g', enabled: true },
         { junk: true },
       ],
-      realtimeDefault: true,
       autoSaveHistory: false,
       unknownField: 1,
     }

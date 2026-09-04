@@ -66,6 +66,17 @@ export interface CollapseState {
   expand: (beforeRow: number) => void
   /** 全部展开（「全部展开」按钮；幂等） */
   expandAll: () => void
+  /**
+   * 全部收起（「全部展开/收起」双态按钮的收起侧）：清空展开集合，回到
+   * 「只显示折叠条」的默认折叠形态；无折叠时幂等 no-op。
+   */
+  collapseAll: () => void
+  /**
+   * 当前是否存在折叠区段（与展开态无关，computed）：双态按钮的禁用依据 ——
+   * 无折叠时「展开 / 收起」都无事可做；isAnyCollapsed 只表达「未展开的
+   * 折叠条是否还有剩余」，全展开后为 false 但仍可收起，不能当禁用条件。
+   */
+  hasCollapses: ComputedRef<boolean>
   /** 是否存在未展开的折叠条（「全部展开」按钮的显隐条件，computed） */
   isAnyCollapsed: ComputedRef<boolean>
 }
@@ -174,6 +185,16 @@ export function useCollapse(
   }
 
   /**
+   * 全部收起（双态按钮的收起侧）：清空已展开集合 —— displayItems 恢复为
+   * 「折叠条 + 未折叠行」的默认形态，isAnyCollapsed 随之回 true。此前的
+   * 单条展开探索整体作废（与 expandAll 的「以点击时刻 collapses 为准」
+   * 对偶）；无折叠（collapses 为空）时是幂等 no-op。
+   */
+  function collapseAll(): void {
+    expandedKeys.value = new Set<number>()
+  }
+
+  /**
    * 是否存在未展开的折叠条：直接从 displayItems 判定（而非对比集合大小），
    * 保证与「实际渲染出的折叠条」严格一致 —— 空区段 / 越界折叠条被防御性
    * 剔除时不会出现「按钮显示却无事可做」的错位。
@@ -182,5 +203,30 @@ export function useCollapse(
     displayItems.value.some((item) => item.kind === 'collapsed'),
   )
 
-  return { displayItems, expandedKeys, expand, expandAll, isAnyCollapsed }
+  /**
+   * 是否存在折叠区段（computed）：折叠开关关闭时折叠条不渲染（视图是
+   * 全量展开形态，「展开 / 收起」都无事可做），与入参 collapses 的「实际
+   * 有效区段」一并判定（走与 displayItems 相同的边界钳制，空区段 / 越界
+   * 折叠条不算数）。双态按钮的禁用依据 —— 有折叠时按钮恒可用，只在
+   * 「全部展开 / 全部收起」两侧切换文案。
+   */
+  const hasCollapses = computed(() => {
+    if (!toValue(enabled)) return false
+    const list = toValue(rows)
+    return toValue(collapses).some((range) => {
+      const start = Math.max(0, range.beforeRow - range.count)
+      const end = Math.min(list.length, range.beforeRow)
+      return end > start
+    })
+  })
+
+  return {
+    displayItems,
+    expandedKeys,
+    expand,
+    expandAll,
+    collapseAll,
+    hasCollapses,
+    isAnyCollapsed,
+  }
 }

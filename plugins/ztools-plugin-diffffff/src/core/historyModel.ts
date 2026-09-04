@@ -6,7 +6,7 @@
  * 「已保存差异」历史的数据模型层：条目形状、去重入库、搜索过滤与标题推导
  * 四件套，全部为纯函数 / 纯类型 —— 零 UI、零 DOM、零 store 依赖（与
  * options.ts 同级的引擎层约束），持久化与 UI 交互分别归 stores/history.ts
- * 与 components/HistoryDrawer.vue。
+ * 与 components/HistoryPanel.vue。
  *
  * 与参照实现（f-provider 的 useHistory）的分工差异：那边把「去重 / 截尾 /
  * id 生成」内联在组合式函数里无法单测；本工程沿用 core 纯模型可单测的惯例

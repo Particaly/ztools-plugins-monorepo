@@ -4,7 +4,8 @@
   - 基于 CodeMirror 6：行号、焦点行高亮、空态占位、撤销/重做；
   - 唯一数据源是 workbench store：内部编辑经 updateListener → emit 提交，
     外部变更（草稿恢复 / 后续拖入文件、交换两侧）经 watch 全文替换回显；
-  - 底部统计条实时显示「N 字符 · M 行」（从 props 计算，不引入新全局状态）；
+  - 原「N 字符 · M 行」底部统计条已撤除（本任务起统计上移至 pane 顶部栏
+    PaneHeader 左侧，编辑器区域整体让给内容）；
   - 主题色全部消费 main.css / ztools-ui 既有 CSS 变量（见下方 cmTheme 注释），
     不硬编码第二套配色；
   - 语法高亮（INT-001）：经 props.language（App 传入 viewStore.effectiveLanguage，
@@ -121,7 +122,7 @@ const sharedExtensions: Extension[] = [
 /**
  * 组件实例层：props/emits、双向绑定、统计条与生命周期。
  */
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 /** 组件 props */
 interface Props {
@@ -172,20 +173,6 @@ let view: EditorView | null = null
  * emit → store → props → emit 的多余回环。
  */
 let applyingExternal = false
-
-/**
- * 字符数：UTF-16 code unit 计数（与 CodeMirror Text.length 口径一致）。
- */
-const charCount = computed(() => props.modelValue.length)
-
-/**
- * 行数：按 CRLF / LF / CR 切分（与 CodeMirror 行切分口径一致）。
- * 空文本显示 0 行（而非 CM 内部口径的 1 行）——与「0 字符 · 0 行」空态约定对齐。
- */
-const lineCount = computed(() => {
-  if (props.modelValue.length === 0) return 0
-  return props.modelValue.split(/\r\n|\r|\n/).length
-})
 
 /**
  * 聚焦编辑器（defineExpose 给父组件）：
@@ -297,19 +284,13 @@ watch(
   <div class="input-editor" :data-side="side">
     <!-- CodeMirror EditorView 挂载点：内部 .cm-scroller 自滚动，不撑破外壳 -->
     <div ref="editorHost" class="input-editor-host"></div>
-    <!--
-      底部统计条：N 字符 · M 行（从 props.modelValue 实时计算）。
-      常显策略：空态显示「0 字符 · 0 行」而非隐藏——条高恒定，
-      开始输入时布局不跳动（UI-001 要求二选一，此处选择常显）。
-    -->
-    <div class="input-editor-stats">{{ charCount }} 字符 · {{ lineCount }} 行</div>
   </div>
 </template>
 
 <style scoped>
 /*
  * 组件布局：纵向 flex 填满宿主（App.vue 的 .pane-body）——
- * 编辑区 flex:1 内部滚动（.cm-scroller），统计条 flex:none 恒定在底部。
+ * 编辑区 flex:1 内部滚动（.cm-scroller）。
  */
 .input-editor {
   display: flex;
@@ -321,23 +302,5 @@ watch(
 .input-editor-host {
   flex: 1 1 auto;
   min-height: 0;
-}
-
-/*
- * 统计条：等宽小字、次级色（沿用 pane-header 的 opacity 弱化约定，
- * 不新增色值）；白空格 nowrap 防止窄窗换行挤压。
- */
-.input-editor-stats {
-  flex: none;
-  padding: 3px 12px;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 18px;
-  color: var(--text-color);
-  opacity: 0.6;
-  border-top: 1px solid var(--border-color);
-  white-space: nowrap;
-  overflow: hidden;
-  user-select: none;
 }
 </style>

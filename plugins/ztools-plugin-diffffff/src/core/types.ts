@@ -146,6 +146,17 @@ export interface DiffRow {
    */
   longLine?: boolean
   /**
+   * 仅视觉对齐标记（行号对齐任务：`zipUnpairedRows` 产出，见 `./align.ts`）：
+   * `true` 时该 `'modify'` 行是「把同一个替换区域内未配对的 del / add 两行
+   * 并进同一条渲染行」的纯视觉合并 —— 左右行号各自来自原 del / add 行，
+   * 但**不声称两行相似**、**不填 `words`**（无行内词级高亮），与 GitHub /
+   * VSCode 并排视图的「行号尽量对齐」布局语义一致。消费约定：渲染层按普通
+   * `'modify'` 行展示（左「−」右「+」）；词级 / 字符级重投影、统计、合并
+   * 等逻辑对 `alignOnly: true` 行不做特殊处理（继续按普通 modify 行消费，
+   * 只是它没有 `words` 可投影）。
+   */
+  alignOnly?: boolean
+  /**
    * INT-008 行内评论占位字段：评估结论为「延后实现（⏸），不进入 v1」
    * （评估日期 2026-08-30，详见 docs/architecture.md §3「行内评论评估」）。
    * 类型保持空元组 `[]`：结构上不可存放内容，引擎与渲染层均不读写；

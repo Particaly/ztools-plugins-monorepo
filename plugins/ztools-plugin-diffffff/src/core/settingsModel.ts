@@ -48,8 +48,10 @@ export type SettingsViewMode = 'split' | 'unified'
  * 设置的持久化形状（dbStorage key 'diff.settings' 的值）。
  *
  * 字段集合 = roadmap INT-007 的持久化范围（默认精度、默认选项、上下文行数、
- * 历史开关）+ 同属用户偏好的视图/语言/实时默认值/忽略规则；各字段语义与
+ * 历史开关）+ 同属用户偏好的视图/语言/忽略规则；各字段语义与
  * 取值范围见字段注释，非法值在 normalizeSettings 中逐字段兜底回默认。
+ * （「实时对比默认值」字段已随实时对比功能整体移除：normalizeSettings
+ * 丢弃未知字段，旧持久化数据中的残留键在载入时被自然忽略。）
  */
 export interface StoredSettings {
   /** schema 版本号（migrateSettings 的路由依据；normalizeSettings 恒重写为当前版本）。 */
@@ -76,8 +78,6 @@ export interface StoredSettings {
    * 载入后由设置弹窗标红、引擎侧照旧拦截，与本模块无关）。
    */
   ignoreRules: IgnoreRule[]
-  /** 「实时对比」默认值（App 启动时一次性注入 diffStore.realtime，默认 false）。 */
-  realtimeDefault: boolean
   /** 历史自动保存开关（对应 historyStore.autoSave，默认 true）。 */
   autoSaveHistory: boolean
 }
@@ -116,7 +116,6 @@ export function defaultSettings(): StoredSettings {
     ignoreWhitespace: false,
     ignoreCase: false,
     ignoreRules: [],
-    realtimeDefault: false,
     autoSaveHistory: true,
   }
 }
@@ -153,7 +152,6 @@ export function normalizeSettings(raw: unknown): StoredSettings {
     ignoreWhitespace: normalizeBoolean(source.ignoreWhitespace, false),
     ignoreCase: normalizeBoolean(source.ignoreCase, false),
     ignoreRules: normalizeIgnoreRules(source.ignoreRules),
-    realtimeDefault: normalizeBoolean(source.realtimeDefault, false),
     autoSaveHistory: normalizeBoolean(source.autoSaveHistory, true),
   }
 }

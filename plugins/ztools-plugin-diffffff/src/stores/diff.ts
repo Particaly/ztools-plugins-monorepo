@@ -3,9 +3,9 @@
  *
  * 组合式 reactive 单例（与 workbench.ts 同风格，刻意不引 Pinia）：持有
  * 「最近一次对比」的引擎结果与运行状态，作为「查找差异」主按钮 /
- * ⌘/Ctrl+Enter 快捷键 / 实时对比开关 / 选项变化自动重跑（UI-005）多条触发
- * 路径的共同出口，结果视图（UI-006/007）、统计条（UI-010）与错误提示
- * （UI-013）后续直接消费本 store。
+ * ⌘/Ctrl+Enter 快捷键 / 选项变化自动重跑（UI-005）多条触发路径的共同出口，
+ * 结果视图（UI-006/007）、统计条（UI-010）与错误提示（UI-013）后续直接消费
+ * 本 store。
  *
  * 职责边界（UI-005 定稿：选项输入归 viewStore，本 store 只管结果）：
  * - 本 store 只负责「触发 → 调引擎 → 存结果」的状态机，不做任何 UI 反馈：
@@ -24,7 +24,7 @@ import type { DiffOptions, DiffResult } from '../core/types'
 import { workbenchStore } from './workbench'
 import { viewStore } from './view'
 
-/** 对外 store 形状：最近一次对比结果 + 运行状态 + 生效选项快照 + 实时开关 */
+/** 对外 store 形状：最近一次对比结果 + 运行状态 + 生效选项快照 */
 export interface DiffStore {
   /**
    * 最近一次对比结果（DiffResult 判别联合，含 ok:false 错误通道）。
@@ -39,14 +39,6 @@ export interface DiffStore {
    * 快照）。不再是选项输入 —— 修改对比选项请写 viewStore。
    */
   lastOptions: DiffOptions
-  /**
-   * 实时对比开关（默认 false）。默认关闭的理由：显式触发（主按钮 /
-   * ⌘/Ctrl+Enter）是主交互，实时对比只是辅助 —— 大文本下防抖后的同步
-   * 计算仍可能造成可感知卡顿，且「边输入边重算」会放大误触成本，
-   * 故交由用户显式开启。UI-005 起：本会话初值由 viewStore.realtimeDefault
-   * （设置弹窗「实时对比默认值」）在 App onMounted 时一次性注入。
-   */
-  realtime: boolean
   /** 执行一次对比（语义见 run 函数 JSDoc）。 */
   run: () => Promise<void>
   /** 清空对比结果（语义见 clear 函数 JSDoc）。 */
@@ -64,18 +56,17 @@ function snapshotOptions(options: DiffOptions): DiffOptions {
 }
 
 /**
- * 执行一次对比（四条触发路径共用：主按钮 / ⌘/Ctrl+Enter / 实时防抖 /
- * 选项变化自动重跑 —— 最后一条为 UI-005 新增，接线在 App.vue 的 watch）。
+ * 执行一次对比（三条触发路径共用：主按钮 / ⌘/Ctrl+Enter / 选项变化自动重跑
+ * —— 最后一条为 UI-005 新增，接线在 App.vue 的 watch）。
  *
  * 行为约定：
  * - 重入守卫：isRunning 期间直接忽略后续调用 —— 当前实现里 compareFull
  *   是同步函数，await nextTick 后一口气算完，重入窗口极小，但键盘 /
- *   实时防抖 / 选项 watch 仍可能在窗口内触发，忽略即可（进行中的那次在
+ *   选项 watch 仍可能在窗口内触发，忽略即可（进行中的那次在
  *   nextTick 之后才读取 store 文本，天然拿到最新输入与选项）；
  * - 空态短路：两侧文本全空时不跑引擎，直接 clear() —— 保证不产生
  *   「空对比结果」（空态语义的完整呈现归 UI-013 完善，此处只兜底）；
- *   放在 run() 内而非按钮回调里，是为了让实时防抖 / 选项重跑路径享受
- *   同一守卫；
+ *   放在 run() 内而非按钮回调里，是为了让选项重跑路径享受同一守卫；
  * - 选项来源（UI-005）：执行时读取 viewStore.diffOptions（工具栏开关 +
  *   设置弹窗规则的组装结果）与 viewStore.contextLines，并把快照写入
  *   lastOptions —— 生效选项以「本次 run 的读取值」为准，与工具栏当前
@@ -140,7 +131,6 @@ export const diffStore: DiffStore = reactive({
     ignoreEmptyLines: false,
     ignoreRules: [],
   }),
-  realtime: false,
   run,
   clear,
 })

@@ -11,9 +11,7 @@
      非法则输入框标红（陶土红描边）+ 逐条错误文案；校验失败的启用规则
      被 viewStore.diffOptions 拦截（不进引擎，运行时不会出现 invalid-regex），
      顶部提示条说明该语义 —— 「编辑期拦截 + 提示」，不阻塞编辑与保存。
-  ③ 实时对比默认值：写 viewStore.realtimeDefault，App 启动时一次性注入
-     diffStore.realtime（接线在 App.vue onMounted）。
-  ④ 自动保存历史（INT-007）：写 historyStore.autoSave（该开关的唯一真源，
+  ③ 自动保存历史（INT-007）：写 historyStore.autoSave（该开关的唯一真源，
      保存出口在 App.vue 的 result watch → historyStore.saveFromResult），
      其持久化归 stores/settings.ts（载入回写 + 变更即时写 dbStorage）。
 
@@ -192,23 +190,8 @@ const invalidEnabledCount = computed(
           </div>
         </section>
 
-        <!-- ③ 实时对比默认值 -->
-        <section class="settings-section">
-          <div class="settings-row">
-            <div class="settings-row-text">
-              <div class="settings-row-title">实时对比默认值</div>
-              <div class="settings-row-desc">插件启动时把侧边栏「实时对比」开关初始化为该值</div>
-            </div>
-            <UiSwitch
-              :model-value="viewStore.realtimeDefault"
-              aria-label="实时对比默认值"
-              @update:model-value="viewStore.realtimeDefault = $event"
-            />
-          </div>
-        </section>
-
         <!--
-          ④ 自动保存历史（INT-007）：直写 historyStore.autoSave（getter/setter
+          ③ 自动保存历史（INT-007）：直写 historyStore.autoSave（getter/setter
           转发到内部 ref，读写均具响应性）。该开关只在下次对比成功时才被
           App.vue 的保存出口消费，改后无需其他接线。
         -->

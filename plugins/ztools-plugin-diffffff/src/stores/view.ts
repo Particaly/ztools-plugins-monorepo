@@ -11,16 +11,14 @@
  *   contextLines（ENG-008 hunk 上下文行数）—— 经 `diffOptions` computed 组装
  *   成 `DiffOptions` 供 diffStore.run() 使用（diffStore 不再自持选项输入，
  *   见 stores/diff.ts 的职责调整说明）；
- * - 语言选择：language（高亮归 INT-001，本任务只存状态与下拉候选）；
- * - 偏好默认值：realtimeDefault（设置弹窗里的「实时对比默认值」，App 启动时
- *   一次性初始化 diffStore.realtime，接线在 App.vue onMounted）。
+ * - 语言选择：language（高亮归 INT-001，本任务只存状态与下拉候选）。
  *
  * 与 diff.ts 的职责边界（UI-005 定稿）：
  * - 本 store 持有「选项输入」，diffStore 持有「结果与运行状态机」；
  * - diffStore.run() 在执行时读取 `viewStore.diffOptions` 与 `viewStore.contextLines`，
  *   并把实际生效的选项快照写入 diffStore.lastOptions（输出而非输入，见 diff.ts）；
  * - 「选项变化 → 自动重跑」的触发策略（有结果立即重跑、无结果等显式触发）
- *   归触发层，接线在 App.vue 的 watch 中（与实时对比防抖、快捷键同处一地）。
+ *   归触发层，接线在 App.vue 的 watch 中（与快捷键同处一地）。
  *
  * 规则校验：`getRuleError` / `enabledRulesValid` 复用引擎层
  * `compileIgnoreRules`（src/core/ignoreRules.ts）做编辑期校验 —— 非法的启用
@@ -63,12 +61,12 @@ export function diffGutterWidthPx(totalRows: number): number {
   return 64
 }
 
-/** 精度下拉候选（value 与 `DiffPrecision` 一一对应，顺序即下拉展示顺序） */
+/** 精度分段候选（value 与 `DiffPrecision` 一一对应，顺序即分段展示顺序） */
 export const PRECISION_OPTIONS: { label: string; value: DiffPrecision }[] = [
   { label: '智能', value: 'smart' },
   { label: '行级', value: 'line' },
-  { label: '词级', value: 'word' },
-  { label: '字符级', value: 'char' },
+  { label: '单词', value: 'word' },
+  { label: '字符', value: 'char' },
 ]
 
 /**
@@ -163,8 +161,6 @@ export interface ViewStore {
   ignoreEmptyLines: boolean
   /** 自定义忽略规则列表（ENG-007，默认空；设置弹窗管理） */
   ignoreRules: IgnoreRule[]
-  /** 「实时对比」默认值：App 启动时一次性初始化 diffStore.realtime（接线在 App.vue） */
-  realtimeDefault: boolean
   /** 引擎输入选项（由当前开关/规则组装，非法启用规则被拦截，见下） */
   readonly diffOptions: DiffOptions
   /** 启用中的规则是否全部通过校验（false = 存在启用且非法的规则） */
@@ -291,7 +287,6 @@ export const viewStore: ViewStore = reactive({
   ignoreCase: false,
   ignoreEmptyLines: false,
   ignoreRules: [],
-  realtimeDefault: false,
   // computed 并入 reactive 单例：访问时自动解包（viewStore.diffOptions 直接是
   // DiffOptions 值），依赖跟踪与响应性不受影响。
   diffOptions,

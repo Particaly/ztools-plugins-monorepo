@@ -1,9 +1,9 @@
 /**
  * ============================================================================
- * 剪贴板载入 composable（INT-006：从剪贴板载入单侧 + 「粘贴并对比」快捷路径）
+ * 剪贴板载入 composable（INT-006：从剪贴板载入单侧）
  * ============================================================================
  *
- * 三块职责：
+ * 两块职责：
  * 1. 读取降级链（readClipboardTextOrNotify）：ztools services.readClipboardText
  *    优先（宿主 preload 注入，剪贴板为空/读取失败返回空串，语义见
  *    src/env.d.ts），浏览器 dev / preview 无 window.services 时降级
@@ -11,25 +11,7 @@
  *    权限拒绝时 readText 抛错，汇入「无法读取剪贴板」通道）；
  * 2. 单侧粘贴（useClipboardLoad().pasteIntoSide）：读剪贴板 → 空串 toast
  *    info「剪贴板为空」→ 目标侧已有内容弹覆盖确认（与「打开文件」语义一致）
- *    → 写入该侧；
- * 3. 「粘贴并对比」的决策与写入原语（resolvePasteCompareTarget /
- *    writeTextIntoSide）：写入后的立即对比（runAndShowResult）与确认弹窗
- *    编排在 App.vue —— 该动作是显式触发路径，与主按钮共用同一状态机出口，
- *    且 appMode 状态机只在 App 层存在，composable 保持无 appMode 依赖。
- *
- * 「粘贴并对比」目标侧决策表（resolvePasteCompareTarget）：
- *   ┌──────────┬──────────┬────────────────┬────────────────────────────┐
- *   │ 左侧     │ 右侧     │ 目标侧         │ 覆盖确认                   │
- *   ├──────────┼──────────┼────────────────┼────────────────────────────┤
- *   │ 空       │ 空       │ 左侧           │ 无                         │
- *   │ 空       │ 非空     │ 左侧（空侧）   │ 无                         │
- *   │ 非空     │ 空       │ 右侧（空侧）   │ 无                         │
- *   │ 非空     │ 非空     │ 左侧           │ 有（将覆盖「原始文本」）   │
- *   └──────────┴──────────┴────────────────┴────────────────────────────┘
- * 决策理由：仅一侧为空 → 粘到空侧即得「剪贴板 vs 已有内容」的对比意图，
- * 无数据丢失、不打扰用户；两侧均空 → 左侧（对齐「先填原始文本」的输入
- * 顺序）；两侧均非空 → 落左侧（原始文本），语义为「剪贴板是新基线」，与
- * 「打开文件」默认进左侧一致，破坏性覆盖必须经 ZConfirmDialog 确认。
+ *    → 写入该侧。
  *
  * 大文本：超 DIFF_LIMITS 的剪贴板内容照常写入，本层不预拦截 —— 写入本身
  * 无上限（编辑器亦不设限），越界反馈由对比时 compareFull 的 too-large
@@ -62,12 +44,6 @@ const UNREADABLE_CLIPBOARD_MESSAGE = '无法读取剪贴板'
  */
 const OVERWRITE_CONFIRM_MESSAGE = '该侧已有内容，覆盖未保存的修改？'
 
-/** 侧别展示名：与 App.vue 模板 pane-title / handleCopySide 的文案一致 */
-const SIDE_NAMES: Record<PaneSide, string> = {
-  left: '原始文本',
-  right: '更改后文本',
-}
-
 /**
  * 读取系统剪贴板纯文本：宿主 services 优先、浏览器剪贴板降级（读取本体，
  * 不含反馈）。services 路径按契约返回空串表达「空/失败」；降级路径的
@@ -88,8 +64,8 @@ async function readClipboardViaHostOrClipboard(): Promise<string> {
 }
 
 /**
- * 读取剪贴板文本并统一处理「空 / 不可读」反馈（INT-006 两条载入路径共用
- * 的读取出口：单侧「粘贴」与「粘贴并对比」）。
+ * 读取剪贴板文本并统一处理「空 / 不可读」反馈（INT-006 单侧「粘贴」的
+ * 读取出口）。
  *
  * @returns 剪贴板文本（保证非空）；null = 剪贴板为空或读取失败 —— 两种
  *          情况都已在此 toast info（空 →「剪贴板为空」、降级路径读取失败
@@ -116,11 +92,11 @@ export async function readClipboardTextOrNotify(): Promise<string | null> {
 }
 
 /**
- * 把文本写入单侧并清除该侧来源文件名（INT-006 两条载入路径共用的写入
- * 原语：单侧「粘贴」与「粘贴并对比」）。清除文件名的理由与文本拖入一致
+ * 把文本写入单侧并清除该侧来源文件名（INT-006 单侧「粘贴」的写入原语）。
+ * 清除文件名的理由与文本拖入一致
  * （useDropLoad）：粘贴内容不再来自文件，语言检测的扩展名线索失效，回
- * 到内容启发式。不做覆盖确认 —— 确认属调用方的编排职责（两条路径的确认
- * 时机与文案不同）。
+ * 到内容启发式。不做覆盖确认 —— 确认属调用方的编排职责（pasteIntoSide
+ * 在写入前自行确认）。
  *
  * @param side 目标侧：'left' 写 leftText，'right' 写 rightText
  * @param text 待写入文本（调用方保证非空 —— 空剪贴板已在读取出口拦截）
@@ -135,50 +111,11 @@ export function writeTextIntoSide(side: PaneSide, text: string): void {
   }
 }
 
-/** 「粘贴并对比」的目标侧决策结果（字段语义见 resolvePasteCompareTarget） */
-export interface PasteCompareTarget {
-  /** 粘贴目标侧 */
-  side: PaneSide
-  /** 写入前是否需要覆盖确认（仅「两侧均非空 → 左侧」分支为 true） */
-  needOverwriteConfirm: boolean
-  /** 覆盖确认文案中的目标侧名称（「原始文本」/「更改后文本」） */
-  overwriteSideName: string
-}
-
-/**
- * 「粘贴并对比」的目标侧决策（纯函数，决策表见文件头注释）。
- *
- * @param leftText 当前左侧文本（空串 = 空侧）
- * @param rightText 当前右侧文本（空串 = 空侧）
- * @returns 目标侧 + 是否需要覆盖确认 + 确认文案用侧名
- */
-export function resolvePasteCompareTarget(
-  leftText: string,
-  rightText: string,
-): PasteCompareTarget {
-  // 两侧均空 → 左侧（「先填原始文本」的输入顺序）
-  if (leftText === '' && rightText === '') {
-    return { side: 'left', needOverwriteConfirm: false, overwriteSideName: SIDE_NAMES.left }
-  }
-  // 仅一侧空 → 空侧（「剪贴板 vs 已有内容」对比意图，无数据丢失不确认）
-  if (leftText === '') {
-    return { side: 'left', needOverwriteConfirm: false, overwriteSideName: SIDE_NAMES.left }
-  }
-  if (rightText === '') {
-    return { side: 'right', needOverwriteConfirm: false, overwriteSideName: SIDE_NAMES.right }
-  }
-  // 两侧均非空 → 左侧（覆盖「原始文本」，破坏性，须确认）
-  return { side: 'left', needOverwriteConfirm: true, overwriteSideName: SIDE_NAMES.left }
-}
-
 /**
  * 剪贴板载入组合式函数（INT-006：单侧「粘贴」按钮的完整链路）。
  *
  * 可在多个组件调用（useConfirmDialog 状态为模块级单例，行为一致）；
- * 当前由 App.vue 调用一次，供两侧 pane 头部「粘贴」按钮共用。「粘贴并
- * 对比」不经过本函数（其编排含 appMode 状态机，在 App.vue 组合
- * readClipboardTextOrNotify / resolvePasteCompareTarget / writeTextIntoSide
- * 完成，理由见文件头职责 3）。
+ * 当前由 App.vue 调用一次，供两侧 pane 头部「粘贴」按钮共用。
  *
  * @returns pasteIntoSide：读取剪贴板写入指定侧（恒 resolve，全部出口
  *          在内部消化，调用方无需 await 处理结果）

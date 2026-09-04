@@ -130,7 +130,15 @@ const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 .ui-select-trigger[data-state='open'] .ui-select-chevron {
   transform: rotate(180deg);
 }
+</style>
 
+<!--
+  浮层样式必须放在非 scoped 块：popper 定位下 reka-ui 会在浮层外再包一层
+  [data-reka-popper-content-wrapper]，scoped 的 data-v 落在该包裹层，而
+  class 落在内层内容元素上，两者不在同一元素 → scoped 选择器永不命中
+  （表现为浮层丢背景/描边/阴影）。类名统一 ui-select- 前缀以避免全局冲突。
+-->
+<style>
 /* 浮层：纸面卡片（Portal 挂 body，不受侧边栏 overflow 裁剪） */
 .ui-select-content {
   z-index: 21000;

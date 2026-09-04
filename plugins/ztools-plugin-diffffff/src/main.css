@@ -333,8 +333,9 @@ body {
  * 会把内容格的 auto 高度撑到 20px + 8px = 28px，行高不再统一。这里隐藏内容
  * 格自身的滚动条（标准属性 scrollbar-width + webkit 私有兜底双写）：滚动
  * 能力保留（滚轮 / 触控板横扫 / Shift+滚轮仍横向可达），行高恒为
- * var(--diff-line-height)。内容格是「点击进入该侧编辑」的目标，text 光标
- * 提供可编辑暗示；不加 hover 变色 —— 行底色是语义色，hover 改色噪音大于收益。
+ * var(--diff-line-height)。内容格为纯展示（原「点击进入该侧编辑」入口已
+ * 撤除，回编辑走顶部主按钮「重新编辑」），不设 text 光标、不加 hover 变色
+ * —— 行底色是语义色，额外暗示噪音大于收益。
  */
 .diff-content {
   min-height: var(--diff-line-height);
@@ -345,7 +346,6 @@ body {
   overflow-y: hidden;
   tab-size: 4;
   scrollbar-width: none;
-  cursor: text;
 }
 
 .diff-content::-webkit-scrollbar {
@@ -489,8 +489,6 @@ body {
   align-items: center;
   gap: 6px;
   padding: 0 8px;
-  border-top: 1px solid color-mix(in srgb, var(--diff-hunk-bg) 55%, var(--text-color, #2e2c28));
-  border-bottom: 1px solid color-mix(in srgb, var(--diff-hunk-bg) 55%, var(--text-color, #2e2c28));
   background-color: var(--diff-hunk-bg);
 }
 
@@ -530,54 +528,6 @@ body {
 }
 
 /*
- * 「全部展开」工具条（两视图共用）：视图内存在任一折叠条时显示在结果视图
- * （滚动容器）顶部，全部展开后隐藏（isAnyCollapsed 驱动）。sticky 钉顶；
- * z-index 3 高于行号 / 记号列（z-index: 2），防竖向滚动时 sticky 单元格穿透。
- */
-.diff-expand-all-bar {
-  position: sticky;
-  top: 0;
-  z-index: 3;
-  display: flex;
-  justify-content: flex-end;
-  padding: 6px 12px;
-  border-bottom: 1px solid var(--border-color, #e8e4dc);
-  background-color: color-mix(in srgb, var(--surface, #ffffff) 88%, transparent);
-  backdrop-filter: blur(6px);
-}
-
-/*
- * ---------- 结果态编辑提示条（App.vue 在侧边栏与工作台之间渲染） ----------
- *
- * 保留编辑态（edit-from-result）的顶部提示条：雾绿轻底 + 深绿文案表达
- * 「处于临时编辑上下文」，右侧「重新对比 / 返回结果」按钮组由 margin-left:auto
- * 推到行尾；窄窗下 flex-wrap 换行不裁切。
- */
-.edit-notice {
-  flex: none;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 12px;
-  padding: 6px 16px;
-  border-bottom: 1px solid var(--border-color, #e8e4dc);
-  background-color: color-mix(in srgb, var(--accent-green, #5d8a67) 8%, var(--bg-color, #f7f5f1));
-}
-
-.edit-notice-text {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--accent-green, #5d8a67);
-}
-
-.edit-notice-actions {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-/*
  * ---------- 虚拟滚动 spacer（并排 / 统一视图共用） ----------
  *
  * 滚动容器内的渲染结构：「顶部 spacer + 可视切片 + 底部 spacer」。spacer 横跨
@@ -614,7 +564,7 @@ body {
  *
  * 小窗口下并排视图自动降级为统一视图时的轻量告知条，右侧「×」可关闭
  * （一次性）。配色中性暖灰（次级文字色派生轻底），与「两侧相同」的雾绿
- * .same-notice、「保留编辑」的 .edit-notice 在语义色上区分。
+ * .same-notice 在语义色上区分。
  */
 .narrow-notice {
   flex: none;
@@ -712,131 +662,14 @@ body {
 }
 
 /*
- * ---------- 打印样式（导出 PDF：window.print() → Electron 另存 PDF） ----------
+ * ---------- 本地历史：历史面板（HistoryPanel 内部排版） ----------
  *
- * 「导出 PDF」路径：ZTools 是 Electron，window.print() 唤起 Chromium 打印
- * 对话框（目的地自带「另存为 PDF」），全程无网。本块把打印输出裁剪为
- * 「只有差异结果」：
- *
- * - 布局解锁：app-shell 的 100% 高 + overflow: hidden 与 body 的
- *   overflow: hidden 在打印时改为 auto / visible —— 打印没有视口滚动概念，
- *   锁高会把多页内容截断；body 背景白（纸张语义，不随宿主主题）；
- * - 隐藏一切非结果元素：侧边栏 / 底部操作区 / 编辑提示条 / 进度条 / 错误块 /
- *   各类提示条 / 双栏编辑器与拖拽覆盖层 —— app-shell 内仅 .result-stage 可见；
- * - 结果区铺开：结果视图根与滚动容器解除 100% 高度与 overflow: auto；diff
- *   内容列切换 pre-wrap —— 打印纸张无横向滚动；换行模式的 longLine 4 行
- *   截断同步解除（打印 / 存档语义下内容完整性优先）；
- * - 配色保留：print-color-adjust: exact（含 -webkit- 前缀）—— Chromium
- *   默认不打印背景色，不加会让行底色全部丢失；
- * - 分页友好：行单元格 break-inside: avoid，一行不跨页断开。
- *
- * 已知边界（记录）：结果视图的虚拟滚动只把可视窗口的行留在 DOM，
- * window.print() 打印的是「当前已渲染的行」—— 大 diff 的完整存档请用
- * 「导出 HTML」（buildExportHtml 输出全量行序列的单文件）。
- */
-@media print {
-  * {
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
-  }
-
-  /* 布局解锁：html/body/#app/app-shell 不再锁视口高度，页面级滚动放开 */
-  html,
-  body,
-  #app,
-  .app-shell {
-    height: auto !important;
-    overflow: visible !important;
-  }
-
-  body {
-    background-color: #ffffff;
-  }
-
-  /* 工作台与结果区铺开：解除 flex 收缩与内部滚动，让全部已渲染行参与分页 */
-  .app-body,
-  .app-main,
-  .workbench,
-  .result-stage,
-  .result-stage .result-view {
-    height: auto !important;
-    min-height: 0 !important;
-    overflow: visible !important;
-  }
-
-  /* 内容列：打印切 pre-wrap（纸张无横向滚动，超长行换行而非被裁切），
-     并解除换行模式的 longLine max-height 截断 */
-  .result-stage .diff-content {
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-    overflow-x: visible;
-  }
-
-  .result-stage .is-long-line .diff-content {
-    max-height: none;
-    position: static;
-  }
-
-  /* 隐藏一切非结果元素：app-shell 内仅 .result-stage 参与打印 */
-  .sidebar,
-  .sidebar-rail,
-  .action-bar,
-  .edit-notice,
-  .result-progress,
-  .result-error,
-  .same-notice,
-  .narrow-notice,
-  .editor-pane,
-  .pane-divider,
-  .drop-overlay,
-  .ui-drawer-portal,
-  .ui-modal-portal,
-  .ui-toast-portal {
-    display: none !important;
-  }
-
-  /* 分页友好：行号 / 记号 / 内容单元格不跨页断开（行号列打印保留） */
-  .result-stage .diff-gutter,
-  .result-stage .diff-sign,
-  .result-stage .diff-content,
-  .result-stage .diff-row {
-    break-inside: avoid;
-    page-break-inside: avoid;
-  }
-}
-
-/*
- * ---------- 本地历史：工具栏徽标 + 历史侧栏（HistoryDrawer 内部排版） ----------
- *
- * 侧栏容器是本地 UiDrawer（右侧滑出、body teleport、自带遮罩与 Esc / 焦点
- * 圈定），本段只负责抽屉【内部】的排版与侧边栏徽标；颜色全部走本文件令牌
- * 与 --diff-* 语义色，深浅主题自动跟随。
- *
- * 打印边界：历史抽屉不参与「导出 PDF」的打印输出（打印对象是差异结果），
- * 已并入上方 @media print 的 .ui-drawer-portal 隐藏规则。
+ * 历史自本任务起内嵌侧边栏（「文本对比 / 历史」页签切换），原头部徽标按钮
+ * 与右侧滑出抽屉（UiDrawer）已撤除；本段只负责面板【内部】的排版，颜色
+ * 全部走本文件令牌与 --diff-* 语义色，深浅主题自动跟随。
  */
 
-/* 侧边栏「历史」按钮：徽标 pill 内嵌按钮文案尾部 */
-.history-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.history-button-count {
-  min-width: 16px;
-  padding: 0 5px;
-  border-radius: 999px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 15px;
-  text-align: center;
-  color: var(--primary-color, #4e7a60);
-  background-color: color-mix(in srgb, var(--primary-color, #4e7a60) 12%, transparent);
-}
-
-/* 抽屉内部：顶部工具行（搜索 + 清空） */
+/* 面板顶部工具行（搜索 + 清空） */
 .history-toolbar {
   display: flex;
   align-items: center;
@@ -907,7 +740,7 @@ body {
   flex: none;
 }
 
-/* +N / −M 徽标：与底部统计条 .stat-pill 同族（--diff-* 语义色，弱底强字） */
+/* +N / −M 徽标：与顶部工具条统计条 .stat-pill 同族（--diff-* 语义色，弱底强字） */
 .history-badge {
   flex: none;
   padding: 0 6px;

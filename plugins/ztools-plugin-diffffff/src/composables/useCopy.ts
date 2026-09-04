@@ -6,7 +6,7 @@
  * 复制文本到剪贴板的单出口：宿主 API 优先、浏览器 dev 降级。
  *
  * 路径与降级链（与抽取前行为逐字一致，UI-014 的复制原始 / 复制更改后与
- * INT-003 的复制报告共用）：
+ * UI-017 的「全部复制」共用）：
  * 1. `window.ztools.copyText(text)`（宿主 preload 注入，签名
  *    `copyText(text: string): boolean`，返回 false 视为失败）；
  * 2. `navigator.clipboard.writeText(text)`（浏览器 dev / preview 无 ztools

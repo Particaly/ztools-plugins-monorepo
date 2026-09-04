@@ -6,7 +6,8 @@
  *   → 目标侧已有内容时弹 ZConfirmDialog 确认覆盖（用户取消 → 静默结束，原内容不动）
  *   → readTextFile 按当前全局「打开编码」读取（INT-005，缺省 UTF-8；BOM 由
  *     preload 按 TextDecoder 标签语义剥除）
- *   → 成功写 store.setLeftText / setRightText
+ *   → 成功写 store.setLeftText / setRightText 并记录来源文件路径
+ *     （leftFilePath / rightFilePath，「打开编码」切换重读的依据）
  *   → 读取失败弹 ZToast 错误提示（含原始 message）。
  *
  * 反馈设施：ztools-ui 的 useToast / useConfirmDialog 内部持有模块级单例状态
@@ -97,7 +98,10 @@ function basenameOf(path: string): string {
  * - 「无 window.services 的降级」由调用方外层 try/catch 负责——openFileInto
  *   在调用前已通过 pickOpenFile 确认 services 可用；useDropLoad 自行兜底；
  * - INT-001：读取成功时把来源文件名（basename）写入 workbench store 的
- *   leftFileName / rightFileName（语言检测扩展名优先级的线索来源）。
+ *   leftFileName / rightFileName（语言检测扩展名优先级的线索来源）；
+ * - 本任务：读取成功时同时把来源绝对路径写入 leftFilePath / rightFilePath
+ *   （「打开编码」切换时按新编码重读的依据；须在 set*FileName 之后调用 ——
+ *   文件名 setter 会先清空路径，耦合约定见 workbench store 更新方法注释）。
  */
 export function readFileIntoStore(
   side: PaneSide,
@@ -109,9 +113,11 @@ export function readFileIntoStore(
     if (side === 'left') {
       workbenchStore.setLeftText(content)
       workbenchStore.setLeftFileName(basenameOf(path))
+      workbenchStore.setLeftFilePath(path)
     } else {
       workbenchStore.setRightText(content)
       workbenchStore.setRightFileName(basenameOf(path))
+      workbenchStore.setRightFilePath(path)
     }
   } catch (error) {
     // 读取失败：ZToast 错误提示（含原始 message），目标侧内容保持不变

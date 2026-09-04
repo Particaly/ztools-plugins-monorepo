@@ -12,7 +12,10 @@
  * - `nextHunkIndex(hunks, current, direction)`：hunk 有序列表上的循环跳转
  *   （current 为当前 hunk 下标，-1 表示未定位；回绕到首/尾）；
  * - `hunkAnchorRows(hunk, rows)`：hunk 在全量 rows 中的 0-based 起止下标
- *   （供滚动定位与当前 hunk 高亮）。
+ *   （供滚动定位与当前 hunk 高亮）；
+ * - `sideChangedChars(rows, side)`：单侧被删除（'left'）或新增（'right'）的
+ *   行文本字符数总量（UI-017「全部复制」悬浮统计的字符变化量口径，与
+ *   `computeStats` 的 removedLines / addedLines 同族）。
  *
  * 放独立文件而非追加到 `./hunks.ts` 的理由：ENG-008（hunks.ts）的职责是
  * 「把 rows 投影为 hunks / collapses」的生成层，本模块是对 rows / hunks 的
@@ -74,6 +77,39 @@ export function computeStats(rows: DiffRow[], hunkCount = 0): DiffStats {
     hunkCount,
     totalRows: rows.length,
   }
+}
+
+/* -------------------------------------------------------------------------- */
+/* sideChangedChars：单侧变更字符数（UI-017）                                 */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * 单侧「变更字符数」（UI-017：「全部复制」悬浮统计的字符变化量口径）。
+ *
+ * 口径与 `computeStats` 的 `addedLines` / `removedLines` 完全同族：
+ * 左侧（'left'）只统计 `'del'` 行的 `left.text` 长度，右侧（'right'）只统计
+ * `'add'` 行的 `right.text` 长度 —— `'modify'` 行的两侧不计入（与行级
+ * 统计一致，避免重复计数，见 `DiffStats` 契约注释）；`'equal'` 行不计入。
+ *
+ * 该口径是「本次对比中该侧被删除 / 新增的字符总量」，与行数维度
+ * （removedLines / addedLines）一一对应，供 UI 的悬浮统计按「行 /
+ * 字符」两节展示同源数据。
+ *
+ * @param rows 完整展开的差异行序列（引擎骨架或配对序列均可：pairing 只
+ *              增 modify 行、把 del+add 换皮，不改变 del / add 行的数量与文本）
+ * @param side 目标侧：'left' 统计删除字符（`'del'` 行）、'right' 统计新增
+ *              字符（`'add'` 行）
+ * @returns 该侧被删除 / 新增的行文本字符数之和（无对应行时为 0）
+ */
+export function sideChangedChars(rows: DiffRow[], side: 'left' | 'right'): number {
+  let total = 0
+  for (const row of rows) {
+    if (row.type === (side === 'left' ? 'del' : 'add')) {
+      const sideData = side === 'left' ? row.left : row.right
+      if (sideData !== undefined) total += sideData.text.length
+    }
+  }
+  return total
 }
 
 /* -------------------------------------------------------------------------- */
