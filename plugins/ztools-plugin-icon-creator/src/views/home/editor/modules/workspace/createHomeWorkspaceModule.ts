@@ -14,6 +14,7 @@ import type {
 } from '../../../composables/contracts'
 import { useHomeArtboards } from '../../../composables/useHomeArtboards'
 import { useHomeDocument } from '../../../composables/useHomeDocument'
+import type { DocumentCanvasSnapshot } from '../../../documentSnapshots'
 import { parseProjectFileText } from '../../../projectFile'
 import type { EditorModule } from '../../runtime/editorTypes'
 import type {
@@ -38,6 +39,16 @@ export interface CreateHomeWorkspaceModuleOptions extends HomeCanvasRestoreCallb
   cancelSmallPreviewsRefresh: () => void
   projectInputRef: Ref<HTMLInputElement | null>
   afterInitialDocumentReady?: () => void
+  /** 读取文档级样式元数据（色板/预设），随撤销快照与工程 JSON 持久化。 */
+  getDocumentStyleMeta?: () => unknown
+  /** 把工程 meta / 空值写入运行时文档样式状态（newDoc 传 null 表示重置为空）。 */
+  applyDocumentStyleMeta?: (value: unknown) => void
+  /** 从撤销快照 JSON 还原文档级样式元数据。 */
+  restoreDocumentStyleMetaFromSnapshot?: (snapshotJson: string) => void
+  /** 读取文档级命名画布快照列表（数据量大只随工程 JSON 保存，不进撤销快照）。 */
+  getDocumentSnapshots?: () => DocumentCanvasSnapshot[]
+  /** 把工程 meta.snapshots / 空值写入运行时命名画布快照状态（newDoc 传 null 表示清空）。 */
+  applyDocumentSnapshots?: (value: unknown) => void
 }
 
 export interface CreateHomeWorkspaceModuleResult {
@@ -119,7 +130,12 @@ export function createHomeWorkspaceModule(
     markSmallPreviewsDirty: options.markSmallPreviewsDirty,
     isBooleanPreviewObject: options.isBooleanPreviewObject,
     ensureEditorObjectId: options.ensureEditorObjectId,
-    isTransparentCanvasBg: options.isTransparentCanvasBg
+    isTransparentCanvasBg: options.isTransparentCanvasBg,
+    getDocumentStyleMeta: options.getDocumentStyleMeta,
+    applyDocumentStyleMeta: options.applyDocumentStyleMeta,
+    restoreDocumentStyleMetaFromSnapshot: options.restoreDocumentStyleMetaFromSnapshot,
+    getDocumentSnapshots: options.getDocumentSnapshots,
+    applyDocumentSnapshots: options.applyDocumentSnapshots
   })
 
   snapshotFromDocument = homeDocument.snapshot
@@ -142,7 +158,8 @@ export function createHomeWorkspaceModule(
   }
 
   /**
-   * 新建空白工作区时统一清空画板、历史与草稿状态，并保留当前画布尺寸/背景配置。
+   * 新建空白工作区时统一清空画板、历史、草稿与文档级元数据（色板/预设/命名画布快照），
+   * 并保留当前画布尺寸/背景配置。
    * 这样模板应用、顶部“新建”命令和后续 workspace 工作流都复用同一套文档重置入口。
    */
   function newDoc() {
@@ -151,6 +168,8 @@ export function createHomeWorkspaceModule(
 
     options.clearBooleanPreview()
     options.clearPointEditing()
+    options.applyDocumentStyleMeta?.(null)
+    options.applyDocumentSnapshots?.(null)
     homeDocument.clearStoredDraft()
     state.artboards.value = []
     state.activeArtboardId.value = ''

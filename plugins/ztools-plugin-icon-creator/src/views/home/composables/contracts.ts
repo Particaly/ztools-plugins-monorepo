@@ -1,5 +1,6 @@
 import type { Canvas, FabricObject } from 'fabric'
 import type { Ref } from 'vue'
+import type { DocumentCanvasSnapshot } from '../documentSnapshots'
 import type {
   IconCreatorProjectArtboard,
   IconCreatorProjectFile,
@@ -107,6 +108,22 @@ export interface UseHomeDocumentOptions extends HomeCanvasRestoreCallbacks {
   isBooleanPreviewObject: (obj: FabricObject | null | undefined) => boolean
   ensureEditorObjectId: (obj: FabricObject | null | undefined) => string
   isTransparentCanvasBg: (value: unknown) => boolean
+  /**
+   * 读取文档级样式元数据（命名色板与自定义样式预设）。
+   * 提供后随撤销快照（editorMeta 字段）与工程 JSON（meta 字段）一起持久化。
+   */
+  getDocumentStyleMeta?: () => unknown
+  /** 把工程 JSON 的 meta 字段写入运行时文档状态（loadProjectFile 时调用）。 */
+  applyDocumentStyleMeta?: (value: unknown) => void
+  /** 从撤销快照 JSON 中还原文档级样式元数据（undo/redo/jumpToHistory 时调用）。 */
+  restoreDocumentStyleMetaFromSnapshot?: (snapshotJson: string) => void
+  /**
+   * 读取文档级命名画布快照列表。
+   * 数据量大只随工程 JSON（meta.snapshots 字段）持久化，不进入撤销快照。
+   */
+  getDocumentSnapshots?: () => DocumentCanvasSnapshot[]
+  /** 把工程 JSON 的命名画布快照写入运行时状态（loadProjectFile 时调用，传空值表示清空）。 */
+  applyDocumentSnapshots?: (value: unknown) => void
 }
 
 export interface UseHomeDocumentReturn {

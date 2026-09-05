@@ -8,6 +8,20 @@ export type FillGradientStop = {
   offset: number
 }
 
+/**
+ * 渐变的精确坐标快照（percentage 坐标系：1 = 对象宽度/高度的 100%）。
+ * 属性面板按角度/中心/半径维护渐变，而精确坐标只有部分能映射回这三个量；
+ * 记录精确坐标可让 MCP/程序化生成的渐变在保存、撤销后完全按原样重建。
+ */
+export type FillGradientCoords = {
+  x1: number
+  y1: number
+  x2: number
+  y2: number
+  r1?: number
+  r2?: number
+}
+
 export type FillGradientMetadata = {
   fillMode?: FillMode
   fillGradientType?: FillGradientType
@@ -16,6 +30,7 @@ export type FillGradientMetadata = {
   fillGradientCenterX?: number
   fillGradientCenterY?: number
   fillGradientRadius?: number
+  fillGradientCoords?: FillGradientCoords
 }
 
 export type KaleidoscopeMetadata = {
@@ -101,6 +116,7 @@ export const SERIALIZED_OBJECT_PROPS = [
   'fillGradientCenterX',
   'fillGradientCenterY',
   'fillGradientRadius',
+  'fillGradientCoords',
   'kaleidoscopeEnabled',
   'kaleidoscopeCenterX',
   'kaleidoscopeCenterY',
@@ -329,6 +345,91 @@ export function applyDefaultFillGradientMetadata(obj: FabricObject | null | unde
   target.fillGradientRadius = normalizeRadius(target.fillGradientRadius, normalizeRadius(extractGradientRadius(target.fill, target), DEFAULT_FILL_GRADIENT_RADIUS))
 }
 
+/** 校验精确坐标快照是否完整可用：线性需 x1..y2，径向还需 r2。 */
+function isValidFillGradientCoords(coords: FillGradientCoords | null | undefined, type: FillGradientType): coords is FillGradientCoords {
+  if (!coords) return false
+  const base = [coords.x1, coords.y1, coords.x2, coords.y2].every((value) => Number.isFinite(value))
+  if (!base) return false
+  if (type === 'radial') return Number.isFinite(coords.r2)
+  return true
+}
+
+/**
+ * 从 percentage 坐标系的渐变实例中提取精确坐标快照。
+ * pixels 单位渐变（界面构建）不提取——其坐标依赖对象尺寸，继续走角度/中心/半径元数据。
+ */
+function getFillGradientCoordsFromGradient(gradient: Gradient<'linear' | 'radial'>): FillGradientCoords | null {
+  if (gradient.gradientUnits !== 'percentage') return null
+  const source = (gradient.coords ?? {}) as Record<string, unknown>
+  const numberOr = (key: string, fallback = NaN) => {
+    const parsed = Number(source[key])
+    return Number.isFinite(parsed) ? parsed : fallback
+  }
+  if (gradient.type === 'radial') {
+    const x2 = numberOr('x2')
+    const y2 = numberOr('y2')
+    const r2 = numberOr('r2')
+    if (![x2, y2, r2].every(Number.isFinite)) return null
+    return {
+      x1: numberOr('x1', x2),
+      y1: numberOr('y1', y2),
+      r1: numberOr('r1', 0),
+      x2,
+      y2,
+      r2
+    }
+  }
+  const coords: FillGradientCoords = {
+    x1: numberOr('x1'),
+    y1: numberOr('y1'),
+    x2: numberOr('x2'),
+    y2: numberOr('y2')
+  }
+  return isValidFillGradientCoords(coords, 'linear') ? coords : null
+}
+
+/**
+ * 把渐变实例的完整信息同步到对象的渐变元数据：
+ * 类型/停止点/精确坐标直接来自实例；角度、中心、半径作为近似值供属性面板滑杆展示。
+ * 坐标为 percentage 单位时才会写入精确快照，否则保留既有元数据语义。
+ */
+export function syncFillGradientMetadataFromGradient(target: FabricObject | null | undefined, gradient: Gradient<'linear' | 'radial'>) {
+  const metadata = getFillGradientMetadata(target)
+  if (!metadata || !(gradient instanceof Gradient)) return
+  const type: FillGradientType = gradient.type === 'radial' ? 'radial' : 'linear'
+  const stops = (gradient.colorStops ?? []).map((stop) => ({
+    color: String(stop.color),
+    offset: Math.min(1, Math.max(0, Number(stop.offset) || 0))
+  }))
+  const coords = getFillGradientCoordsFromGradient(gradient)
+  metadata.fillMode = 'gradient'
+  metadata.fillGradientType = type
+  metadata.fillGradientStops = stops.length ? stops : createDefaultGradientStops()
+  metadata.fillGradientCoords = coords ?? undefined
+  if (coords) {
+    if (type === 'linear') {
+      const angle = Math.atan2(coords.y2 - coords.y1, coords.x2 - coords.x1) * 180 / Math.PI
+      metadata.fillGradientAngle = normalizeAngle(angle)
+    } else {
+      metadata.fillGradientCenterX = Math.min(1, Math.max(0, coords.x2))
+      metadata.fillGradientCenterY = Math.min(1, Math.max(0, coords.y2))
+      metadata.fillGradientRadius = Math.min(2, Math.max(0.05, coords.r2 ?? DEFAULT_FILL_GRADIENT_RADIUS))
+    }
+    return
+  }
+  // 像素单位渐变：按既有反提逻辑回填近似元数据，精确坐标快照清除。
+  metadata.fillGradientAngle = undefined
+  metadata.fillGradientCenterX = undefined
+  metadata.fillGradientCenterY = undefined
+  metadata.fillGradientRadius = undefined
+  applyDefaultFillGradientMetadata(target)
+}
+
+/**
+ * 由渐变元数据构建 fabric Gradient 实例。
+ * 存在精确坐标快照（percentage 坐标系）时优先按快照重建，保证保存/撤销后视觉完全一致；
+ * 否则按角度（线性）或中心/半径（径向）的既有语义构建。
+ */
 export function createGradientFromMetadata(obj: FabricObject | null | undefined) {
   const target = getFillGradientMetadata(obj)
   if (!target) return null
@@ -336,6 +437,29 @@ export function createGradientFromMetadata(obj: FabricObject | null | undefined)
   if (target.fillMode !== 'gradient') return null
   const type = target.fillGradientType ?? DEFAULT_FILL_GRADIENT_TYPE
   const colorStops = cloneGradientStops(target.fillGradientStops ?? createDefaultGradientStops(target.lastFill))
+  if (isValidFillGradientCoords(target.fillGradientCoords, type)) {
+    const coords = target.fillGradientCoords
+    return new Gradient({
+      type,
+      gradientUnits: 'percentage',
+      colorStops,
+      coords: type === 'radial'
+        ? {
+            x1: coords.x1,
+            y1: coords.y1,
+            r1: coords.r1 ?? 0,
+            x2: coords.x2,
+            y2: coords.y2,
+            r2: coords.r2
+          }
+        : {
+            x1: coords.x1,
+            y1: coords.y1,
+            x2: coords.x2,
+            y2: coords.y2
+          }
+    })
+  }
   if (type === 'radial') {
     const { width, height } = getGradientObjectDimensions(target)
     const centerX = normalizeUnitInterval(target.fillGradientCenterX)

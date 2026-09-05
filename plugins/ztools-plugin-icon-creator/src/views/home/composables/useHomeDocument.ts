@@ -1,6 +1,8 @@
 import { ref } from 'vue'
 import { DRAFT_SAVE_DELAY, DRAFT_STORAGE_KEY, PROJECT_FILE_EXTENSION, PROJECT_SCHEMA_VERSION } from '../constants'
 import { normalizeKeylineMargin, normalizeKeylineOpacity, normalizeKeylineTemplate, normalizePixelGridSize } from '../canvasSettings'
+import { isEmptyDocumentStyleMeta, normalizeDocumentStyleMeta } from '../documentStyleMeta'
+import type { DocumentStyleMeta } from '../documentStyleMeta'
 import { normalizeProjectCanvasSettings, parseProjectFileText, stringifyProjectFile } from '../projectFile'
 import type { IconCreatorDraftFile, IconCreatorProjectFile, SnapshotOptions } from '../types'
 import type { HistorySnapshot, HistoryState, UseHomeDocumentOptions, UseHomeDocumentReturn } from './contracts'
@@ -35,7 +37,12 @@ export function useHomeDocument(options: UseHomeDocumentOptions): UseHomeDocumen
     markSmallPreviewsDirty,
     isBooleanPreviewObject,
     ensureEditorObjectId,
-    isTransparentCanvasBg
+    isTransparentCanvasBg,
+    getDocumentStyleMeta,
+    applyDocumentStyleMeta,
+    restoreDocumentStyleMetaFromSnapshot,
+    getDocumentSnapshots,
+    applyDocumentSnapshots
   } = options
 
   const { canvasWidth, canvasHeight, canvasBg, lastOpaqueCanvasBg, showPixelGrid, snapToPixelGrid, pixelGridSize, keylineTemplate, keylineMargin, keylineOpacity } = canvasState
@@ -51,12 +58,23 @@ export function useHomeDocument(options: UseHomeDocumentOptions): UseHomeDocumen
   let draftDirty = false
   let restoringDraftPromptShown = false
 
+  /**
+   * 组装撤销快照 JSON：画布序列化结果 + 文档级样式元数据（editorMeta 字段）。
+   * 元数据为空时省略字段，保持与旧快照结构一致。
+   */
+  function buildSnapshotPayload(): Record<string, unknown> {
+    const canvasPayload = serializeFabricCanvas()
+    const styleMeta = getDocumentStyleMeta?.() as DocumentStyleMeta | undefined
+    if (!styleMeta || isEmptyDocumentStyleMeta(styleMeta)) return canvasPayload
+    return { ...canvasPayload, editorMeta: styleMeta }
+  }
+
   function snapshot(options: SnapshotOptions = {}) {
     const fabricCanvas = getFabricCanvas()
     if (snapshotGate.get() || !fabricCanvas) return
     const description = options.description || '编辑操作'
     undoStack.push({
-      json: JSON.stringify(serializeFabricCanvas()),
+      json: JSON.stringify(buildSnapshotPayload()),
       description,
       timestamp: Date.now()
     })
@@ -95,6 +113,18 @@ export function useHomeDocument(options: UseHomeDocumentOptions): UseHomeDocumen
       },
       fabric: serializeFabricCanvas(),
       layerOrder
+    }
+
+    // 文档级元数据（色板/预设）为空时省略字段，保持旧工程文件结构不变。
+    const styleMeta = getDocumentStyleMeta?.() as DocumentStyleMeta | undefined
+    // 命名画布快照数据量大，只随工程 JSON 持久化，不进入撤销快照通道。
+    const documentSnapshots = getDocumentSnapshots?.() ?? []
+    const hasStyleMeta = !!styleMeta && !isEmptyDocumentStyleMeta(styleMeta)
+    if (hasStyleMeta || documentSnapshots.length > 0) {
+      projectFile.meta = {
+        ...(styleMeta ?? { swatches: [], stylePresets: [] }),
+        ...(documentSnapshots.length > 0 ? { snapshots: documentSnapshots } : {})
+      }
     }
 
     if (artboards.value.length > 0) {
@@ -192,6 +222,13 @@ export function useHomeDocument(options: UseHomeDocumentOptions): UseHomeDocumen
   async function loadProjectFile(project: IconCreatorProjectFile, options: { keepDraft?: boolean; resetHistory?: boolean } = {}) {
     const fabricCanvas = getFabricCanvas()
     if (!fabricCanvas) return
+
+    // 工程自带文档级样式元数据（色板/预设）时先写入运行时状态，旧工程无该字段则归一化为空。
+    applyDocumentStyleMeta?.(normalizeDocumentStyleMeta((project as { meta?: unknown }).meta))
+    // 命名画布快照随工程 meta 一并恢复；传空值时清空运行时快照列表。
+    applyDocumentSnapshots?.(
+      (project as { meta?: { snapshots?: unknown } | undefined }).meta?.snapshots ?? []
+    )
 
     if (project.artboards && project.artboards.length > 0) {
       artboards.value = project.artboards.map((artboard) => ({ ...artboard }))
@@ -292,6 +329,8 @@ export function useHomeDocument(options: UseHomeDocumentOptions): UseHomeDocumen
     snapshotGate.set(true)
     try {
       await fabricCanvas.loadFromJSON(json)
+      // 快照 JSON 内嵌的文档级样式元数据（色板/预设）随历史一并还原。
+      restoreDocumentStyleMetaFromSnapshot?.(json)
       await syncAllKaleidoscopes()
       ensureCanvasObjectMetadata()
       rehydrateCanvasGradientFills()

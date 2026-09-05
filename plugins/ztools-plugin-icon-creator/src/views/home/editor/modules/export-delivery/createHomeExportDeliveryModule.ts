@@ -17,12 +17,17 @@ import {
 } from '../../../shortcuts'
 import type { EditorModule } from '../../runtime/editorTypes'
 import type { AnyFabricObject } from '../../../fabric/objectMetadata'
+import { buildIcoFile, buildIcnsFile, ICO_MAX_SIZE, ICNS_MAX_SIZE, type IconContainerFrame } from '../../../fabric/iconContainer'
 import { ensureOptimizedSVGRoot, stripFabricSVGNoise, svgEscapeText, trimSVGWhitespace } from '../../../exportUtils'
 import { fabricStrokeToPathKitWithApi, type FabricBooleanStyleSnapshot } from '../../../geometry/fabricToPathKit'
 import { getPathKit, type PathKitApi } from '../../../geometry/pathkit'
 import { pathKitToFabricPath } from '../../../geometry/pathKitToFabric'
 import type { ExportDialogState, ExportFormat, IconCreatorProjectArtboard, InternalClipboard } from '../../../types'
 import type {
+  ExportIconContainerRequest,
+  ExportIconContainerResult,
+  ExportSizeSetRequest,
+  ExportSizeSetResult,
   HomeExportDeliveryClipboardOptions,
   HomeExportDeliveryController,
   HomeExportDeliveryExportOptions,
@@ -81,7 +86,14 @@ export function createHomeExportDeliveryModule(
    * 规范导出文件名前缀，避免空值或非法文件名字符影响下载目录写入。
    */
   function getExportFilePrefix() {
-    const normalized = exportDialog.filePrefix.trim().replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
+    return sanitizeExportFilePrefix(exportDialog.filePrefix)
+  }
+
+  /**
+   * 把任意输入规范化为安全的文件名前缀：替换路径分隔符与非法字符，空值回退为 'icon'。
+   */
+  function sanitizeExportFilePrefix(raw: string) {
+    const normalized = String(raw ?? '').trim().replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
     return normalized || 'icon'
   }
 
@@ -342,6 +354,164 @@ export function createHomeExportDeliveryModule(
     return match[1]
   }
 
+  /** 返回位图格式对应的文件扩展名（含点号）。 */
+  function extForFormat(format: 'png' | 'webp') {
+    return format === 'webp' ? '.webp' : '.png'
+  }
+
+  /**
+   * 规范化文件名并确保以指定扩展名结尾：替换非法字符，已带目标扩展名时不重复追加。
+   */
+  function withExtension(fileName: string, ext: string) {
+    const normalized = String(fileName ?? '').trim().replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
+    const base = normalized || 'icon'
+    return base.toLowerCase().endsWith(ext) ? base : base + ext
+  }
+
+  /**
+   * 校验输出目录必须为绝对路径（盘符、UNC 或 POSIX 根），渲染进程没有 path 模块，
+   * 由调用方保证目录合法性以避免相对路径意外写入工作目录。
+   */
+  function assertAbsoluteOutputDir(outputDir: string) {
+    if (!/^([a-zA-Z]:[\\/]|\\\\|\/)/.test(outputDir)) {
+      throw new Error(`输出目录必须是绝对路径: ${outputDir}`)
+    }
+  }
+
+  /** 拼接输出目录与文件名：去掉目录尾部多余的分隔符后以 / 连接（Windows 文件系统同样接受）。 */
+  function joinOutputPath(outputDir: string, fileName: string) {
+    assertAbsoluteOutputDir(outputDir)
+    return `${outputDir.replace(/[\\/]+$/, '')}/${fileName}`
+  }
+
+  /** 读取系统下载目录，供导出结果回显实际输出位置。 */
+  function getDownloadsDir() {
+    try {
+      return window.ztools?.getPath?.('downloads') || ''
+    } catch {
+      return ''
+    }
+  }
+
+  /** 把 base64 字节转换为 Uint8Array，用于容器格式打包。 */
+  function base64ToUint8Array(base64: string) {
+    const binary = atob(base64)
+    const bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i)
+    }
+    return bytes
+  }
+
+  /** 把 Uint8Array 分块转换为 base64，避免 String.fromCharCode 展开超大栈参数。 */
+  function uint8ArrayToBase64(bytes: Uint8Array) {
+    let binary = ''
+    const chunkSize = 0x8000
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize))
+    }
+    return btoa(binary)
+  }
+
+  /**
+   * 规范化尺寸列表：四舍五入取整、去重升序，并校验落在 1..maxSize 区间内，
+   * 非法值直接抛错（面向程序化调用，静默截断更容易掩盖错误）。
+   */
+  function normalizeExportSizeList(rawSizes: number[], maxSize: number) {
+    const sizes = new Set<number>()
+    for (const raw of rawSizes) {
+      const parsed = Math.round(Number(raw))
+      if (!Number.isFinite(parsed) || parsed < 1 || parsed > maxSize) {
+        throw new Error(`尺寸必须是 1-${maxSize} 的整数: ${raw}`)
+      }
+      sizes.add(parsed)
+    }
+    if (!sizes.size) throw new Error('至少需要一个有效尺寸')
+    return Array.from(sizes).sort((a, b) => a - b)
+  }
+
+  /**
+   * 按预设或自定义尺寸列表批量导出 PNG（始终透明背景由调用方 transparentBackground 决定），
+   * 逐尺寸复用 exportPNG 单文件导出，保证与导出面板一致的命名与落盘行为。
+   * 返回每个尺寸的文件路径（升序）与实际输出目录。
+   */
+  function exportSizeSet(request: ExportSizeSetRequest): ExportSizeSetResult {
+    const presetId = request.preset && request.preset !== 'custom'
+      ? (request.preset as keyof typeof EXPORT_PRESET_SIZES)
+      : undefined
+    if (request.preset && request.preset !== 'custom' && !presetId) {
+      throw new Error(`未知导出预设: ${request.preset}。可用预设: ${Object.keys(EXPORT_PRESET_SIZES).join(', ')}, custom`)
+    }
+    const presetSizes = presetId ? EXPORT_PRESET_SIZES[presetId] : undefined
+    const rawSizes = request.sizes?.length ? request.sizes : presetSizes
+    if (!rawSizes?.length) {
+      throw new Error(`preset=custom 时必须提供 sizes（1-4096 的整数数组）`)
+    }
+    const sizes = normalizeExportSizeList(rawSizes, 4096)
+    const prefix = sanitizeExportFilePrefix(request.fileNamePrefix ?? 'icon')
+    const transparentBackground = request.transparentBackground ?? false
+    const outputDir = request.outputDir ? request.outputDir.replace(/[\\/]+$/, '') : getDownloadsDir()
+
+    const files = sizes.map((size) => {
+      const fileName = `${prefix}-${size}.png`
+      const filePath = exportPNG(size, fileName, transparentBackground, 'png', 0.92, request.outputDir)
+      if (!filePath) throw new Error(`导出 ${size}px PNG 失败`)
+      return { size, filePath }
+    })
+    return { files, outputDir }
+  }
+
+  /**
+   * 渲染各尺寸透明 PNG 并打包为 ICO/ICNS 容器落盘。
+   * ICO 帧尺寸上限 256、ICNS 上限 512；未提供 sizes 时使用该格式的常用默认尺寸集。
+   * 返回写入的文件路径与实际打包的升序尺寸列表。
+   */
+  function exportIconContainer(request: ExportIconContainerRequest): ExportIconContainerResult {
+    if (request.format !== 'ico' && request.format !== 'icns') {
+      throw new Error(`format 必须是 ico 或 icns: ${request.format}`)
+    }
+    const maxSize = request.format === 'ico' ? ICO_MAX_SIZE : ICNS_MAX_SIZE
+    const defaultSizes = request.format === 'ico' ? [16, 24, 32, 48, 64, 128, 256] : [16, 32, 64, 128, 256, 512]
+    const sizes = normalizeExportSizeList(request.sizes?.length ? request.sizes : defaultSizes, maxSize)
+
+    const frames: IconContainerFrame[] = sizes.map((size) => {
+      const dataUrl = renderPNGDataUrl(size, true, 'png')
+      if (!dataUrl) throw new Error(`渲染 ${size}px PNG 失败`)
+      return { size, png: base64ToUint8Array(getBase64PayloadFromDataUrl(dataUrl)) }
+    })
+    const bytes = request.format === 'ico' ? buildIcoFile(frames) : buildIcnsFile(frames)
+    const fileName = withExtension(request.fileName ?? 'icon', request.format === 'ico' ? '.ico' : '.icns')
+    const base64 = uint8ArrayToBase64(bytes)
+    const filePath = request.outputDir
+      ? window.services?.writeBinaryFileToPath?.(base64, joinOutputPath(request.outputDir, fileName)) || ''
+      : window.services?.writeBinaryFile?.(base64, fileName) || ''
+    if (!filePath) throw new Error(`导出 ${request.format.toUpperCase()} 失败`)
+    return { filePath, sizes }
+  }
+
+  /**
+   * 把指定画板临时加载到当前画布执行回调，结束后恢复执行前的完整工程状态
+   * （复用多画板 ZIP 导出的“快照-加载-还原”路径，不产生额外撤销记录）。
+   * 目标画板即当前画板时直接执行；画板 id 不存在时抛错。
+   */
+  async function withArtboardExport<T>(artboardId: string, run: () => T | Promise<T>): Promise<T> {
+    if (!options.exportWorkflow.getFabricCanvas()) throw new Error('画布尚未初始化')
+    const target = options.exportWorkflow.artboards.value.find((artboard) => artboard.id === artboardId)
+    if (!target) {
+      throw new Error(`未找到画板: ${artboardId}`)
+    }
+    if (artboardId === options.exportWorkflow.activeArtboardId.value) {
+      return run()
+    }
+    const originalProject = options.exportWorkflow.createProjectFile()
+    try {
+      await options.exportWorkflow.loadArtboardContent(target)
+      return await run()
+    } finally {
+      await options.exportWorkflow.loadProjectFile(originalProject, { keepDraft: true, resetHistory: false })
+    }
+  }
+
   /**
    * 收集多画板导出的对象列表；导出所有画板时先捕获当前画板，确保 ZIP 使用最新编辑状态。
    */
@@ -450,18 +620,24 @@ export function createHomeExportDeliveryModule(
   }
 
   /**
-   * 导出优化后的 SVG 到下载目录，支持导出面板传入自定义文件名和是否保留画布背景。
+   * 导出优化后的 SVG 到下载目录或指定绝对目录（outputDir，同名覆盖），
+   * 支持导出面板传入自定义文件名和是否保留画布背景。
    */
-  async function exportSVG(fileName?: string, includeBackground = false) {
+  async function exportSVG(fileName?: string, includeBackground = false, outputDir?: string) {
     if (!options.exportWorkflow.getFabricCanvas()) return ''
     options.exportWorkflow.clearBooleanPreview()
-    return window.services?.writeSvgFile?.(await createOptimizedSVG(includeBackground), fileName) || ''
+    const svgText = await createOptimizedSVG(includeBackground)
+    if (outputDir) {
+      return window.services?.writeTextFileToPath?.(svgText, joinOutputPath(outputDir, withExtension(fileName ?? 'icon', '.svg'))) || ''
+    }
+    return window.services?.writeSvgFile?.(svgText, fileName) || ''
   }
 
   /**
-   * 在不改变当前编辑视图的前提下渲染指定宽度的 PNG，并可临时移除背景色实现透明导出。
+   * 在不改变当前编辑视图的前提下渲染指定宽度的位图 dataURL，并可临时移除背景色实现透明导出。
+   * format 支持 png/webp（默认 png，向后兼容），quality 仅对 webp 有损压缩生效（0-1，默认 0.92）。
    */
-  function renderPNGDataUrl(size: number, transparentBackground: boolean) {
+  function renderPNGDataUrl(size: number, transparentBackground: boolean, format: 'png' | 'webp' = 'png', quality = 0.92) {
     const fabricCanvas = options.exportWorkflow.getFabricCanvas()
     if (!fabricCanvas) return ''
     const currentZoom = fabricCanvas.getZoom()
@@ -474,7 +650,7 @@ export function createHomeExportDeliveryModule(
       fabricCanvas.setDimensions({ width: options.exportWorkflow.canvasWidth.value, height: options.exportWorkflow.canvasHeight.value })
       if (transparentBackground) fabricCanvas.backgroundColor = ''
       fabricCanvas.requestRenderAll()
-      return fabricCanvas.toDataURL({ format: 'png', multiplier })
+      return fabricCanvas.toDataURL({ format, multiplier, quality })
     } finally {
       fabricCanvas.backgroundColor = currentBg
       fabricCanvas.setZoom(currentZoom)
@@ -484,14 +660,27 @@ export function createHomeExportDeliveryModule(
   }
 
   /**
-   * 导出单个 PNG 到下载目录，size 表示输出宽度，文件名由导出面板生成。
+   * 导出单个位图文件，size 表示输出宽度；format 决定 PNG/WebP 编码，
+   * 指定 outputDir（绝对目录）时写入该目录（同名覆盖），缺省写入下载目录（自动避让同名文件）。
+   * 返回写入的文件绝对路径，渲染失败返回空字符串。
    */
-  function exportPNG(size = options.exportWorkflow.canvasWidth.value, fileName?: string, transparentBackground = false) {
+  function exportPNG(
+    size = options.exportWorkflow.canvasWidth.value,
+    fileName?: string,
+    transparentBackground = false,
+    format: 'png' | 'webp' = 'png',
+    quality = 0.92,
+    outputDir?: string
+  ) {
     if (!options.exportWorkflow.getFabricCanvas()) return ''
     options.exportWorkflow.clearBooleanPreview()
     const normalizedSize = normalizeExportPngSize(size) ?? options.exportWorkflow.canvasWidth.value
-    const dataUrl = renderPNGDataUrl(normalizedSize, transparentBackground)
-    return dataUrl ? window.services?.writeImageFile?.(dataUrl, fileName) || '' : ''
+    const dataUrl = renderPNGDataUrl(normalizedSize, transparentBackground, format, quality)
+    if (!dataUrl) return ''
+    if (outputDir) {
+      return window.services?.writeImageFileToPath?.(dataUrl, joinOutputPath(outputDir, withExtension(fileName ?? 'icon', extForFormat(format)))) || ''
+    }
+    return window.services?.writeImageFile?.(dataUrl, fileName) || ''
   }
 
   /**
@@ -1010,10 +1199,13 @@ export function createHomeExportDeliveryModule(
         createSelectionCanvas,
         createSelectionSvgText,
         duplicateSelection,
+        exportIconContainer,
         exportPNG,
         exportSVG,
+        exportSizeSet,
         pasteInternalClipboard,
-        renderPNGDataUrl
+        renderPNGDataUrl,
+        withArtboardExport
       },
       state: {
         exportDialog,

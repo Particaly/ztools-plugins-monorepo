@@ -50,10 +50,51 @@ export interface HomeExportDeliveryHelpers {
   /** 生成选中对象的优化 SVG 文本（未选中时回退整画布），不触碰系统剪贴板。 */
   createSelectionSvgText: () => Promise<string>
   duplicateSelection: () => Promise<boolean>
-  exportPNG: (size?: number, fileName?: string, transparentBackground?: boolean) => string
-  exportSVG: (fileName?: string, includeBackground?: boolean) => Promise<string>
+  exportPNG: (size?: number, fileName?: string, transparentBackground?: boolean, format?: 'png' | 'webp', quality?: number, outputDir?: string) => string
+  exportSVG: (fileName?: string, includeBackground?: boolean, outputDir?: string) => Promise<string>
   pasteInternalClipboard: (clipboard?: InternalClipboard | null) => Promise<boolean>
-  renderPNGDataUrl: (size: number, transparentBackground: boolean) => string
+  renderPNGDataUrl: (size: number, transparentBackground: boolean, format?: 'png' | 'webp', quality?: number) => string
+  /** 按预设或自定义尺寸列表批量导出 PNG，返回每个尺寸的文件路径与输出目录。 */
+  exportSizeSet: (request: ExportSizeSetRequest) => ExportSizeSetResult
+  /** 按目标容器格式（ico/icns）渲染各尺寸 PNG 并打包落盘，返回文件路径与实际尺寸列表。 */
+  exportIconContainer: (request: ExportIconContainerRequest) => ExportIconContainerResult
+  /**
+   * 把指定画板临时加载到当前画布执行回调，结束后恢复执行前的完整工程状态；
+   * 画板 id 不存在时抛错，目标画板即当前画板时直接执行不做切换。
+   */
+  withArtboardExport: <T>(artboardId: string, run: () => T | Promise<T>) => Promise<T>
+}
+
+/**
+ * 多尺寸 PNG 批量导出请求：preset 指定内置尺寸集（custom 或省略时必须提供 sizes），
+ * sizes 可覆盖预设尺寸，outputDir 为绝对目录时写入该目录（缺省写入下载目录）。
+ */
+export interface ExportSizeSetRequest {
+  preset?: 'favicon' | 'pwa' | 'android' | 'ios' | 'electron' | 'custom'
+  sizes?: number[]
+  fileNamePrefix?: string
+  transparentBackground?: boolean
+  outputDir?: string
+}
+
+/** 多尺寸 PNG 批量导出结果：files 与 sizes 一一对应（升序），outputDir 为实际输出目录。 */
+export interface ExportSizeSetResult {
+  files: Array<{ size: number; filePath: string }>
+  outputDir: string
+}
+
+/** 图标容器（ico/icns）导出请求：sizes 缺省时使用该格式默认尺寸集，outputDir 语义同多尺寸导出。 */
+export interface ExportIconContainerRequest {
+  format: 'ico' | 'icns'
+  sizes?: number[]
+  fileName?: string
+  outputDir?: string
+}
+
+/** 图标容器导出结果：sizes 为实际打包的升序尺寸列表。 */
+export interface ExportIconContainerResult {
+  filePath: string
+  sizes: number[]
 }
 
 export interface HomeExportDeliveryController {

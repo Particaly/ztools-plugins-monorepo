@@ -1,6 +1,6 @@
 import { ref, shallowRef, triggerRef, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useZtoolsTheme } from 'ztools-ui'
-import { Canvas, Control, FabricObject, Gradient, Textbox, Group, ActiveSelection, FabricImage, Path, Point, Rect, Circle, Triangle, Polygon, Line, StaticCanvas, util, loadSVGFromString } from 'fabric'
+import { Canvas, Control, FabricObject, Gradient, Shadow, Text, Textbox, Group, ActiveSelection, FabricImage, Path, Point, Rect, Circle, Triangle, Polygon, Line, StaticCanvas, util, loadSVGFromString } from 'fabric'
 import { html as beautifyHtml } from 'js-beautify'
 import { basicShapes, textPresets, canvasPresets, shapePreviewPaths, iconTemplates, colorPaletteGroups as defaultColorPaletteGroups, gradientPresets as defaultGradientPresets } from './editorCatalog'
 import type { ShapeLibraryItem, TextLibraryItem, IconTemplateItem } from './editorCatalog'
@@ -38,12 +38,32 @@ import {
   normalizeEndpointSnapMargin,
   normalizeKaleidoscopeCount,
   normalizeRotation3DAngle,
+  syncFillGradientMetadataFromGradient,
+  type FillGradientCoords,
   type AnyFabricObject,
   type FillGradientStop,
   type FillGradientType,
   type FillMode,
   type ShadowEffectItem
 } from './fabric/objectMetadata'
+import {
+  isEmptyDocumentStyleMeta,
+  normalizeDocumentStyleMeta,
+  removeDocumentStylePresetByName,
+  removeDocumentSwatchByName,
+  upsertDocumentStylePreset,
+  upsertDocumentSwatch,
+  type DocumentStyleMeta,
+  type DocumentStylePreset,
+  type DocumentStylePresetStyle,
+  type DocumentSwatch
+} from './documentStyleMeta'
+import {
+  normalizeDocumentCanvasSnapshots,
+  removeDocumentCanvasSnapshotByName,
+  upsertDocumentCanvasSnapshot,
+  type DocumentCanvasSnapshot
+} from './documentSnapshots'
 import { createShape } from './fabric/shapeFactories'
 import { createHomeMcpModule } from './mcp/createHomeMcpModule'
 import {
@@ -339,6 +359,7 @@ export function useHomeEditorRuntime() {
     fillGradientCenterX?: number
     fillGradientCenterY?: number
     fillGradientRadius?: number
+    fillGradientCoords?: FillGradientCoords
     stroke?: any
     strokeWidth?: number
     strokeDashArray?: number[] | null
@@ -630,6 +651,123 @@ export function useHomeEditorRuntime() {
     initialTab: 'colors'
   })
 
+  // ── 文档级样式元数据（命名色板与自定义样式预设）──
+  // 与界面样式面板的“我的颜色”不同，这里的数据随工程文件 meta 字段与撤销快照 editorMeta 持久化，
+  // 主要供 MCP 色板/样式预设操作读写，也可以被后续界面功能复用。
+  const documentStyleMeta = reactive<DocumentStyleMeta>(normalizeDocumentStyleMeta(null))
+
+  /** 读取文档级样式元数据的可序列化深拷贝，供工程导出与撤销快照使用。 */
+  function getDocumentStyleMeta(): DocumentStyleMeta {
+    return {
+      swatches: documentStyleMeta.swatches.map((item) => ({ ...item })),
+      stylePresets: documentStyleMeta.stylePresets.map((item) => ({ name: item.name, style: { ...item.style } }))
+    }
+  }
+
+  /**
+   * 覆盖文档级样式元数据：工程加载传 meta 字段，新建文档传 null 归一化为空结构。
+   * 内部先整体归一化，非法数据自动降级，保证响应式状态始终可用。
+   */
+  function applyDocumentStyleMeta(value: unknown) {
+    const next = normalizeDocumentStyleMeta(value)
+    documentStyleMeta.swatches = next.swatches
+    documentStyleMeta.stylePresets = next.stylePresets
+  }
+
+  /** 从撤销快照 JSON 还原文档级样式元数据；解析失败时静默忽略，避免历史回滚被样式数据阻断。 */
+  function restoreDocumentStyleMetaFromSnapshot(snapshotJson: string) {
+    try {
+      const parsed = JSON.parse(snapshotJson) as { editorMeta?: unknown }
+      applyDocumentStyleMeta(parsed?.editorMeta)
+    } catch {
+      // 快照 JSON 由本模块序列化生成，理论上不会解析失败；兜底忽略保持撤销流程可用。
+    }
+  }
+
+  /** 添加（或按名称覆盖）文档级色板条目，返回更新后的色板副本。 */
+  function addDocumentSwatch(name: string, color: string): DocumentSwatch[] {
+    documentStyleMeta.swatches = upsertDocumentSwatch(documentStyleMeta.swatches, name, color)
+    return documentStyleMeta.swatches.map((item) => ({ ...item }))
+  }
+
+  /** 删除文档级色板条目，返回剩余色板副本。 */
+  function removeDocumentSwatch(name: string): DocumentSwatch[] {
+    documentStyleMeta.swatches = removeDocumentSwatchByName(documentStyleMeta.swatches, name)
+    return documentStyleMeta.swatches.map((item) => ({ ...item }))
+  }
+
+  /** 保存（或按名称覆盖）文档级自定义样式预设，返回更新后的预设副本。 */
+  function saveDocumentStylePreset(name: string, style: DocumentStylePresetStyle): DocumentStylePreset[] {
+    documentStyleMeta.stylePresets = upsertDocumentStylePreset(documentStyleMeta.stylePresets, name, style)
+    return documentStyleMeta.stylePresets.map((item) => ({ name: item.name, style: { ...item.style } }))
+  }
+
+  /** 删除文档级自定义样式预设，返回剩余预设副本。 */
+  function removeDocumentStylePreset(name: string): DocumentStylePreset[] {
+    documentStyleMeta.stylePresets = removeDocumentStylePresetByName(documentStyleMeta.stylePresets, name)
+    return documentStyleMeta.stylePresets.map((item) => ({ name: item.name, style: { ...item.style } }))
+  }
+
+  // ── 文档级命名画布快照 ──
+  // 与色板/预设不同：快照数据量大且只描述画布视觉状态，只随工程 JSON（meta.snapshots）持久化，
+  // 不进入撤销快照（editorMeta），撤销/重做不会回滚快照列表本身。
+  const documentCanvasSnapshots = ref<DocumentCanvasSnapshot[]>([])
+
+  /** 读取文档级命名画布快照列表的浅拷贝（canvasJson 创建后不再被修改，浅拷贝即可隔离外部直接改动）。 */
+  function getDocumentCanvasSnapshots(): DocumentCanvasSnapshot[] {
+    return documentCanvasSnapshots.value.map((item) => ({ ...item }))
+  }
+
+  /**
+   * 覆盖文档级命名画布快照：工程加载传 meta.snapshots，新建文档传 null 归一化为空列表。
+   * 内部整体归一化，非法数据自动降级，保证响应式状态始终可用。
+   */
+  function applyDocumentCanvasSnapshots(value: unknown) {
+    documentCanvasSnapshots.value = normalizeDocumentCanvasSnapshots(value)
+  }
+
+  /** 保存（或按名称覆盖）命名画布快照，返回更新后的快照列表副本。 */
+  function saveDocumentCanvasSnapshot(name: string, canvasJson: Record<string, unknown>): DocumentCanvasSnapshot[] {
+    documentCanvasSnapshots.value = upsertDocumentCanvasSnapshot(documentCanvasSnapshots.value, name, canvasJson)
+    return getDocumentCanvasSnapshots()
+  }
+
+  /** 删除文档级命名画布快照，返回剩余快照列表副本。 */
+  function removeDocumentCanvasSnapshot(name: string): DocumentCanvasSnapshot[] {
+    documentCanvasSnapshots.value = removeDocumentCanvasSnapshotByName(documentCanvasSnapshots.value, name)
+    return getDocumentCanvasSnapshots()
+  }
+
+  /**
+   * 用一份画布序列化 JSON 整体替换当前画布内容（命名快照恢复专用路径）：
+   * 过程挂起自动撤销快照（由调用方决定何时提交撤销记录），加载后重建
+   * 万花筒/渐变/端点贴附等派生状态并同步背景到界面状态。
+   * 结束时恢复进入前的快照挂起状态，避免破坏外层批处理的挂起语义。
+   */
+  async function restoreCanvasContentFromJson(canvasJson: Record<string, unknown>) {
+    const fabric = fabricCanvas
+    if (!fabric) throw new Error('画布尚未初始化')
+    clearBooleanPreview()
+    clearPointEditing()
+    const previousGate = snapshotGate.get()
+    snapshotGate.set(true)
+    try {
+      await fabric.loadFromJSON(canvasJson)
+      await syncAllKaleidoscopes()
+      ensureCanvasObjectMetadata()
+      rehydrateCanvasGradientFills()
+      syncAllEndpointAttachments()
+      fabric.discardActiveObject()
+      syncActiveObject(null)
+      syncCanvasBgFromFabric()
+      fabric.requestRenderAll()
+      refreshLayers()
+      markSmallPreviewsDirty()
+    } finally {
+      snapshotGate.set(previousGate)
+    }
+  }
+
   // Toast 通知状态
   const toast = reactive<{
     message: string
@@ -700,7 +838,12 @@ export function useHomeEditorRuntime() {
     endSpacePan,
     cancelSmallPreviewsRefresh,
     projectInputRef,
-    afterInitialDocumentReady: initializeProjectTabs
+    afterInitialDocumentReady: initializeProjectTabs,
+    getDocumentStyleMeta,
+    applyDocumentStyleMeta,
+    restoreDocumentStyleMetaFromSnapshot,
+    getDocumentSnapshots: getDocumentCanvasSnapshots,
+    applyDocumentSnapshots: applyDocumentCanvasSnapshots
   })
   const {
     artboards,
@@ -2258,10 +2401,13 @@ export function useHomeEditorRuntime() {
     createCanvasSVGPreview,
     createSelectionSvgText,
     duplicateSelection,
+    exportIconContainer,
     exportPNG,
     exportSVG,
+    exportSizeSet,
     pasteInternalClipboard,
-    renderPNGDataUrl
+    renderPNGDataUrl,
+    withArtboardExport
   } = exportDeliveryHelpers
 
   let svgPreviewRequestId = 0
@@ -4595,10 +4741,16 @@ export function useHomeEditorRuntime() {
     return target.fillMode === 'gradient' ? 'gradient' : 'solid'
   }
 
+  /**
+   * 按对象当前的渐变元数据重建 fabric Gradient 填充。
+   * 调用即代表元数据被界面/程序改动过，此时精确坐标快照不再可信，先清除再按角度/中心/半径重建；
+   * MCP 生成的精确坐标渐变不经过此函数，因此快照得以保留并在保存/撤销后精确还原。
+   */
   function applyGradientFillToTarget(target: FabricObject | null | undefined) {
     const typedTarget = getGradientTarget(target)
     if (!typedTarget) return false
     applyDefaultFillGradientMetadata(typedTarget)
+    typedTarget.fillGradientCoords = undefined
     if (typedTarget.fillMode === 'gradient') {
       const gradient = createGradientFromMetadata(typedTarget)
       typedTarget.set('fill', gradient)
@@ -4887,16 +5039,28 @@ export function useHomeEditorRuntime() {
     const obj = activeObject.value
     if (!obj || !fabricCanvas) return
     if (prop === 'fill') {
+      // 渐变实例分支：MCP/程序化设置渐变时保留精确坐标元数据，界面面板通过近似角度/中心/半径展示。
+      const gradientValue = value instanceof Gradient ? value : null
       getStyleTargets(obj).forEach((target) => {
         const typedTarget = target as AnyFabricObject
-        typedTarget.fillMode = 'solid'
-        typedTarget.lastFill = value
-        target.set('fill', value)
+        if (gradientValue) {
+          typedTarget.fillMode = 'gradient'
+          const stopColor = gradientValue.colorStops?.[0]?.color
+          typedTarget.lastFill = typeof stopColor === 'string' && stopColor.trim()
+            ? stopColor
+            : (typeof typedTarget.lastFill === 'string' ? typedTarget.lastFill : '#000000')
+          target.set('fill', gradientValue)
+          syncFillGradientMetadataFromGradient(typedTarget, gradientValue)
+        } else {
+          typedTarget.fillMode = 'solid'
+          typedTarget.lastFill = value
+          target.set('fill', value)
+        }
         target.dirty = true
         target.setCoords()
       })
       objProps.fillEnabled = true
-      objProps.fillMode = 'solid'
+      objProps.fillMode = gradientValue ? 'gradient' : 'solid'
     } else if (prop === 'stroke') {
       getStyleTargets(obj).forEach((target) => {
         ;(target as AnyFabricObject).lastStroke = value
@@ -4917,6 +5081,27 @@ export function useHomeEditorRuntime() {
       })
       objProps.strokeEnabled = Number(value) > 0
       objProps.strokeWidthInput = formatNumericInputValue(Number(value) || 0)
+    } else if (prop === 'shadow') {
+      // 阴影分支：接受 fabric Shadow 实例或普通对象（fabric 会自动包装），null/undefined 清除阴影；
+      // 同步 shadowEffects 元数据保证属性面板与序列化状态一致。
+      const shadowValue = value && typeof value === 'object' && !(value instanceof Shadow)
+        ? new Shadow(value as Record<string, unknown>)
+        : (value instanceof Shadow ? value : null)
+      obj.set('shadow', shadowValue)
+      const shadowMetadata = getShadowEffectsMetadata(obj)
+      if (shadowMetadata) {
+        const current = obj.shadow
+        shadowMetadata.shadowEffects = current
+          ? [{
+              ...createDefaultShadowEffect(),
+              offsetX: Number(current.offsetX ?? 0),
+              offsetY: Number(current.offsetY ?? 0),
+              blur: Math.max(0, Number(current.blur ?? 0)),
+              spread: 0,
+              color: typeof current.color === 'string' && current.color.trim() ? current.color : 'rgba(0, 0, 0, 0.25)'
+            }]
+          : []
+      }
     } else if (prop === 'rotateX' || prop === 'rotateY') {
       const parsed = Number(value)
       if (!Number.isFinite(parsed)) return
@@ -4951,6 +5136,15 @@ export function useHomeEditorRuntime() {
       objProps.angle = normalized
       objProps.angleInput = formatNumericInputValue(normalized)
       applyRotation3DTransformToObject(obj)
+    } else if (prop === 'cornerRadius') {
+      // 圆角需要按当前本体几何重建 path，直接 set 属性只会改数值不会重算圆角。
+      const parsed = Number(value)
+      const radius = Number.isFinite(parsed) ? Math.max(0, parsed) : 0
+      if (isEditablePathObject(obj)) {
+        setObjectCornerRadius(obj, radius)
+      } else {
+        obj.set('cornerRadius', radius)
+      }
     } else {
       obj.set(prop as any, value)
     }
@@ -4963,7 +5157,7 @@ export function useHomeEditorRuntime() {
     obj.dirty = true
     obj.setCoords()
     syncEndpointsForChangedObject(obj)
-    if (prop === 'fill' || prop === 'stroke' || prop === 'strokeWidth' || prop === 'opacity') {
+    if (prop === 'fill' || prop === 'stroke' || prop === 'strokeWidth' || prop === 'opacity' || prop === 'cornerRadius' || prop === 'shadow') {
       triggerKaleidoscopeContentSync(obj)
     } else {
       triggerKaleidoscopeTransformSync(obj)
@@ -5791,6 +5985,7 @@ export function useHomeEditorRuntime() {
       fillGradientCenterX: metadata?.fillGradientCenterX,
       fillGradientCenterY: metadata?.fillGradientCenterY,
       fillGradientRadius: metadata?.fillGradientRadius,
+      fillGradientCoords: metadata?.fillGradientCoords ? { ...metadata.fillGradientCoords } : undefined,
       stroke: first.stroke,
       strokeWidth: first.strokeWidth,
       strokeDashArray: first.strokeDashArray ? [...first.strokeDashArray] : null,
@@ -5826,6 +6021,8 @@ export function useHomeEditorRuntime() {
         if (style.fillGradientCenterX !== undefined) metadata.fillGradientCenterX = style.fillGradientCenterX
         if (style.fillGradientCenterY !== undefined) metadata.fillGradientCenterY = style.fillGradientCenterY
         if (style.fillGradientRadius !== undefined) metadata.fillGradientRadius = style.fillGradientRadius
+        // 精确坐标快照随复制样式一起粘贴；源样式没有时清空，避免旧坐标覆盖新元数据。
+        metadata.fillGradientCoords = style.fillGradientCoords ? { ...style.fillGradientCoords } : undefined
 
         // 如果是渐变模式，重建渐变对象
         if (style.fillMode === 'gradient') {
@@ -6190,73 +6387,116 @@ export function useHomeEditorRuntime() {
     syncObjProps()
   }
 
-  // 以当前选区包围盒为参考执行多对象对齐，支持左右 / 水平居中 / 上下 / 垂直居中六个方向并保持操作可撤销。
-  function alignSelection(axis: SelectionAlignAxis) {
-    if (!fabricCanvas) return
-    const targets = getSelectedLayoutTargets()
-    if (targets.length < 2) return
+  /**
+   * 以对象集合的公共包围盒为基准执行对齐，支持左/水平居中/右与顶/垂直居中/底六个方向。
+   * 位置计算基于场景坐标包围盒（旋转对象按其包围盒参与），通过 delta 平移保持对象自身 left/top 语义，
+   * 编组对象作为整体参与。至少需要 2 个可排版对象，否则不做任何处理。
+   * 供选区对齐按钮与 MCP 程序化对齐共用；实际移动并产生历史快照时返回 true。
+   */
+  function alignObjectsLayout(objects: FabricObject[], mode: SelectionAlignAxis): boolean {
+    if (!fabricCanvas) return false
+    const targets = objects.filter((obj) => !isBooleanPreviewObject(obj) && !isKaleidoscopeInstance(obj))
+    if (targets.length < 2) return false
     const items = targets
       .map(getObjectLayoutBounds)
       .filter((item): item is ObjectLayoutBounds => !!item)
     const selectionBounds = getLayoutSelectionBounds(items)
-    if (!selectionBounds) return
+    if (!selectionBounds) return false
 
     clearBooleanPreview()
     let moved = false
     items.forEach((item) => {
       let dx = 0
       let dy = 0
-      if (axis === 'left') dx = selectionBounds.left - item.left
-      else if (axis === 'center') dx = selectionBounds.left + selectionBounds.width / 2 - item.centerX
-      else if (axis === 'right') dx = selectionBounds.right - item.right
-      else if (axis === 'top') dy = selectionBounds.top - item.top
-      else if (axis === 'middle') dy = selectionBounds.top + selectionBounds.height / 2 - item.centerY
-      else if (axis === 'bottom') dy = selectionBounds.bottom - item.bottom
+      if (mode === 'left') dx = selectionBounds.left - item.left
+      else if (mode === 'center') dx = selectionBounds.left + selectionBounds.width / 2 - item.centerX
+      else if (mode === 'right') dx = selectionBounds.right - item.right
+      else if (mode === 'top') dy = selectionBounds.top - item.top
+      else if (mode === 'middle') dy = selectionBounds.top + selectionBounds.height / 2 - item.centerY
+      else if (mode === 'bottom') dy = selectionBounds.bottom - item.bottom
       moved = moveObjectBySceneDelta(item.object, dx, dy) || moved
     })
-    if (!moved) return
+    if (!moved) return false
     finalizeSelectionLayoutTransform(targets)
+    return true
+  }
+
+  // 以当前选区包围盒为参考执行多对象对齐，支持左右 / 水平居中 / 上下 / 垂直居中六个方向并保持操作可撤销。
+  function alignSelection(axis: SelectionAlignAxis) {
+    alignObjectsLayout(getSelectedLayoutTargets(), axis)
+  }
+
+  /**
+   * 在首尾对象之间等间距分布对象集合，首尾对象位置保持不变。
+   * axis 为 'x'（水平）或 'y'（垂直）；mode 取 'edge'（对象边缘间距相等）或
+   * 'center'（对象中心间距相等，尺寸一致时两者等价）。对象按分布轴坐标排序后参与计算，
+   * 不足 2 个可排版对象时不做处理；实际移动并产生历史快照时返回 true。
+   */
+  function distributeObjectsLayout(objects: FabricObject[], axis: 'x' | 'y', mode: 'edge' | 'center' = 'center'): boolean {
+    if (!fabricCanvas) return false
+    const targets = objects.filter((obj) => !isBooleanPreviewObject(obj) && !isKaleidoscopeInstance(obj))
+    if (targets.length < 2) return false
+    const items = targets
+      .map(getObjectLayoutBounds)
+      .filter((item): item is ObjectLayoutBounds => !!item)
+    if (items.length < 2) return false
+
+    clearBooleanPreview()
+    const horizontal = axis === 'x'
+    const sorted = [...items].sort((a, b) => mode === 'center'
+      ? (horizontal ? a.centerX - b.centerX : a.centerY - b.centerY)
+      : (horizontal
+        ? (a.left === b.left ? a.centerX - b.centerX : a.left - b.left)
+        : (a.top === b.top ? a.centerY - b.centerY : a.top - b.top))
+    )
+
+    let moved = false
+    if (mode === 'center') {
+      // 中心等距：以首尾对象的中心为锚点，中间对象的中心均匀分布在两锚点之间。
+      const startCenter = horizontal ? sorted[0].centerX : sorted[0].centerY
+      const endCenter = horizontal
+        ? sorted[sorted.length - 1].centerX
+        : sorted[sorted.length - 1].centerY
+      for (let index = 1; index < sorted.length - 1; index++) {
+        const item = sorted[index]
+        const currentCenter = horizontal ? item.centerX : item.centerY
+        const targetCenter = startCenter + ((endCenter - startCenter) * index) / (sorted.length - 1)
+        const delta = targetCenter - currentCenter
+        moved = (horizontal
+          ? moveObjectBySceneDelta(item.object, delta, 0)
+          : moveObjectBySceneDelta(item.object, 0, delta)) || moved
+      }
+    } else {
+      // 边缘等距：相邻对象包围盒之间的空隙相等，游标从首个对象右/下边缘依次推进。
+      const totalSize = sorted.reduce((sum, item) => sum + (horizontal ? item.width : item.height), 0)
+      const start = horizontal ? sorted[0].left : sorted[0].top
+      const end = horizontal ? sorted[sorted.length - 1].right : sorted[sorted.length - 1].bottom
+      const gap = (end - start - totalSize) / (sorted.length - 1)
+      if (!Number.isFinite(gap)) return false
+      let cursor = start
+      sorted.forEach((item, index) => {
+        if (index === 0) {
+          cursor = (horizontal ? item.right : item.bottom) + gap
+          return
+        }
+        if (index === sorted.length - 1) return
+        if (horizontal) {
+          moved = moveObjectBySceneDelta(item.object, cursor - item.left, 0) || moved
+          cursor += item.width + gap
+        } else {
+          moved = moveObjectBySceneDelta(item.object, 0, cursor - item.top) || moved
+          cursor += item.height + gap
+        }
+      })
+    }
+    if (!moved) return false
+    finalizeSelectionLayoutTransform(targets)
+    return true
   }
 
   // 在选区首尾对象之间按对象包围盒间距做等距分布，首尾位置保持不变，便于稳定整理图标元素阵列。
   function distributeSelection(axis: SelectionDistributeAxis) {
-    if (!fabricCanvas) return
-    const targets = getSelectedLayoutTargets()
-    if (targets.length < 3) return
-    const items = targets
-      .map(getObjectLayoutBounds)
-      .filter((item): item is ObjectLayoutBounds => !!item)
-    if (items.length < 3) return
-
-    clearBooleanPreview()
-    const sorted = [...items].sort((a, b) => axis === 'horizontal'
-      ? (a.left === b.left ? a.centerX - b.centerX : a.left - b.left)
-      : (a.top === b.top ? a.centerY - b.centerY : a.top - b.top)
-    )
-    const totalSize = sorted.reduce((sum, item) => sum + (axis === 'horizontal' ? item.width : item.height), 0)
-    const start = axis === 'horizontal' ? sorted[0].left : sorted[0].top
-    const end = axis === 'horizontal' ? sorted[sorted.length - 1].right : sorted[sorted.length - 1].bottom
-    const gap = (end - start - totalSize) / (sorted.length - 1)
-    if (!Number.isFinite(gap)) return
-
-    let moved = false
-    let cursor = start
-    sorted.forEach((item, index) => {
-      if (index === 0) {
-        cursor = (axis === 'horizontal' ? item.right : item.bottom) + gap
-        return
-      }
-      if (index === sorted.length - 1) return
-      if (axis === 'horizontal') {
-        moved = moveObjectBySceneDelta(item.object, cursor - item.left, 0) || moved
-        cursor += item.width + gap
-      } else {
-        moved = moveObjectBySceneDelta(item.object, 0, cursor - item.top) || moved
-        cursor += item.height + gap
-      }
-    })
-    if (!moved) return
-    finalizeSelectionLayoutTransform(targets)
+    distributeObjectsLayout(getSelectedLayoutTargets(), axis === 'horizontal' ? 'x' : 'y', 'edge')
   }
 
   // ── 画布尺寸 ──
@@ -6434,11 +6674,17 @@ export function useHomeEditorRuntime() {
 
   /**
    * 添加基础图形；拖拽插入时优先把图形中心放到落点，普通点击则保持原有画布中心插入行为。
+   * @param size 可选目标尺寸；传入时形状直接以该尺寸生成本体几何（scale 保持 1），
+   *   缺省维度沿用目录默认尺寸，不指定时与原有默认尺寸插入行为完全一致。
    */
-  function addShape(item: ShapeLibraryItem, scenePoint: { x: number; y: number } | null = null) {
+  function addShape(
+    item: ShapeLibraryItem,
+    scenePoint: { x: number; y: number } | null = null,
+    size?: { width?: number; height?: number }
+  ) {
     if (penToolActive.value) penCommands.deactivate(true)
     if (!fabricCanvas) return
-    const shape = createShape(item)
+    const shape = createShape(item, size)
     markObjectSizeRatioLocked(shape)
     const left = scenePoint?.x ?? canvasWidth.value / 2
     const top = scenePoint?.y ?? canvasHeight.value / 2
@@ -6625,24 +6871,27 @@ export function useHomeEditorRuntime() {
     obj.setCoords()
   }
 
-  // 将导入 SVG 放到画布中心，超出画布时按比例缩小以便用户导入后能立即看到和操作。
-  function placeImportedSVGObject(obj: FabricObject) {
+  // 将导入 SVG 放到画布中心；fitToCanvas 为 true 时超出画布会按比例缩小以便立即看到和操作，
+  // 为 false 时保持原始尺寸 1:1 导入（是否越界由调用方决定如何提示），两者都会做居中摆放。
+  function placeImportedSVGObject(obj: FabricObject, fitToCanvas = true) {
     obj.setCoords()
     let bounds = obj.getBoundingRect()
-    const maxWidth = canvasWidth.value * 0.82
-    const maxHeight = canvasHeight.value * 0.82
-    const scaleRatio = Math.min(
-      1,
-      bounds.width > 0 ? maxWidth / bounds.width : 1,
-      bounds.height > 0 ? maxHeight / bounds.height : 1
-    )
-    if (Number.isFinite(scaleRatio) && scaleRatio > 0 && scaleRatio < 1) {
-      obj.set({
-        scaleX: (obj.scaleX || 1) * scaleRatio,
-        scaleY: (obj.scaleY || 1) * scaleRatio
-      })
-      obj.setCoords()
-      bounds = obj.getBoundingRect()
+    if (fitToCanvas) {
+      const maxWidth = canvasWidth.value * 0.82
+      const maxHeight = canvasHeight.value * 0.82
+      const scaleRatio = Math.min(
+        1,
+        bounds.width > 0 ? maxWidth / bounds.width : 1,
+        bounds.height > 0 ? maxHeight / bounds.height : 1
+      )
+      if (Number.isFinite(scaleRatio) && scaleRatio > 0 && scaleRatio < 1) {
+        obj.set({
+          scaleX: (obj.scaleX || 1) * scaleRatio,
+          scaleY: (obj.scaleY || 1) * scaleRatio
+        })
+        obj.setCoords()
+        bounds = obj.getBoundingRect()
+      }
     }
     const dx = canvasWidth.value / 2 - (bounds.left + bounds.width / 2)
     const dy = canvasHeight.value / 2 - (bounds.top + bounds.height / 2)
@@ -6653,8 +6902,12 @@ export function useHomeEditorRuntime() {
     obj.setCoords()
   }
 
+  // SVG 导入的附加行为：fitToCanvas 控制是否按画布适配缩小，scale 为显式缩放倍数（默认 1）。
+  type SVGImportOptions = { fitToCanvas?: boolean; scale?: number }
+
   // 使用 Fabric 的 SVG 解析能力把完整 SVG 文本转换成一个可编辑对象，并加入当前画布。
-  async function importSVGText(svgText: string, displayName: string) {
+  // 默认保持“超出画布时适配缩小”的导入行为；传 fitToCanvas: false 可 1:1 导入原始尺寸。
+  async function importSVGText(svgText: string, displayName: string, importOptions: SVGImportOptions = {}) {
     if (!fabricCanvas) return
     clearBooleanPreview()
     clearPointEditing()
@@ -6666,7 +6919,14 @@ export function useHomeEditorRuntime() {
     if (!svgObjects.length) throw new Error('SVG 中没有可导入的图形')
     const imported = util.groupSVGElements(svgObjects, options) as FabricObject
     prepareImportedSVGObjectMetadata(imported, displayName)
-    placeImportedSVGObject(imported)
+    // 显式缩放在居中摆放前应用，保证缩放后的包围盒参与居中计算。
+    if (Number.isFinite(importOptions.scale) && (importOptions.scale ?? 1) > 0 && importOptions.scale !== 1) {
+      imported.set({
+        scaleX: (imported.scaleX || 1) * (importOptions.scale as number),
+        scaleY: (imported.scaleY || 1) * (importOptions.scale as number)
+      })
+    }
+    placeImportedSVGObject(imported, importOptions.fitToCanvas !== false)
     fabricCanvas.add(imported as AnyFabricObject)
     refreshLayers()
     fabricCanvas.setActiveObject(imported)
@@ -6998,39 +7258,84 @@ export function useHomeEditorRuntime() {
     snapshot()
   }
 
-  async function runBooleanOperation(operation: BooleanOperation, subtractDirection: SubtractDirection = 'forward') {
-    if (!fabricCanvas || booleanBusy.value) return
+  /**
+   * 设置对象图层名，并同步图层面板与属性面板的显示（图层面板重命名弹窗与 MCP 命名共用该语义）。
+   * name 去除首尾空白后为空、或与当前名称一致时不做任何变更并返回 false；
+   * 实际写入时产生一条撤销快照并返回 true。
+   */
+  function setObjectName(object: FabricObject, name: string): boolean {
+    if (!fabricCanvas) return false
+    const trimmed = name.trim()
+    if (!trimmed) return false
+    const typed = object as AnyFabricObject
+    const currentName = String(typed.name ?? '')
+    if (currentName === trimmed) return false
+    typed.name = trimmed
+    refreshLayers()
+    refreshActiveObject()
+    fabricCanvas.requestRenderAll()
+    snapshot()
+    return true
+  }
+
+  /**
+   * 对给定对象集合执行布尔运算的核心实现：过滤不可直接参与的对象（万花筒实例、
+   * 布尔预览对象），运算成功后选中结果对象并产生一条撤销快照。
+   * 界面布尔按钮与 MCP 程序化调用共用；返回结果对象或带中文说明的错误。
+   */
+  async function runBooleanOperationOnObjects(
+    objects: FabricObject[],
+    operation: BooleanOperation,
+    subtractDirection: SubtractDirection = 'forward'
+  ): Promise<{ result?: FabricObject; error?: string }> {
+    if (!fabricCanvas) return { error: '画布尚未初始化' }
     clearBooleanPreview()
     clearPointEditing()
-    subtractPopoverVisible.value = false
-    const objects = fabricCanvas.getActiveObjects()
-    if (objects.length < 2) {
-      booleanError.value = '请至少选择 2 个对象'
-      return
+    if (objects.length < 2) return { error: '请至少选择 2 个对象' }
+
+    const canvasObjects = fabricCanvas.getObjects()
+    const targets = objects
+      .filter((obj) => canvasObjects.includes(obj) && !isBooleanPreviewObject(obj) && !isKaleidoscopeInstance(obj))
+    if (targets.length < 2) {
+      return { error: '可参与布尔运算的对象不足 2 个（万花筒实例与布尔预览对象不参与运算）' }
     }
 
-    booleanBusy.value = true
-    booleanError.value = ''
     skipSnapshot = true
     try {
       const { result, error } = await applyBooleanOperation({
         canvas: fabricCanvas,
         operation,
-        objects,
+        objects: targets,
         makeName: nextName,
         subtractDirection
       })
       if (error || !result) {
-        booleanError.value = error || '布尔运算失败'
-        return
+        return { error: error || '布尔运算失败' }
       }
       syncActiveObject(result)
       refreshLayers()
+      return { result }
     } finally {
       skipSnapshot = false
+    }
+  }
+
+  async function runBooleanOperation(operation: BooleanOperation, subtractDirection: SubtractDirection = 'forward') {
+    if (!fabricCanvas || booleanBusy.value) return
+    subtractPopoverVisible.value = false
+    booleanBusy.value = true
+    booleanError.value = ''
+    try {
+      const objects = fabricCanvas.getActiveObjects()
+      const { result, error } = await runBooleanOperationOnObjects(objects, operation, subtractDirection)
+      if (error || !result) {
+        booleanError.value = error || '布尔运算失败'
+        return
+      }
+      snapshot()
+    } finally {
       booleanBusy.value = false
     }
-    snapshot()
   }
 
   // 生成描边轮廓对象使用的填充样式：用原描边色填充轮廓，并关闭新对象自身描边。
@@ -7321,6 +7626,41 @@ export function useHomeEditorRuntime() {
     refreshLayers()
     fabricCanvas.requestRenderAll()
     snapshot()
+  }
+
+  /**
+   * 把单个文本对象转曲为可编辑路径（MCP outline_text 的运行时入口）。
+   * 校验目标必须是文本对象（Text/Textbox/IText），转换期间抑制自动快照，
+   * 完成后选中新的路径对象并提交一条"文字转曲"撤销记录，返回新对象 id。
+   * 转曲结果由现有位图追踪 + PathKit 重建链路生成 EditablePathObject，
+   * 字形固化为路径数据，不再依赖系统字体。
+   */
+  async function outlineTextToPath(target: FabricObject): Promise<string> {
+    if (!fabricCanvas) throw new Error('画布尚未初始化')
+    if (!(target instanceof Text)) {
+      throw new Error(`仅文本对象支持转曲，当前对象类型为: ${target.type ?? 'unknown'}`)
+    }
+    if (textOutlineBusy.value) throw new Error('文字转曲正在执行中，请稍后重试')
+    textOutlineBusy.value = true
+    const previousSkipSnapshot = skipSnapshot
+    let outline: FabricObject
+    try {
+      // 转换内部会移除并重新插入对象（触发 object:added/removed 自动快照），抑制为一条记录。
+      skipSnapshot = true
+      try {
+        outline = await convertTextObjectToOutline(target as Textbox)
+      } finally {
+        skipSnapshot = previousSkipSnapshot
+      }
+    } finally {
+      textOutlineBusy.value = false
+    }
+    setSelectionMode('shape')
+    applyActiveObjectsSelection([outline])
+    refreshLayers()
+    fabricCanvas.requestRenderAll()
+    snapshot({ description: '文字转曲' })
+    return ensureEditorObjectId(outline)
   }
 
   // 将图片转矢量阈值限制在 0-255，避免无效输入导致黑白追踪结果全空或全满。
@@ -8119,11 +8459,35 @@ export function useHomeEditorRuntime() {
       setObjectsVisible: layersCommands.setObjectsVisible,
       setObjectsLocked: layersCommands.setObjectsLocked,
 
+      alignObjectsLayout,
+      distributeObjectsLayout,
+      setObjectName,
+
+      // 文档级样式元数据（命名色板与自定义样式预设），随工程与撤销快照持久化
+      getDocumentSwatches: () => getDocumentStyleMeta().swatches,
+      addDocumentSwatch,
+      removeDocumentSwatch,
+      getDocumentStylePresets: () => getDocumentStyleMeta().stylePresets,
+      saveDocumentStylePreset,
+      removeDocumentStylePreset,
+
+      // 文档级命名画布快照（画布视觉状态备份），随工程 JSON 保存、不进入撤销历史
+      getDocumentCanvasSnapshots,
+      saveDocumentCanvasSnapshot,
+      removeDocumentCanvasSnapshot,
+      serializeCanvasJson: serializeFabricCanvas,
+      restoreCanvasContentFromJson,
+      scheduleDraftSave,
+
+      outlineText: outlineTextToPath,
+
       undo,
       redo,
       jumpToHistory,
       undoStack: () => undoStack,
       historyIndex: () => historyIndex.value,
+      withSnapshotSuppressed,
+      snapshot: (options?: { description?: string }) => snapshot(options),
 
       newDoc,
       saveActiveProjectTab,
@@ -8147,12 +8511,35 @@ export function useHomeEditorRuntime() {
 
       exportSvgText: (includeBackground = false) => createCanvasSVGPreview(includeBackground),
       exportSvgSelection: () => createSelectionSvgText(),
-      exportPngDataUrl: (size?: number, transparentBackground?: boolean) =>
-        renderPNGDataUrl(size ?? canvasWidth.value, transparentBackground ?? false),
-      exportSvgFile: (fileName?: string, includeBackground?: boolean) =>
-        exportSVG(fileName, includeBackground ?? false),
-      exportPngFile: (size?: number, fileName?: string, transparentBackground?: boolean) =>
-        exportPNG(size, fileName, transparentBackground),
+      exportPngDataUrl: (options?: { size?: number; transparentBackground?: boolean; format?: 'png' | 'webp'; quality?: number }) =>
+        renderPNGDataUrl(
+          options?.size ?? canvasWidth.value,
+          options?.transparentBackground ?? false,
+          options?.format ?? 'png',
+          options?.quality ?? 0.92
+        ),
+      exportSvgFile: (options?: { fileName?: string; includeBackground?: boolean; outputDir?: string }) =>
+        exportSVG(options?.fileName, options?.includeBackground ?? false, options?.outputDir),
+      exportPngFile: (options?: {
+        size?: number
+        fileName?: string
+        transparentBackground?: boolean
+        format?: 'png' | 'webp'
+        quality?: number
+        outputDir?: string
+      }) =>
+        exportPNG(
+          options?.size,
+          options?.fileName,
+          options?.transparentBackground ?? false,
+          options?.format ?? 'png',
+          options?.quality ?? 0.92,
+          options?.outputDir
+        ),
+      exportSizeSet,
+      exportIconContainer,
+      withArtboardExport,
+      runBooleanOperationOnObjects,
 
       showToast
     }

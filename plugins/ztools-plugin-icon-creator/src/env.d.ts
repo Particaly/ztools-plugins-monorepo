@@ -15,6 +15,12 @@ interface Services {
   writeSvgFile: (svgText: string, fileName?: string) => string
   writeImageFile: (base64Url: string, fileName?: string) => string | undefined
   writeZipFile: (zipBlob: Blob, fileName?: string) => Promise<string>
+  /** 图片写入到指定绝对路径（父目录自动创建，同名覆盖），文件名由调用方保证合法。 */
+  writeImageFileToPath: (base64Url: string, filePath: string) => string | undefined
+  /** 二进制（base64 编码）写入到下载目录，扩展名以传入文件名为准。 */
+  writeBinaryFile: (base64: string, fileName?: string) => string
+  /** 二进制（base64 编码）写入到指定绝对路径，父目录自动创建，同名覆盖。 */
+  writeBinaryFileToPath: (base64: string, filePath: string) => string
 }
 
 // 插件工具处理器注册结果，由 ZTools 宿主在 MCP 工具被调用时回调执行。

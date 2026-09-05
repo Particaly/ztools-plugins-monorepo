@@ -65,5 +65,26 @@ window.services = {
     const arrayBuffer = await zipBlob.arrayBuffer()
     fs.writeFileSync(filePath, Buffer.from(arrayBuffer))
     return filePath
+  },
+  // 图片写入到指定绝对路径（父目录自动创建，同名文件覆盖），文件名/扩展名由调用方保证。
+  writeImageFileToPath(base64Url, filePath) {
+    const matchs = /^data:image\/([a-z0-9.+-]{1,20});base64,/i.exec(base64Url)
+    if (!matchs) return
+    fs.mkdirSync(path.dirname(filePath), { recursive: true })
+    fs.writeFileSync(filePath, base64Url.substring(matchs[0].length), { encoding: 'base64' })
+    return filePath
+  },
+  // 二进制内容写入到下载目录（base64 编码），用于 ICO/ICNS 等自定义容器格式导出，扩展名以传入文件名为准。
+  writeBinaryFile(base64, fileName) {
+    const safeFileName = sanitizeDownloadFileName(fileName, Date.now().toString() + '.bin')
+    const filePath = createUniqueDownloadPath(safeFileName)
+    fs.writeFileSync(filePath, Buffer.from(base64, 'base64'))
+    return filePath
+  },
+  // 二进制内容写入到指定绝对路径（父目录自动创建，同名文件覆盖）。
+  writeBinaryFileToPath(base64, filePath) {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true })
+    fs.writeFileSync(filePath, Buffer.from(base64, 'base64'))
+    return filePath
   }
 }

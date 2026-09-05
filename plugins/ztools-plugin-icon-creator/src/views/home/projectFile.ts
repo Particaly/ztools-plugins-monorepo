@@ -1,5 +1,7 @@
 import { DEFAULT_KEYLINE_MARGIN, DEFAULT_KEYLINE_OPACITY, DEFAULT_PIXEL_GRID_SIZE, PROJECT_SCHEMA_VERSION } from './constants'
 import { normalizeCanvasBg, normalizeKeylineMargin, normalizeKeylineOpacity, normalizeKeylineTemplate, normalizePixelGridSize } from './canvasSettings'
+import { isEmptyDocumentStyleMeta, normalizeDocumentStyleMeta } from './documentStyleMeta'
+import { normalizeDocumentCanvasSnapshots } from './documentSnapshots'
 import type { IconCreatorDraftFile, IconCreatorProjectArtboard, IconCreatorProjectCanvas, IconCreatorProjectFile, ParsedProjectFileResult } from './types'
 
 // 读取工程画布与辅助设置，过滤无效值，避免损坏文件把画布或网格恢复成不可用状态。
@@ -40,6 +42,15 @@ export function parseProjectFileText(text: string): ParsedProjectFileResult {
     throw new Error('工程文件版本不兼容')
   }
   if (!project.fabric || typeof project.fabric !== 'object') throw new Error('工程文件缺少画布对象数据')
+  // 文档级元数据整体归一化：色板/预设（随撤销通道）与命名画布快照（仅随工程 JSON）分别校验；
+  // 旧工程无 meta 字段时保持缺省，不改变文件结构。
+  const rawMeta = (project as { meta?: unknown }).meta
+  const styleMeta = normalizeDocumentStyleMeta(rawMeta)
+  const canvasSnapshots = normalizeDocumentCanvasSnapshots(
+    rawMeta && typeof rawMeta === 'object' && !Array.isArray(rawMeta)
+      ? (rawMeta as { snapshots?: unknown }).snapshots
+      : undefined
+  )
   const artboards = Array.isArray(project.artboards)
     ? project.artboards
       .filter((artboard): artboard is IconCreatorProjectArtboard => !!artboard && typeof artboard === 'object' && !!artboard.fabric && typeof artboard.fabric === 'object')
@@ -62,7 +73,10 @@ export function parseProjectFileText(text: string): ParsedProjectFileResult {
       fabric: project.fabric as Record<string, unknown>,
       layerOrder: Array.isArray(project.layerOrder) ? project.layerOrder.filter((id): id is string => typeof id === 'string') : [],
       ...(artboards?.length ? { artboards } : {}),
-      activeArtboardId: typeof project.activeArtboardId === 'string' ? project.activeArtboardId : undefined
+      activeArtboardId: typeof project.activeArtboardId === 'string' ? project.activeArtboardId : undefined,
+      ...(isEmptyDocumentStyleMeta(styleMeta) && !canvasSnapshots.length
+        ? {}
+        : { meta: { ...styleMeta, ...(canvasSnapshots.length ? { snapshots: canvasSnapshots } : {}) } })
     },
     source: maybeDraft.project ? 'draft' : 'project'
   }

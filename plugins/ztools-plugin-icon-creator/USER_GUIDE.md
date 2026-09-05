@@ -191,3 +191,31 @@ A: 使用属性面板的对齐按钮，或在属性面板直接输入相同的�
 ## 反馈与建议
 
 如有问题或建议，欢迎提交 Issue 或 Pull Request。
+
+## AI / MCP 集成
+
+本插件通过 `command_dispatcher` 工具向 MCP 客户端（如 ZCode）暴露画布操作，AI 可以在对话中直接驱动编辑器完成「查询 → 绘制 → 调整 → 导出」全流程。所有操作直接作用于当前打开的编辑器窗口，操作契约遵循「只增不改」原则。
+
+### 能力总览
+
+- **查询**：画布概览、对象列表、选区、画板、历史、色板、快照
+- **创建**：基础图形（支持按目标尺寸生成）、文本、SVG 导入（1:1）、Iconify 图标、模板、批量创建并编组
+- **编辑**：属性设置（含渐变/阴影/圆角重建）、批量属性（一条撤销）、图层管理、语义命名、对齐分布、布尔运算、蒙版裁切、文字转曲
+- **样式系统**：命名色板（`swatch:名字` 引用）、文档级样式预设（含内置预设）
+- **历史**：撤销/重做/历史跳转，以及跨撤销栈的命名快照（恢复前自动备份）
+- **导出**：SVG/PNG/WebP（文本、dataURL、文件，支持指定输出目录）、多尺寸套件（favicon/pwa/android/ios/electron 预设）、ICO/ICNS 容器、按画板导出
+- **AI 自检**：`get_canvas_thumbnail` 低成本缩略图，供 AI「画完→看图→修正」闭环
+
+### 典型工作流
+
+```text
+1. new_document / apply_icon_template      建立画布
+2. add_shape + set_object_props            绘制并调样式（或 create_objects 一步成组）
+3. get_canvas_thumbnail                    视觉自检
+4. align_objects / boolean_ops             精修
+5. export_size_set / export_icon_container 交付全套尺寸
+```
+
+### 完整操作名列表
+
+get_overview, list_objects, get_object, get_selection, get_selection_svg, list_artboards, list_history, list_swatches, list_snapshots, add_swatch, remove_swatch, resize_canvas, set_canvas_background, set_pixel_grid, set_keyline, add_shape, add_text, insert_svg, insert_iconify_icon, insert_icon_template, apply_icon_template, create_objects, select_objects, select_all, set_object_props, move_layer, set_object_visible, set_object_locked, duplicate_objects, delete_objects, flip_object, group_objects, ungroup_object, set_object_name, align_objects, distribute_objects, batch_set_props, save_style_preset, remove_style_preset, list_style_presets, apply_style_preset, outline_text, boolean_ops, mask_objects, unmask_object, undo, redo, jump_to_history, save_snapshot, restore_snapshot, delete_snapshot, new_document, save_project, get_project_json, load_project_json, switch_artboard, add_artboard, delete_artboard, rename_artboard, export_svg_text, export_png_data_url, get_canvas_thumbnail, export_svg_file, export_png_file, export_size_set, export_icon_container, set_viewport

@@ -246,7 +246,7 @@ public/plugin.json
 开发模式入口：
 
 ```text
-http://localhost:5173
+http://localhost:3000
 ```
 
 ## Preload 服务

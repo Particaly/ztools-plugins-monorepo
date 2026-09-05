@@ -589,5 +589,65 @@ export const iconTemplates: IconTemplateItem[] = [
   <path d="M196 342 H316" stroke="#ffffff" stroke-width="20" stroke-linecap="round" />
   <path d="M188 220 H324 M188 260 H292" stroke="#0f172a" stroke-width="20" stroke-linecap="round" opacity="0.5" />
 </svg>`
+  },
+  {
+    id: 'app-icon-ios',
+    name: 'iOS 应用图标网格',
+    category: 'App Icon',
+    description: 'iOS 1024 画布语义模板：全出血圆角方形底板（圆角半径≈边长 22.37%，与系统裁切一致）叠加中心安全区参考矩形，中性配色便于直接替换品牌色与主体图形。',
+    width: 1024,
+    height: 1024,
+    background: 'transparent',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <rect x="0" y="0" width="1024" height="1024" rx="229" fill="#e2e6eb" />
+  <rect x="0" y="0" width="1024" height="1024" rx="229" fill="none" stroke="#c3c9d1" stroke-width="8" />
+  <rect x="192" y="192" width="640" height="640" fill="none" stroke="#94a3b8" stroke-width="6" stroke-dasharray="26 20" opacity="0.9" />
+  <circle cx="512" cy="512" r="16" fill="#94a3b8" opacity="0.7" />
+</svg>`
+  },
+  {
+    id: 'app-icon-android',
+    name: 'Android 自适应图标',
+    category: 'App Icon',
+    description: 'Android 自适应图标 108dp 画布语义模板：背景层为全出血底板（延伸到系统遮罩之外），前景层圆形对应 66dp 安全区（关键内容应保持在其中），虚线参考圈对应 72dp 可见遮罩范围，分层替换颜色与图形即可。',
+    width: 1024,
+    height: 1024,
+    background: 'transparent',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <rect x="0" y="0" width="1024" height="1024" fill="#14b8a6" />
+  <circle cx="512" cy="512" r="313" fill="#ffffff" opacity="0.95" />
+  <circle cx="512" cy="512" r="341" fill="none" stroke="#ffffff" stroke-width="6" stroke-dasharray="26 20" opacity="0.45" />
+</svg>`
+  },
+  {
+    id: 'toolbar-icon-24',
+    name: '24px 工具栏图标网格',
+    category: '工具图标',
+    description: '按 24×24 网格语义设计的工具栏图标模板（每格 20px，含 2 格安全边距的虚线参考框与居中菜单字形）。画布尺寸由文档决定：插入后内容自动居中并按画布适配缩放，导出 24px 成品时用 export_size_set 等比缩小即可。',
+    width: 480,
+    height: 480,
+    background: 'transparent',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 480">
+  <rect x="40" y="40" width="400" height="400" rx="80" fill="none" stroke="#9ca3af" stroke-width="6" stroke-dasharray="22 16" opacity="0.85" />
+  <rect x="100" y="120" width="280" height="40" rx="20" fill="#1f2937" />
+  <rect x="100" y="220" width="280" height="40" rx="20" fill="#1f2937" />
+  <rect x="100" y="320" width="280" height="40" rx="20" fill="#1f2937" />
+</svg>`
+  },
+  {
+    id: 'diff-pair',
+    name: 'Diff 对比图形',
+    category: 'Diff 图形',
+    description: '经典 diff 隐喻模板：左右两张中性圆角卡片，左卡片叠加陶土红（#B3563E）减号胶囊表示删除，右卡片叠加鼠尾草绿（#5D8A67）加号胶囊表示新增，适合版本对比、变更说明类图形。',
+    width: 512,
+    height: 512,
+    background: 'transparent',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect x="48" y="128" width="192" height="256" rx="28" fill="#eef1f4" />
+  <rect x="272" y="128" width="192" height="256" rx="28" fill="#eef1f4" />
+  <rect x="88" y="240" width="112" height="32" rx="16" fill="#B3563E" />
+  <rect x="312" y="240" width="112" height="32" rx="16" fill="#5D8A67" />
+  <rect x="352" y="200" width="32" height="112" rx="16" fill="#5D8A67" />
+</svg>`
   }
 ]

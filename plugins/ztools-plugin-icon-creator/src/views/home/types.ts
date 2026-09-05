@@ -2,6 +2,7 @@ import type { Control, FabricObject, Point } from 'fabric'
 import type { FabricBooleanStyleSnapshot } from './geometry/fabricToPathKit'
 import type { EditablePathObject, EditableSegmentRef } from './geometry/editablePath'
 import type { FillGradientStop, FillGradientType } from './fabric/objectMetadata'
+import type { DocumentProjectMeta } from './documentSnapshots'
 
 export type FabricControls = Record<string, Control>
 
@@ -139,6 +140,11 @@ export type IconCreatorProjectFile = {
   layerOrder: string[]
   artboards?: IconCreatorProjectArtboard[]
   activeArtboardId?: string
+  /**
+   * 文档级元数据（命名色板/自定义样式预设/命名画布快照），旧工程文件无此字段。
+   * 色板与预设同时随撤销快照持久化，命名快照数据量大只随工程 JSON 保存。
+   */
+  meta?: DocumentProjectMeta
 }
 
 export type IconCreatorDraftFile = {
