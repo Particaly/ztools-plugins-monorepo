@@ -3,7 +3,7 @@
   "name": "diffffff",
   "title": "文本差异对比",
   "description": "对比两段文本的差异，支持并排/统一视图、智能精度、语法高亮，纯本地离线运行",
-  "author": "ZTools",
+  "author": "皮皮虾我们走",
   "version": "1.0.0",
   "main": "index.html",
   "preload": "preload/services.js",
@@ -16,7 +16,6 @@
       "code": "diff",
       "explain": "对比两段文本差异",
       "cmds": [
-        "diffffff",
         "diff",
         "文本差异"
       ]
