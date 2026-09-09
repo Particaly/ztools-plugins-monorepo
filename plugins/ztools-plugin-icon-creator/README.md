@@ -1,384 +1,144 @@
-# icon-creator
+# ztools-plugin-icon-creator
 
-一个用于制作和导出图标的 ZTools 插件。编辑器基于 Vue 3、FabricJS 和 PathKit 构建，支持基础形状、文字、图片、图层管理、撤销重做、PNG/SVG 导出，以及矢量布尔运算。内置 MCP 工具，可让 AI 对正在打开的编辑器进行任意操作（见下方「MCP 支持」）。
+<p align="center">
+  <img src="public/logo.png" alt="Icon Creator Logo" width="120" />
+</p>
 
-## 功能
+**一个 ZTools 图标创建插件，把可视化画布编辑与 AI 驱动的图标生产封装为开箱即用的「图标设计工具」**
 
-- 画布编辑
-  - 新建画布
-  - 画布尺寸预设
-  - 背景色设置
-  - 缩放查看
-- 元素创建
-  - 内置基础图形
-  - 文字预设
-  - 图片导入
-- 对象编辑
-  - 移动、缩放、旋转
-  - 填充色、描边色、描边宽度
-  - 渐变填充（线性渐变、径向渐变）
-  - 透明度
-  - 阴影效果（投影、内阴影）
-  - 模糊效果
-  - 高级变换（水平翻转、垂直翻转、倾斜）
-  - 样式复制与粘贴
-  - 对象锁定（锁定位置、锁定尺寸、完全锁定）
-  - 锁定、解锁
-  - 删除对象
-- 图层管理
-  - 图层列表
-  - 上移、下移、置顶、置底
-  - 显示/隐藏
-  - 锁定/解锁（支持多种锁定模式）
-  - 图层搜索
-  - 锁定状态图标显示
-- 编组能力
-  - 成组
-  - 解组
-- 撤销重做
-  - 基于 Fabric JSON 快照
-  - 布尔运算按单次事务记录
-- 导出
-  - 导出 SVG
-  - 导出 PNG
-- 布尔运算
-  - 并集
-  - 交集
-  - 差集
-  - 异或
+_钢笔与路径编辑 · 布尔运算 · 组件符号 · 渐变/图案填充 · 多尺寸导出 · MCP / AI 驱动_
 
-## 快捷键
+![ZTools](https://img.shields.io/badge/ZTools-%E6%8F%92%E4%BB%B6-blue) ![Vue](https://img.shields.io/badge/Vue-3.x-4FC08D?logo=vuedotjs&logoColor=white) ![Fabric.js](https://img.shields.io/badge/Fabric.js-7.x-purple) ![Version](https://img.shields.io/badge/version-1.0.0-orange)
 
-### 编辑操作
-- `Ctrl/Cmd + Z` - 撤销
-- `Ctrl/Cmd + Shift + Z` 或 `Ctrl/Cmd + Y` - 重做
-- `Ctrl/Cmd + C` - 复制对象
-- `Ctrl/Cmd + V` - 粘贴对象
-- `Ctrl/Cmd + X` - 剪切对象
-- `Delete` 或 `Backspace` - 删除选中对象
+---
 
-### 样式操作
-- `Ctrl/Cmd + Shift + C` - 复制样式
-- `Ctrl/Cmd + Shift + V` - 粘贴样式
+## ✨ 特性
 
-### 分组操作
-- `Ctrl/Cmd + G` - 成组
-- `Ctrl/Cmd + Shift + G` - 解组
+- 🎨 **可视化画布编辑** — 基于 Fabric.js 的所见即所得画布，支持基础图形、文字、图片导入、SVG 1:1 导入、Iconify 图标库与内置图标模板
+- ✏️ **矢量路径编辑** — 钢笔工具（角点/曲线点/对称控制柄）、锚点增删、线段直线/曲线切换、文字一键转曲
+- 🔀 **布尔运算与蒙版** — 并集/交集/差集/异或，支持蒙版裁切，直线以描边轮廓参与运算
+- 🌈 **丰富样式系统** — 纯色/线性径向渐变/图案平铺填充、描边与虚线、投影/内阴影、7 种位图滤镜、13 种混合模式、位图裁剪、全局颜色替换
+- 🧩 **组件符号系统** — 把常用组合保存为可复用定义，联动实例一键同步，解除关联自由拆分
+- 🎛️ **样式预设与色板** — 命名色板引用、文档级样式预设（含内置预设），一键套用填充/描边/阴影组合
+- 📐 **精确排版** — 标尺 + 拖出式对齐参考线、对象吸附、对齐/分布、像素网格与 Keyline 安全区模板
+- 🖥️ **多画板 & 多标签** — 每个标签独立画布与撤销历史，编辑过程自动保存草稿，重启可恢复
+- ↩️ **完整历史管理** — 多步撤销/重做、历史跳转、跨撤销栈的命名快照（恢复前自动备份）
+- 📦 **全能导出** — PNG/SVG/WebP（文本/dataURL/文件）、favicon/pwa/android/ios/electron 多尺寸套件、ICO/ICNS 容器、按画板导出、一键复制到剪贴板
+- 🤖 **AI / MCP 集成** — 通过 `command_dispatcher` 暴露 80+ 编辑器操作，AI 可在对话中完成「查询 → 绘制 → 调整 → 导出」全流程闭环
+- ⌨️ **可自定义快捷键** — 全键位可搜索、录制、删除与恢复默认，配置自动保存
 
-### 图层操作
-- `Ctrl/Cmd + ]` - 上移一层
-- `Ctrl/Cmd + [` - 下移一层
-- `Ctrl/Cmd + Shift + ]` - 置顶
-- `Ctrl/Cmd + Shift + [` - 置底
+## 📸 界面预览
 
-### 对象操作
-- `Ctrl/Cmd + D` - 复制并粘贴（原位复制）
-- `Ctrl/Cmd + A` - 全选
+![界面预览]("https://raw.githubusercontent.com/Particaly/ztools-plugin-icon-creator/main/.github/assets/preview.png)
 
-## 布尔运算说明
+## 🤖 作为 MCP 工具接入
 
-布尔运算由 PathKit/Skia PathOps 执行，FabricJS 负责画布交互和渲染。
-
-支持对象：
-
-- 矩形
-- 圆形
-- 三角形
-- 多边形
-- 直线
-- Path 图形
-
-暂不支持：
-
-- 文字对象
-- 图片对象
-- 成组对象
-
-规则：
-
-- 至少需要选中 2 个可运算对象。
-- 差集以当前选区中最底层对象作为 base，其余对象作为 cutter。
-- 直线、开放路径等无填充面积对象会通过描边轮廓参与运算。
-- 运算结果为空时不会修改画布。
-
-## 技术栈
-
-- Vue 3
-- Vite
-- TypeScript
-- FabricJS
-- PathKit WASM
-- ztools-ui
-- Iconify
-- Sass
-
-## 项目结构
-
-```text
-.
-├── public/
-│   ├── logo.png
-│   ├── plugin.json
-│   └── preload/
-│       └── services.js
-├── src/
-│   ├── App.vue
-│   ├── main.ts
-│   ├── env.d.ts
-│   ├── pathkit.d.ts
-│   ├── router/
-│   └── views/
-│       └── home/
-│           ├── index.vue
-│           ├── editorCatalog.ts
-│           ├── mcp/
-│           │   ├── mcpGatewayTypes.ts
-│           │   ├── mcpOperations.ts
-│           │   ├── mcpGatewayController.ts
-│           │   ├── createMcpEditorGateway.ts
-│           │   └── createHomeMcpModule.ts
-│           ├── fabric/
-│           │   └── shapeFactories.ts
-│           └── geometry/
-│               ├── booleanOps.ts
-│               ├── fabricToPathKit.ts
-│               ├── pathkit.ts
-│               └── pathKitToFabric.ts
-├── index.html
-├── package.json
-├── tsconfig.json
-└── vite.config.js
-```
-
-## 核心模块
-
-### `src/views/home/index.vue`
-
-编辑器主界面，负责：
-
-- Fabric 画布初始化
-- 对象选中和属性同步
-- 图层操作
-- 撤销重做
-- 图片导入
-- PNG/SVG 导出
-- 布尔运算 UI 接入
-
-### `src/views/home/editorCatalog.ts`
-
-编辑器目录元数据，包含：
-
-- 基础图形列表
-- 图形默认尺寸
-- CSS 预览类型
-- 文字预设
-- 画布尺寸预设
-
-### `src/views/home/fabric/shapeFactories.ts`
-
-Fabric 原生图形工厂。所有内置图形都由 Fabric 对象或代码内 Path 创建，不再依赖外部 SVG 资源。
-
-### `src/views/home/geometry/pathkit.ts`
-
-PathKit WASM 懒加载模块，负责初始化和缓存 PathKit 实例。
-
-### `src/views/home/geometry/fabricToPathKit.ts`
-
-将 Fabric 对象转换为 PathKit Path，并处理：
-
-- 填充区域
-- 描边轮廓
-- 开放路径描边转轮廓
-- `strokeUniform` 描边规则
-- 对象变换矩阵
-
-### `src/views/home/geometry/booleanOps.ts`
-
-布尔运算入口，负责：
-
-- 校验选区
-- 按 Fabric 图层顺序排序
-- 执行 union/intersect/subtract/xor
-- 生成结果对象
-- 替换源对象
-- 保持图层和选区状态
-
-### `src/views/home/geometry/pathKitToFabric.ts`
-
-将 PathKit 运算结果转换回 Fabric Path。
-
-## 开发
-
-安装依赖：
-
-```bash
-npm install
-```
-
-启动开发服务：
-
-```bash
-npm run dev
-```
-
-构建生产版本：
-
-```bash
-npm run build
-```
-
-构建产物输出到 `dist/`。
-
-## ZTools 配置
-
-插件配置位于：
-
-```text
-public/plugin.json
-```
-
-当前触发命令：
-
-```text
-图标
-```
-
-开发模式入口：
-
-```text
-http://localhost:3000
-```
-
-## Preload 服务
-
-Preload 能力位于：
-
-```text
-public/preload/services.js
-```
-
-当前主要用于：
-
-- 保存 SVG 文件
-- 保存 PNG 图片
-- 读取本地文件能力扩展
-
-前端类型声明位于：
-
-```text
-src/env.d.ts
-```
-
-## 注意事项
-
-- 编辑器不再支持 SVG 文件导入和 SVG 代码编辑器。
-- SVG 导出仍然保留，基于 Fabric `toSVG()` 输出。
-- 图片可以导入和导出，但不参与布尔运算。
-- 文字暂不支持转轮廓，因此不参与布尔运算。
-- PathKit WASM 通过 Vite `?url` 加载，构建后会输出 wasm 资源。
-
-## 验证清单
-
-修改编辑器相关代码后建议执行：
-
-```bash
-npm run build
-```
-
-重点回归：
-
-- 添加基础形状
-- 添加文字
-- 导入图片
-- 修改填充、描边、透明度
-- 移动、缩放、旋转
-- 成组、解组
-- 图层排序
-- 删除对象
-- 撤销、重做
-- 导出 PNG
-- 导出 SVG
-- 矩形与圆形的并集、交集、差集、异或
-- 直线与闭合图形的布尔运算
-
-## MCP 支持
-
-本插件通过 ZTools 内置的 MCP 服务对外暴露编辑器操作能力，AI 客户端（Claude Desktop、Cursor、Claude Code 等）可以直接对正在打开的图标编辑器进行任意操作。
-
-### 开启方式
-
-1. 在 ZTools 设置中启用 MCP 服务（默认端口 `36579`，开启后会生成 API Key）。
-2. 确保本插件已安装且未被禁用 MCP 工具暴露。
-3. 在 AI 客户端中配置 MCP 接入（Streamable HTTP 模式）：
-
-```json
-{
-  "mcpServers": {
-    "ztools": {
-      "type": "http",
-      "url": "http://127.0.0.1:36579/mcp?key=<你的APIKey>"
-    }
-  }
-}
-```
-
-> 工具调用会自动唤起 ZTools 中的图标创建工具窗口（后台预加载），无需提前手动打开编辑器。
-
-### 工具说明
-
-插件对外暴露一个工具 `icon-creator_command_dispatcher`（实际名称以宿主聚合为准），通过 `operation` 参数路由到具体操作：
+插件通过 `command_dispatcher` 工具向 MCP 客户端（如 ZCode）暴露编辑器能力，所有操作直接作用于当前打开的编辑器窗口，AI 即可在对话中驱动界面完成图标设计。
 
 ```json
 {
   "operation": "add_shape",
-  "args": { "shape": "circle", "x": 256, "y": 256, "width": 200, "height": 200 }
+  "args": { "shape": "circle", "x": 256, "y": 256, "fill": "#6366f1" }
 }
 ```
 
-返回结构统一为 `{ ok: boolean, message?: string, data?: object }`。
+### 能力总览
 
-### 操作清单
+- **查询** — 画布概览、对象列表、条件查找、选区、画板、历史、色板、快照、对齐参考线
+- **创建** — 基础图形、文本、SVG、Iconify 图标、模板、批量创建并编组（可携带初始样式一步到位）
+- **编辑** — 属性/批量属性、图层管理、语义命名、对齐分布、布尔运算、蒙版、文字转曲、文本排版、位图滤镜/裁剪/图案填充
+- **组织** — 组件符号（定义/实例/联动更新/解除关联）、全局颜色替换、样式预设
+- **历史** — 撤销/重做/历史跳转/命名快照
+- **导出** — SVG/PNG/WebP 文本与文件、多尺寸套件、ICO/ICNS 容器、按画板导出
+- **自检** — `get_canvas_thumbnail` 低成本缩略图，支持「画完 → 看图 → 修正」闭环
 
-| 分类 | 操作 |
-| --- | --- |
-| 查询 | `get_overview` `list_objects` `get_object` `get_selection` `get_selection_svg` `list_artboards` `list_history` |
-| 画布设置 | `resize_canvas` `set_canvas_background` `set_pixel_grid` `set_keyline` |
-| 添加对象 | `add_shape` `add_text` `insert_svg` `insert_iconify_icon` `insert_icon_template` `apply_icon_template` |
-| 选区 | `select_objects` `select_all` |
-| 对象操作 | `set_object_props` `move_layer` `set_object_visible` `set_object_locked` `duplicate_objects` `delete_objects` `flip_object` `group_objects` `ungroup_object` |
-| 历史 | `undo` `redo` `jump_to_history` |
-| 工程文档 | `new_document` `save_project` `get_project_json` `load_project_json` |
-| 画板 | `switch_artboard` `add_artboard` `delete_artboard` `rename_artboard` |
-| 导出 | `export_svg_text` `export_png_data_url` `export_svg_file` `export_png_file` |
-| 视图 | `set_viewport` |
-
-常用参数示例：
-
-```json
-{"operation": "add_text", "args": {"text": "Hello", "preset": "title", "fill": "#2563eb"}}
-{"operation": "insert_iconify_icon", "args": {"iconName": "mdi:home"}}
-{"operation": "set_object_props", "args": {"objectId": "editor-object-1", "props": {"fill": "#ff0000", "angle": 45, "strokeWidth": 4}}}
-{"operation": "export_png_file", "args": {"size": 512, "fileName": "my-icon", "transparentBackground": true}}
-{"operation": "export_svg_text", "args": {}}
-```
-
-对象 `id` 通过 `list_objects` / `get_overview` 获取（形如 `editor-object-1`）；形状名可用短名（`circle`）或全名（`base-circle`）。
-
-### 实现结构
+### 典型工作流
 
 ```text
-src/views/home/mcp/
-├── mcpGatewayTypes.ts        # 网关能力接口与数据结构定义
-├── mcpOperations.ts          # operation 路由表与参数校验（MCP 协议层）
-├── mcpGatewayController.ts   # ztools.registerTool 挂载与生命周期
-├── createMcpEditorGateway.ts # 编辑器能力适配（纯函数桥接）
-└── createHomeMcpModule.ts    # 编辑器运行时生命周期模块
+1. new_document / apply_icon_template      建立画布
+2. add_shape + set_object_props            绘制并调样式（或 create_objects 一步成组）
+3. get_canvas_thumbnail                    视觉自检
+4. align_objects / boolean_ops             精修
+5. export_size_set / export_icon_container 交付全套尺寸
 ```
 
-- MCP 协议层（操作名、参数、错误结构）与编辑器实现解耦，编辑器内部重构不影响对外契约。
-- 操作名只增不改，保证已编排的 AI 工作流稳定。
-- 编辑器窗口未就绪时调用返回友好错误（`ok: false`），不会中断 MCP 连接。
+> 完整操作名列表与坐标语义见 [USER_GUIDE.md](USER_GUIDE.md) 的「AI / MCP 集成」章节。
 
-## License
+## 🧩 功能详解
 
-MIT
+| 模块 | 能力 |
+| --- | --- |
+| 对象与绘制 | 基础图形（按目标尺寸生成）、文字预设、图片导入（PNG/JPG/SVG）、Iconify 图标库、内置图标模板、批量创建并编组 |
+| 矢量路径 | 钢笔工具（拖拽出曲线、`Alt` 断开对称）、点位/线段模式（`Alt+2`/`Alt+3`）、锚点插删、文字转曲 |
+| 样式系统 | 纯色/渐变（线性·径向）/图案平铺填充、描边虚线、投影/内阴影、位图滤镜叠加、13 种混合模式、位图连续裁剪、文档级全局颜色替换 |
+| 组织管理 | 图层搜索与四档锁定、编组/解组、对齐/分布、标尺参考线与吸附、组件符号定义与联动实例 |
+| 画布工程 | 多画板管理、多标签工作区、像素网格、Keyline 安全区、自动草稿恢复、`.json` 工程文件读写、命名快照 |
+| 导出交付 | PNG/SVG/WebP、favicon/pwa/android/ios/electron 多尺寸套件、ICO/ICNS 容器、按画板导出、复制 PNG/SVG 到剪贴板 |
+
+## 🛠️ 技术栈
+
+| 技术 | 用途 |
+| --- | --- |
+| [Vue 3](https://vuejs.org/) + TypeScript | 界面与编辑器运行时 |
+| [Fabric.js 7](https://fabricjs.com/) | 画布对象模型与渲染 |
+| [PathKit (Skia) WASM](https://www.npmjs.com/package/pathkit-wasm) | 矢量几何：布尔运算、可编辑路径 |
+| [UnoCSS](https://unocss.dev/) | 原子化样式 |
+| [ztools-ui](https://www.npmjs.com/package/ztools-ui) | ZTools 插件 UI 组件 |
+| [Iconify](https://iconify.design/) | 海量图标库接入 |
+| [JSZip](https://stuk.github.io/jszip/) / [js-beautify](https://github.com/beautify-web/js-beautify) | ICO/ICNS 容器打包与代码美化 |
+| [Vite](https://vitejs.dev/) + [Vitest](https://vitest.dev/) | 构建与单元测试 |
+
+## 📁 项目结构
+
+```text
+icon-creator/
+├── public/
+│   ├── plugin.json          # 插件清单：功能声明与 MCP 工具 Schema
+│   ├── logo.png
+│   └── preload/             # ZTools 预加载服务（文件读写等系统能力）
+├── src/
+│   ├── main.ts              # 应用入口
+│   ├── App.vue
+│   ├── router/              # 路由
+│   └── views/home/          # 编辑器主界面
+│       ├── index.vue        # 编辑器页面
+│       ├── components/      # 工具栏 / 图层面板 / 属性面板 / 弹窗
+│       ├── composables/     # 组合式逻辑（文档 / 画板）
+│       ├── editor/          # 编辑器运行时模块与状态
+│       ├── fabric/          # Fabric.js 扩展（形状工厂 / 滤镜 / 裁剪 / 图案填充）
+│       ├── geometry/        # PathKit 几何（布尔运算 / 可编辑路径 / 网格绘制）
+│       ├── mcp/             # MCP 网关与 80+ 操作实现
+│       └── __tests__/       # 单元测试
+├── USER_GUIDE.md            # 编辑器使用指南（含 MCP 完整操作文档）
+└── vite.config.js
+```
+
+## 📋 使用须知与限制
+
+- 布尔运算仅支持闭合图形与可编辑路径，文字和图片对象不支持，成组对象需先解组
+- 文字直接使用系统字体名渲染，跨设备可能回退；发布图标建议先「文字转曲」固化字形
+- 图案填充来源为本地上传图片，切回纯色/渐变后图案不再生效
+- 撤销、重做或重新打开工程后，符号实例保持保存当时的外观，内容联动只在显式「更新定义」时发生
+
+## 🐛 问题反馈
+
+遇到问题或有功能建议，欢迎提交 [Issue](https://github.com/Particaly/ztools-plugin-icon-creator/issues) 或 Pull Request：
+
+1. 提交前请先搜索是否已有同类 Issue
+2. 反馈编辑器问题时请附上操作步骤与预期/实际行为
+3. 反馈 AI/MCP 问题时请附上 `operation` 与 `args` 及返回结果
+
+## 💝 致谢
+
+- [Fabric.js](https://fabricjs.com/) — 强大的 Canvas 对象模型
+- [Skia PathKit](https://skia.org/docs/user/modules/pathkit/) — 浏览器端矢量布尔运算
+- [Iconify](https://iconify.design/) — 开放统一的图标生态
+- [ZTools](https://github.com/) — 插件化效率工具平台
+
+## 📄 许可证
+
+本项目暂未附加开源许可证，默认保留所有权利；如需二次开发或分发，请联系作者。
+
+---
+
+如果这个项目对你有帮助，欢迎点个 Star ⭐ 支持一下！
