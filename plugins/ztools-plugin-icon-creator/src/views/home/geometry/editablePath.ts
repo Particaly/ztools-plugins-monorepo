@@ -719,6 +719,38 @@ export function getEditableSegmentByPointSelection(obj: EditablePathObject, indi
   return buildEditableSegmentRef(model, firstPointRef.contourIndex, segmentIndex)
 }
 
+export type EditableAnchorHandleRefs = {
+  /** 入柄所在段：段终点为该锚点，cubic 段取其 cp2，直线段无 cp（幻影位，拖拽时转曲线） */
+  inSegmentRef: EditableSegmentRef | null
+  /** 出柄所在段：段起点为该锚点，cubic 段取其 cp1，直线段无 cp（幻影位，拖拽时转曲线） */
+  outSegmentRef: EditableSegmentRef | null
+}
+
+/**
+ * 解析锚点两侧的控制柄所在段，供点位模式选中锚点后展示/拖拽控制柄使用。
+ * 与边模式曲线柄语义一致：只要邻段存在就返回引用——cubic 段柄位取真实 cp，
+ * 直线段没有 cp，柄显示在 1/3、2/3 幻影位，拖拽时经 setEditableSegmentControlPoint 转为曲线；
+ * 开放轮廓的端点缺少入段或出段时对应侧返回 null（该侧没有可控制的曲线）。
+ */
+export function getEditableAnchorHandleRefs(
+  obj: EditablePathObject,
+  globalIndex: number
+): EditableAnchorHandleRefs {
+  const empty: EditableAnchorHandleRefs = { inSegmentRef: null, outSegmentRef: null }
+  const model = ensureEditablePathObject(obj)
+  const pointRef = resolveEditablePoint(model, globalIndex)
+  if (!pointRef) return empty
+  const segments = getBuildSegments(pointRef.contour)
+  const resolveSegmentRef = (segmentIndex: number) => {
+    if (segmentIndex < 0 || !segments[segmentIndex]) return null
+    return buildEditableSegmentRef(model, pointRef.contourIndex, segmentIndex)
+  }
+  return {
+    inSegmentRef: resolveSegmentRef(segments.findIndex((segment) => segment.to === pointRef.pointIndex)),
+    outSegmentRef: resolveSegmentRef(segments.findIndex((segment) => segment.from === pointRef.pointIndex))
+  }
+}
+
 function materializeContourSegments(contour: EditablePathContour) {
   return getBuildSegments(contour).map((segment) => buildSegmentToEditablePathSegment(segment))
 }
@@ -1513,4 +1545,396 @@ export function collapseRoundedCorners(
     model: { contours: newContours },
     overridesByContour
   }
+}
+
+// ── 锚点插入/删除：贝塞尔分割与段合并的纯几何实现 ──
+
+export type SegmentClosestParameter = {
+  /** 最近点对应的段参数，范围 [0, 1] */
+  t: number
+  /** 最近点坐标 */
+  point: EditablePoint
+}
+
+export type CubicBezierSplit = {
+  /** 分割点（新锚点位置） */
+  point: EditablePoint
+  /** 前半段控制柄（起点不变，终点为分割点） */
+  left: { cp1: EditablePoint, cp2: EditablePoint }
+  /** 后半段控制柄（起点为分割点，终点不变） */
+  right: { cp1: EditablePoint, cp2: EditablePoint }
+}
+
+/**
+ * 求轮廓可保留的最少锚点数量：闭合轮廓 3 点、开放轮廓 2 点。
+ */
+export function getContourMinPointCount(contour: EditablePathContour) {
+  return contour.closed ? 3 : 2
+}
+
+/**
+ * 求三次贝塞尔在参数 t 处的点坐标（贝塞尔多项式直接求值）。
+ */
+export function evalCubicBezierAt(
+  from: EditablePoint,
+  cp1: EditablePoint,
+  cp2: EditablePoint,
+  to: EditablePoint,
+  t: number
+): EditablePoint {
+  return cubicPoint(from, cp1, cp2, to, t)
+}
+
+/**
+ * 用 de Casteljau 算法在参数 t 处分割三次贝塞尔：
+ * 每阶把控制多边形各边按 t 分位取点，得到的两个子控制多边形
+ * （from → q0 → r0 → point 与 point → r1 → q2 → to）描绘的曲线与原曲线完全一致。
+ */
+export function splitCubicBezierAt(
+  from: EditablePoint,
+  cp1: EditablePoint,
+  cp2: EditablePoint,
+  to: EditablePoint,
+  t: number
+): CubicBezierSplit {
+  const clamped = Math.min(1, Math.max(0, t))
+  // 一阶细分：三条边各取 t 分位点
+  const q0 = lerp(from, cp1, clamped)
+  const q1 = lerp(cp1, cp2, clamped)
+  const q2 = lerp(cp2, to, clamped)
+  // 二阶细分：两条边再取 t 分位点
+  const r0 = lerp(q0, q1, clamped)
+  const r1 = lerp(q1, q2, clamped)
+  // 三阶细分：分割点本身
+  const point = lerp(r0, r1, clamped)
+  return {
+    point,
+    left: { cp1: q0, cp2: r0 },
+    right: { cp1: r1, cp2: q2 }
+  }
+}
+
+/**
+ * 直线段按参数 t 线性插值取点；t 超出 [0, 1] 时钳制到端点。
+ */
+export function lerpPointOnLine(from: EditablePoint, to: EditablePoint, t: number): EditablePoint {
+  return lerp(from, to, Math.min(1, Math.max(0, t)))
+}
+
+/**
+ * 点到直线段的最近点：正交投影并钳制到 [0, 1]；退化线段（零长度）返回起点。
+ */
+export function getClosestParameterOnLineSegment(
+  target: EditablePoint,
+  from: EditablePoint,
+  to: EditablePoint
+): SegmentClosestParameter {
+  const lineX = to.x - from.x
+  const lineY = to.y - from.y
+  const lengthSquared = lineX * lineX + lineY * lineY
+  if (lengthSquared < 1e-8) {
+    return { t: 0, point: clonePoint(from) }
+  }
+  const projection = ((target.x - from.x) * lineX + (target.y - from.y) * lineY) / lengthSquared
+  const t = Math.min(1, Math.max(0, projection))
+  return { t, point: lerp(from, to, t) }
+}
+
+/**
+ * 点到三次贝塞尔段的最近点：先按 steps 均匀采样取粗解，再在粗解附近两轮局部加密细化。
+ * 采样法对锚点插入场景精度足够，且避免解一元四次方程的复杂度。
+ */
+export function getClosestParameterOnCubicSegment(
+  target: EditablePoint,
+  from: EditablePoint,
+  cp1: EditablePoint,
+  cp2: EditablePoint,
+  to: EditablePoint,
+  steps = 36
+): SegmentClosestParameter {
+  const sampleDistance = (t: number) => distance(target, cubicPoint(from, cp1, cp2, to, t))
+  let bestT = 0
+  let bestDistance = sampleDistance(0)
+  for (let index = 1; index <= steps; index += 1) {
+    const t = index / steps
+    const nextDistance = sampleDistance(t)
+    if (nextDistance < bestDistance) {
+      bestDistance = nextDistance
+      bestT = t
+    }
+  }
+  // 局部细化：在当前最佳 t 左右各一个采样步长的窗口内加密采样，逐轮收缩窗口
+  let windowHalf = 1 / steps
+  for (let round = 0; round < 2; round += 1) {
+    const lower = Math.max(0, bestT - windowHalf)
+    const upper = Math.min(1, bestT + windowHalf)
+    const subdivisions = 12
+    for (let index = 1; index < subdivisions; index += 1) {
+      const t = lower + ((upper - lower) * index) / subdivisions
+      const nextDistance = sampleDistance(t)
+      if (nextDistance < bestDistance) {
+        bestDistance = nextDistance
+        bestT = t
+      }
+    }
+    windowHalf /= subdivisions
+  }
+  return { t: bestT, point: cubicPoint(from, cp1, cp2, to, bestT) }
+}
+
+/**
+ * 查询轮廓指定段上离目标点最近的参数位置；自动区分曲线段（采样最近点）与直线段（投影）。
+ */
+export function getContourSegmentParameterAt(
+  contour: EditablePathContour,
+  segmentIndex: number,
+  target: EditablePoint
+): SegmentClosestParameter | null {
+  const buildSegment = getBuildSegments(contour)[segmentIndex]
+  if (!buildSegment) return null
+  const from = contour.points[buildSegment.from]
+  const to = contour.points[buildSegment.to]
+  if (!from || !to) return null
+  return buildSegment.type === 'cubic' && buildSegment.cp1 && buildSegment.cp2
+    ? getClosestParameterOnCubicSegment(target, from, buildSegment.cp1, buildSegment.cp2, to)
+    : getClosestParameterOnLineSegment(target, from, to)
+}
+
+/**
+ * 在轮廓指定段的参数 t 处插入新锚点（就地修改 contour），返回新锚点及其局部索引。
+ * - 曲线段按 de Casteljau 分割，两段控制柄保证曲线形状不变；
+ * - 直线段线性插值；
+ * - t 钳制到 (0.001, 0.999)，避免新锚点与端点重合产生退化段；
+ * - 闭合轮廓绕回起点的收尾段插入时新锚点直接追加到点数组末尾，不影响既有点索引。
+ */
+export function insertEditablePointIntoContour(
+  contour: EditablePathContour,
+  segmentIndex: number,
+  t: number
+): { point: EditablePoint, pointIndex: number } | null {
+  const segments = ensureContourSegments(contour)
+  const buildSegment = getBuildSegments(contour)[segmentIndex]
+  if (!buildSegment) return null
+  const from = contour.points[buildSegment.from]
+  const to = contour.points[buildSegment.to]
+  if (!from || !to) return null
+  const clampedT = Math.min(0.999, Math.max(0.001, t))
+
+  let newPoint: EditablePoint
+  let firstSegment: EditablePathSegment
+  let secondSegment: EditablePathSegment
+  if (buildSegment.type === 'cubic' && buildSegment.cp1 && buildSegment.cp2) {
+    const split = splitCubicBezierAt(from, buildSegment.cp1, buildSegment.cp2, to, clampedT)
+    newPoint = split.point
+    firstSegment = { type: 'cubic', cp1: split.left.cp1, cp2: split.left.cp2, to: 0 }
+    secondSegment = { type: 'cubic', cp1: split.right.cp1, cp2: split.right.cp2, to: 0 }
+  } else {
+    newPoint = lerpPointOnLine(from, to, clampedT)
+    firstSegment = { type: 'line', to: 0 }
+    secondSegment = { type: 'line', to: 0 }
+  }
+
+  if (contour.closed && buildSegment.to === 0) {
+    const newPointIndex = contour.points.length
+    contour.points.push(newPoint)
+    firstSegment.to = newPointIndex
+    secondSegment.to = 0
+    segments[segmentIndex] = firstSegment
+    segments.splice(segmentIndex + 1, 0, secondSegment)
+    return { point: newPoint, pointIndex: newPointIndex }
+  }
+
+  const insertAt = buildSegment.to
+  contour.points.splice(insertAt, 0, newPoint)
+  // 所有指向插入位及之后的段终点索引 +1，维持点索引映射一致
+  segments.forEach((segment) => {
+    if (segment.to >= insertAt) segment.to += 1
+  })
+  firstSegment.to = insertAt
+  secondSegment.to = insertAt + 1
+  segments.splice(segmentIndex, 1, firstSegment, secondSegment)
+  return { point: newPoint, pointIndex: insertAt }
+}
+
+/**
+ * 把一段"存活锚点 → 若干被删锚点 → 存活锚点"的段链合并为一段。
+ * 控制柄策略：合并段的 cp1 取链路第一段的 cp2（被删点一侧的入柄）、cp2 取最后一段的 cp1（被删点另一侧的出柄），
+ * 使合并段尽量保留被删锚点附近的走向；某一侧为直线段（无柄）时，用链路端部被删锚点的位置充当该侧柄，
+ * 仍能保持两端点的切线方向；整条链路均为直线段时合并为直线段。
+ */
+function buildMergedContourSegment(
+  chain: BuildSegment[],
+  points: EditablePoint[],
+  toNewIndex: number
+): EditablePathSegment {
+  const first = chain[0]
+  const last = chain[chain.length - 1]
+  const isCubic = (segment: BuildSegment): segment is BuildSegment & { type: 'cubic' } =>
+    segment.type === 'cubic' && !!segment.cp1 && !!segment.cp2
+  if (chain.length === 1 && isCubic(first)) {
+    return { type: 'cubic', cp1: clonePoint(first.cp1), cp2: clonePoint(first.cp2), to: toNewIndex }
+  }
+  const allLines = chain.every((segment) => !isCubic(segment))
+  if (allLines) {
+    return { type: 'line', to: toNewIndex }
+  }
+  // 链路第一段的终点（第一个被删锚点）：其所在侧为直线段时充当 cp1，保持起点切线
+  const firstDeletedPoint = points[first.to]
+  const cp1 = isCubic(first)
+    ? clonePoint(first.cp2)
+    : { x: firstDeletedPoint.x, y: firstDeletedPoint.y }
+  // 链路最后一段的起点（最后一个被删锚点）：其所在侧为直线段时充当 cp2，保持终点切线
+  const lastDeletedPoint = points[last.from]
+  const cp2 = isCubic(last)
+    ? clonePoint(last.cp1)
+    : { x: lastDeletedPoint.x, y: lastDeletedPoint.y }
+  return { type: 'cubic', cp1, cp2, to: toNewIndex }
+}
+
+/**
+ * 从轮廓中删除一批锚点并把被删点两侧的段合并为一段（就地修改 contour）。
+ * - 违反最少点数约束（闭合 3 点 / 开放 2 点）时不做任何修改并返回 false；
+ * - 支持一次删除多个（含相邻）锚点：被删链路整体合并为一段；
+ * - 存活锚点保留原有顺序（闭合轮廓从最小索引的存活点起沿环排列）。
+ */
+export function removeEditablePointsFromContour(
+  contour: EditablePathContour,
+  pointIndices: number[]
+): boolean {
+  const points = contour.points
+  const deleteSet = new Set(
+    pointIndices.filter((index) => Number.isInteger(index) && index >= 0 && index < points.length)
+  )
+  if (!deleteSet.size) return false
+  if (points.length - deleteSet.size < getContourMinPointCount(contour)) return false
+
+  const build = getBuildSegments(contour)
+  const nextPoints: EditablePoint[] = []
+  const nextIndexByOld = new Map<number, number>()
+  points.forEach((point, index) => {
+    if (deleteSet.has(index)) return
+    nextIndexByOld.set(index, nextPoints.length)
+    nextPoints.push(point)
+  })
+
+  // 每个点的出段索引（物化后的段链 from 唯一，可放心建映射）
+  const outIndexByFrom = new Map<number, number>()
+  build.forEach((segment, index) => {
+    outIndexByFrom.set(segment.from, index)
+  })
+
+  const survivingList = Array.from(nextIndexByOld.keys())
+  const nextSegments: EditablePathSegment[] = []
+  for (let index = 0; index < survivingList.length; index += 1) {
+    const fromOld = survivingList[index]
+    const isLastSurviving = index === survivingList.length - 1
+    // 开放轮廓最后一个存活点是终点，没有出段；闭合轮廓则绕回第一个存活点
+    if (!contour.closed && isLastSurviving) break
+    const toOld = contour.closed
+      ? survivingList[(index + 1) % survivingList.length]
+      : survivingList[index + 1]
+    const chain: BuildSegment[] = []
+    let cursor = fromOld
+    // 沿出段链走到下一个存活点；guard 防御脏数据导致的死循环
+    let guard = 0
+    while (cursor !== toOld && guard <= points.length) {
+      guard += 1
+      const segmentIndex = outIndexByFrom.get(cursor)
+      if (segmentIndex == null) break
+      chain.push(build[segmentIndex])
+      cursor = build[segmentIndex].to
+    }
+    if (!chain.length || cursor !== toOld) return false
+    nextSegments.push(buildMergedContourSegment(chain, points, nextIndexByOld.get(toOld) ?? 0))
+  }
+
+  contour.points = nextPoints
+  contour.segments = nextSegments
+  return true
+}
+
+/**
+ * 在路径对象的指定段上插入锚点：分割段保持曲线形状，圆角覆盖数组同步插入空位并重建路径。
+ * 返回新锚点的全局索引，段引用失效或插入失败时返回 null。
+ */
+export function insertEditablePointOnObjectSegment(
+  obj: EditablePathObject,
+  segmentRef: EditableSegmentRef,
+  t: number
+): number | null {
+  // resolveEditableSegmentRef 内部已完成 ensureEditablePathObject，
+  // 这里不能再重复 ensure（会重新克隆模型导致后续修改落到游离副本上）
+  const liveSegmentRef = resolveEditableSegmentRef(obj, segmentRef)
+  if (!liveSegmentRef) return null
+  // 目标轮廓之前的点数不受本次插入影响，可安全作为全局索引基准
+  const contourStartIndex = getContourStartIndices(obj.editablePath as EditablePathModel)[liveSegmentRef.contourIndex] ?? 0
+  const inserted = insertEditablePointIntoContour(liveSegmentRef.contour, liveSegmentRef.segmentIndex, t)
+  if (!inserted) return null
+  const overrides = Array.isArray(obj.cornerRadiusOverrides) ? [...obj.cornerRadiusOverrides] : []
+  overrides.splice(contourStartIndex + inserted.pointIndex, 0, null)
+  obj.cornerRadiusOverrides = overrides
+  rebuildEditablePathObjectKeepingAnchor(obj, inserted.point)
+  return contourStartIndex + inserted.pointIndex
+}
+
+/**
+ * 从路径对象删除一批锚点（支持跨轮廓多选）：相邻段合并、圆角覆盖数组同步收缩并重建路径。
+ * 任一轮廓低于最少点数即整体失败返回 false，不做任何修改，保证多选删除的原子性。
+ */
+export function removeEditablePointsFromObject(obj: EditablePathObject, indices: number[]): boolean {
+  const model = ensureEditablePathObject(obj)
+  const uniqueIndices = Array.from(new Set(indices))
+    .filter((index) => Number.isInteger(index) && index >= 0)
+    .sort((a, b) => a - b)
+  if (!uniqueIndices.length) return false
+
+  // 按轮廓分组本地索引；任一轮廓越界或低于最少点数即整体失败
+  const localIndicesByContour = new Map<number, number[]>()
+  for (const globalIndex of uniqueIndices) {
+    const ref = resolveEditablePoint(model, globalIndex)
+    if (!ref) return false
+    const list = localIndicesByContour.get(ref.contourIndex) ?? []
+    list.push(ref.pointIndex)
+    localIndicesByContour.set(ref.contourIndex, list)
+  }
+  for (const [contourIndex, localIndices] of localIndicesByContour) {
+    const contour = model.contours[contourIndex]
+    if (!contour || contour.points.length - localIndices.length < getContourMinPointCount(contour)) {
+      return false
+    }
+  }
+
+  // 以受影响轮廓中第一个未删除锚点为位置基准，保证重建后其它点在画布上保持不动
+  const deletedGlobal = new Set(uniqueIndices)
+  let anchorPoint: EditablePoint | null = null
+  for (const [contourIndex, localIndices] of localIndicesByContour) {
+    const contour = model.contours[contourIndex]
+    const localDeleted = new Set(localIndices)
+    const survivor = contour?.points.find((_point, index) => !localDeleted.has(index))
+    if (survivor) {
+      anchorPoint = survivor
+      break
+    }
+  }
+  if (!anchorPoint) {
+    anchorPoint = flattenEditablePoints(model)
+      .find((ref) => !deletedGlobal.has(ref.globalIndex))?.point ?? null
+  }
+  if (!anchorPoint) return false
+
+  let changed = false
+  for (const [contourIndex, localIndices] of localIndicesByContour) {
+    const contour = model.contours[contourIndex]
+    if (contour && removeEditablePointsFromContour(contour, localIndices)) {
+      changed = true
+    }
+  }
+  if (!changed) return false
+
+  // 按全局索引过滤被删锚点的圆角覆盖，保持其余覆盖与锚点的对应关系
+  obj.cornerRadiusOverrides = (obj.cornerRadiusOverrides ?? [])
+    .filter((_value, index) => !deletedGlobal.has(index))
+
+  rebuildEditablePathObjectKeepingAnchor(obj, anchorPoint)
+  return true
 }

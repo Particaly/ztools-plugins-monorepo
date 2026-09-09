@@ -32,6 +32,8 @@ export interface HomeWorkspaceCommands {
   saveProject: () => void
   saveProjectAs: (onSaved?: (filePath: string) => void) => void
   saveProjectToPath: (filePath: string) => string | undefined
+  /** 立即同步写入一次草稿（不走防抖），供标签新建 / 关闭 / 切换等结构变化节点调用。 */
+  saveDraftNow: () => void
   scheduleDraftSave: () => void
   snapshot: (options?: SnapshotOptions) => void
   switchArtboard: (artboardId: string) => Promise<void>

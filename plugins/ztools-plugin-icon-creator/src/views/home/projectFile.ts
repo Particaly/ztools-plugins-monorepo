@@ -2,6 +2,8 @@ import { DEFAULT_KEYLINE_MARGIN, DEFAULT_KEYLINE_OPACITY, DEFAULT_PIXEL_GRID_SIZ
 import { normalizeCanvasBg, normalizeKeylineMargin, normalizeKeylineOpacity, normalizeKeylineTemplate, normalizePixelGridSize } from './canvasSettings'
 import { isEmptyDocumentStyleMeta, normalizeDocumentStyleMeta } from './documentStyleMeta'
 import { normalizeDocumentCanvasSnapshots } from './documentSnapshots'
+import { normalizeDocumentGuides } from './documentGuides'
+import { normalizeProjectSymbols } from './symbols'
 import type { IconCreatorDraftFile, IconCreatorProjectArtboard, IconCreatorProjectCanvas, IconCreatorProjectFile, ParsedProjectFileResult } from './types'
 
 // 读取工程画布与辅助设置，过滤无效值，避免损坏文件把画布或网格恢复成不可用状态。
@@ -30,9 +32,10 @@ export function stringifyProjectFile(project: IconCreatorProjectFile) {
   }, null, 2)
 }
 
-// 解析手动工程文件或自动草稿，校验应用标识与 schema 版本后再允许恢复。
-export function parseProjectFileText(text: string): ParsedProjectFileResult {
-  const parsed = JSON.parse(text) as Partial<IconCreatorProjectFile | IconCreatorDraftFile>
+// 解析已 JSON 解析的工程 / 草稿对象，校验应用标识与 schema 版本后再允许恢复。
+// 抽出对象入口供草稿多标签解码复用（每个标签的 project 走同一套归一化校验）。
+export function parseProjectFileValue(value: unknown): ParsedProjectFileResult {
+  const parsed = value as Partial<IconCreatorProjectFile | IconCreatorDraftFile>
   const maybeDraft = parsed as Partial<IconCreatorDraftFile>
   const project = maybeDraft.app === 'icon-creator' && maybeDraft.project
     ? maybeDraft.project
@@ -51,6 +54,12 @@ export function parseProjectFileText(text: string): ParsedProjectFileResult {
       ? (rawMeta as { snapshots?: unknown }).snapshots
       : undefined
   )
+  // 文档级对齐参考线随工程顶层 guides 字段 round-trip；旧工程无此字段时保持缺省不写回，
+  // 非法条目由 normalizeDocumentGuides 降级过滤，损坏数据不会阻断工程加载。
+  const guides = normalizeDocumentGuides((project as { guides?: unknown }).guides)
+  // 文档级符号定义随工程顶层 symbols 字段 round-trip，处理方式与 guides 一致：
+  // 旧工程无此字段时保持缺省，非法条目由 normalizeProjectSymbols 降级过滤。
+  const symbols = normalizeProjectSymbols((project as { symbols?: unknown }).symbols)
   const artboards = Array.isArray(project.artboards)
     ? project.artboards
       .filter((artboard): artboard is IconCreatorProjectArtboard => !!artboard && typeof artboard === 'object' && !!artboard.fabric && typeof artboard.fabric === 'object')
@@ -76,8 +85,15 @@ export function parseProjectFileText(text: string): ParsedProjectFileResult {
       activeArtboardId: typeof project.activeArtboardId === 'string' ? project.activeArtboardId : undefined,
       ...(isEmptyDocumentStyleMeta(styleMeta) && !canvasSnapshots.length
         ? {}
-        : { meta: { ...styleMeta, ...(canvasSnapshots.length ? { snapshots: canvasSnapshots } : {}) } })
+        : { meta: { ...styleMeta, ...(canvasSnapshots.length ? { snapshots: canvasSnapshots } : {}) } }),
+      ...(guides.length ? { guides } : {}),
+      ...(symbols.length ? { symbols } : {})
     },
     source: maybeDraft.project ? 'draft' : 'project'
   }
+}
+
+// 解析手动工程文件或自动草稿文本：先 JSON.parse 再走统一的对象解析通道。
+export function parseProjectFileText(text: string): ParsedProjectFileResult {
+  return parseProjectFileValue(JSON.parse(text))
 }

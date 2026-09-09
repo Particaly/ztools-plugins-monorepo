@@ -9,13 +9,16 @@ import {
 import type {
   HomeCanvasRestoreCallbacks,
   HomeCanvasStateRefs,
+  HomeDraftTabsSnapshot,
   HomeShowToast,
   HomeSnapshotGate
 } from '../../../composables/contracts'
 import { useHomeArtboards } from '../../../composables/useHomeArtboards'
 import { useHomeDocument } from '../../../composables/useHomeDocument'
 import type { DocumentCanvasSnapshot } from '../../../documentSnapshots'
+import type { DecodedProjectDraft } from '../../../projectDraft'
 import { parseProjectFileText } from '../../../projectFile'
+import type { IconCreatorProjectFile } from '../../../types'
 import type { EditorModule } from '../../runtime/editorTypes'
 import type {
   HomeWorkspaceController,
@@ -49,6 +52,22 @@ export interface CreateHomeWorkspaceModuleOptions extends HomeCanvasRestoreCallb
   getDocumentSnapshots?: () => DocumentCanvasSnapshot[]
   /** 把工程 meta.snapshots / 空值写入运行时命名画布快照状态（newDoc 传 null 表示清空）。 */
   applyDocumentSnapshots?: (value: unknown) => void
+  /** 读取文档级对齐参考线列表（随撤销快照与工程 JSON 双通道持久化）。 */
+  getDocumentGuides?: () => unknown
+  /** 把工程 guides / 空值写入运行时参考线状态（newDoc 传 null 表示清空）。 */
+  applyDocumentGuides?: (value: unknown) => void
+  /** 从撤销快照 JSON 还原文档级对齐参考线。 */
+  restoreDocumentGuidesFromSnapshot?: (snapshotJson: string) => void
+  /** 读取文档级符号定义列表（随撤销快照与工程 JSON 双通道持久化，见 symbols.ts 说明）。 */
+  getDocumentSymbols?: () => unknown
+  /** 把工程 symbols / 空值写入运行时符号定义状态（newDoc 传 null 表示清空）。 */
+  applyDocumentSymbols?: (value: unknown) => void
+  /** 从撤销快照 JSON 还原文档级符号定义。 */
+  restoreDocumentSymbolsFromSnapshot?: (snapshotJson: string) => void
+  /** 收集多标签草稿快照（提供后草稿按多标签结构写入，见 contracts 同名注释）。 */
+  getDraftTabsSnapshot?: (currentProject: IconCreatorProjectFile) => HomeDraftTabsSnapshot | null
+  /** 多标签草稿恢复回调：重建全部项目标签并把激活标签载入画布。 */
+  applyDraftTabs?: (draft: DecodedProjectDraft) => Promise<void>
 }
 
 export interface CreateHomeWorkspaceModuleResult {
@@ -135,7 +154,15 @@ export function createHomeWorkspaceModule(
     applyDocumentStyleMeta: options.applyDocumentStyleMeta,
     restoreDocumentStyleMetaFromSnapshot: options.restoreDocumentStyleMetaFromSnapshot,
     getDocumentSnapshots: options.getDocumentSnapshots,
-    applyDocumentSnapshots: options.applyDocumentSnapshots
+    applyDocumentSnapshots: options.applyDocumentSnapshots,
+    getDocumentGuides: options.getDocumentGuides,
+    applyDocumentGuides: options.applyDocumentGuides,
+    restoreDocumentGuidesFromSnapshot: options.restoreDocumentGuidesFromSnapshot,
+    getDocumentSymbols: options.getDocumentSymbols,
+    applyDocumentSymbols: options.applyDocumentSymbols,
+    restoreDocumentSymbolsFromSnapshot: options.restoreDocumentSymbolsFromSnapshot,
+    getDraftTabsSnapshot: options.getDraftTabsSnapshot,
+    applyDraftTabs: options.applyDraftTabs
   })
 
   snapshotFromDocument = homeDocument.snapshot
@@ -170,6 +197,9 @@ export function createHomeWorkspaceModule(
     options.clearPointEditing()
     options.applyDocumentStyleMeta?.(null)
     options.applyDocumentSnapshots?.(null)
+    // 新建文档同步清空对齐参考线与符号定义（传 null 表示按新文档重置）。
+    options.applyDocumentGuides?.(null)
+    options.applyDocumentSymbols?.(null)
     homeDocument.clearStoredDraft()
     state.artboards.value = []
     state.activeArtboardId.value = ''
@@ -243,6 +273,7 @@ export function createHomeWorkspaceModule(
     saveProject: homeDocument.saveProject,
     saveProjectAs: homeDocument.saveProjectAs,
     saveProjectToPath: homeDocument.saveProjectToPath,
+    saveDraftNow: homeDocument.saveDraftNow,
     scheduleDraftSave: homeDocument.scheduleDraftSave,
     snapshot: homeDocument.snapshot,
     switchArtboard: homeArtboards.switchArtboard,

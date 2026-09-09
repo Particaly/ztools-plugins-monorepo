@@ -1,8 +1,20 @@
 <template>
   <div class="ruler-overlay" aria-hidden="true">
     <div class="ruler-corner"></div>
-    <canvas class="ruler-h" ref="hCanvasRef"></canvas>
-    <canvas class="ruler-v" ref="vCanvasRef"></canvas>
+    <canvas
+      class="ruler-h"
+      ref="hCanvasRef"
+      title="按下拖出水平参考线，右键打开参考线菜单"
+      @mousedown="handleRulerMouseDown($event, 'horizontal')"
+      @contextmenu.prevent="handleRulerContextMenu"
+    ></canvas>
+    <canvas
+      class="ruler-v"
+      ref="vCanvasRef"
+      title="按下拖出垂直参考线，右键打开参考线菜单"
+      @mousedown="handleRulerMouseDown($event, 'vertical')"
+      @contextmenu.prevent="handleRulerContextMenu"
+    ></canvas>
     <div
       v-if="horizontalHint.visible"
       class="ruler-coordinate-hint ruler-coordinate-hint-x"
@@ -23,12 +35,22 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useZtoolsTheme } from 'ztools-ui'
+import type { GuideOrientation } from '../documentGuides'
 
 const props = defineProps<{
   scrollEl: HTMLElement | null
   wrapperEl: HTMLElement | null
   zoom: number
   coordinateHintActive: boolean
+}>()
+
+/** 标尺除展示刻度外还承载参考线拖拽：按下拖出参考线，右键唤出参考线菜单（由父组件渲染）。 */
+const emit = defineEmits<{
+  (event: 'guide-drag-start', payload: { orientation: GuideOrientation; position: number }): void
+  (event: 'guide-drag-move', position: number): void
+  (event: 'guide-drag-commit', payload: { orientation: GuideOrientation; position: number }): void
+  (event: 'guide-drag-cancel'): void
+  (event: 'guide-context-menu', payload: { x: number; y: number }): void
 }>()
 
 type CoordinateHintState = {
@@ -367,6 +389,78 @@ function onMouseLeave() {
   scheduleDraw()
 }
 
+// ── 参考线拖拽（从标尺拖出水平 / 垂直参考线）──
+// 拖拽期间监听 window 事件（指针可能移出标尺），松手时判断落点：
+// 仍在标尺条带上视为取消，其余位置由父组件夹取后落定为参考线。
+let guideDragOrientation: GuideOrientation | null = null
+
+/** 把指针客户区坐标换算为画布坐标系下的参考线位置（未夹取，由运行时统一夹取）。 */
+function computeGuidePosition(orientation: GuideOrientation, clientX: number, clientY: number) {
+  const wrapper = props.wrapperEl
+  if (!wrapper) return 0
+  const rect = wrapper.getBoundingClientRect()
+  const z = props.zoom > 0 ? props.zoom : 1
+  return orientation === 'horizontal' ? (clientY - rect.top) / z : (clientX - rect.left) / z
+}
+
+/** 判断松手位置是否落回标尺条带（水平参考线看顶部标尺、垂直参考线看左侧标尺）。 */
+function isPointerOnRuler(orientation: GuideOrientation, clientX: number, clientY: number) {
+  const scroll = props.scrollEl
+  if (!scroll) return false
+  const rect = scroll.getBoundingClientRect()
+  return orientation === 'horizontal'
+    ? clientY - rect.top <= RULER_SIZE
+    : clientX - rect.left <= RULER_SIZE
+}
+
+function onGuideDragMove(event: MouseEvent) {
+  if (!guideDragOrientation) return
+  emit('guide-drag-move', computeGuidePosition(guideDragOrientation, event.clientX, event.clientY))
+}
+
+function onGuideDragUp(event: MouseEvent) {
+  const orientation = guideDragOrientation
+  detachGuideDragListeners()
+  guideDragOrientation = null
+  if (!orientation) return
+  if (isPointerOnRuler(orientation, event.clientX, event.clientY)) {
+    // 拖回标尺区域：未落定的新参考线直接取消
+    emit('guide-drag-cancel')
+    return
+  }
+  emit('guide-drag-commit', {
+    orientation,
+    position: computeGuidePosition(orientation, event.clientX, event.clientY)
+  })
+}
+
+/** 挂载拖拽期间的全局监听（mousemove 跟随预览、mouseup 落定）。 */
+function attachGuideDragListeners() {
+  window.addEventListener('mousemove', onGuideDragMove)
+  window.addEventListener('mouseup', onGuideDragUp)
+}
+
+/** 释放拖拽期间的全局监听，避免异常路径下残留监听器。 */
+function detachGuideDragListeners() {
+  window.removeEventListener('mousemove', onGuideDragMove)
+  window.removeEventListener('mouseup', onGuideDragUp)
+}
+
+// 在标尺上按下左键开始拖出新参考线；拖拽预览与落定都由父组件（运行时）处理。
+function handleRulerMouseDown(event: MouseEvent, orientation: GuideOrientation) {
+  if (event.button !== 0 || !props.wrapperEl) return
+  event.preventDefault()
+  guideDragOrientation = orientation
+  emit('guide-drag-start', { orientation, position: computeGuidePosition(orientation, event.clientX, event.clientY) })
+  attachGuideDragListeners()
+}
+
+// 右键标尺唤出参考线菜单（显隐开关 / 清除全部），菜单渲染在父组件。
+function handleRulerContextMenu(event: MouseEvent) {
+  if (event.button !== 2 && event.type !== 'contextmenu') return
+  emit('guide-context-menu', { x: event.clientX, y: event.clientY })
+}
+
 // 绑定当前滚动容器的事件与尺寸观察，保证标尺和坐标提示都能跟随滚动区变化刷新。
 function attach() {
   detach()
@@ -392,6 +486,8 @@ function detach() {
     attachedScrollEl.removeEventListener('mouseleave', onMouseLeave)
     attachedScrollEl = null
   }
+  detachGuideDragListeners()
+  guideDragOrientation = null
   resizeObserver?.disconnect()
   resizeObserver = null
   window.removeEventListener('resize', scheduleDraw)
@@ -441,6 +537,9 @@ onBeforeUnmount(detach)
   right: 0;
   height: 24px;
   display: block;
+  /* 标尺画布开启指针事件以承载参考线拖拽与右键菜单（容器仍保持 none）。 */
+  pointer-events: auto;
+  cursor: row-resize;
 }
 .ruler-v {
   position: absolute;
@@ -449,6 +548,8 @@ onBeforeUnmount(detach)
   bottom: 0;
   width: 24px;
   display: block;
+  pointer-events: auto;
+  cursor: col-resize;
 }
 .ruler-coordinate-hint {
   position: absolute;

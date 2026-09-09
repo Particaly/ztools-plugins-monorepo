@@ -1,8 +1,13 @@
 import type { FabricObject } from 'fabric'
-import { util } from 'fabric'
+import { FabricImage, Text, util } from 'fabric'
 import type { IconCreatorProjectFile, KeylineTemplate } from '../types'
 import type { AnyFabricObject } from '../fabric/objectMetadata'
-import { EDITOR_OBJECT_ID_PREFIX } from '../fabric/objectMetadata'
+import { EDITOR_OBJECT_ID_PREFIX, getShadowEffectsMetadata } from '../fabric/objectMetadata'
+import {
+  compositeOperationToBlendMode,
+  readBitmapFilterSettings,
+  type BitmapFilterSetting
+} from '../bitmapFilters'
 import type { BooleanOperation, SubtractDirection } from '../geometry/booleanOps'
 import {
   BUILTIN_STYLE_PRESETS,
@@ -18,6 +23,8 @@ import {
   getDocumentCanvasSnapshotObjectCount
 } from '../documentSnapshots'
 import type { DocumentCanvasSnapshot } from '../documentSnapshots'
+import type { ProjectSymbol } from '../symbols'
+import { normalizeColorKey } from '../colorReplace'
 import {
   normalizeStylePropValue,
   serializeShadowSummary,
@@ -34,10 +41,12 @@ import type { ShapeLibraryItem, TextLibraryItem, IconTemplateItem } from '../edi
 import { normalizeCanvasBg, normalizeKeylineTemplate, normalizePixelGridSize } from '../canvasSettings'
 import { parseProjectFileText, stringifyProjectFile } from '../projectFile'
 import type {
+  McpBatchPropsItem,
   McpCanvasOverview,
   McpCanvasThumbnailOptions,
   McpCanvasThumbnailResult,
   McpCreateObjectItem,
+  McpCreateStyleSettings,
   McpEditorGateway,
   McpEditorGatewayInternals,
   McpExportIconContainerOptions,
@@ -48,10 +57,16 @@ import type {
   McpExportSizeSetResult,
   McpExportSvgFileOptions,
   McpExportSvgTextOptions,
+  McpGuide,
+  McpGuideInput,
   McpObjectSummary,
+  McpPatternFillRequest,
   McpSnapshotRestoreResult,
   McpSnapshotSaveResult,
-  McpSnapshotSummary
+  McpSnapshotSummary,
+  McpSymbolInstanceInsertResult,
+  McpSymbolSummary,
+  McpUpdateTextRequest
 } from './mcpGatewayTypes'
 
 /**
@@ -155,6 +170,53 @@ export interface McpEditorGatewayOptions {
   saveDocumentCanvasSnapshot: (name: string, canvasJson: Record<string, unknown>) => DocumentCanvasSnapshot[]
   /** 删除指定名称的命名快照，返回剩余快照列表。 */
   removeDocumentCanvasSnapshot: (name: string) => DocumentCanvasSnapshot[]
+
+  // 对齐参考线（用户参考线），随撤销快照与工程 JSON 持久化
+  /** 读取当前文档级对齐参考线列表。 */
+  getDocumentGuides: () => Array<{ id: string; orientation: 'horizontal' | 'vertical'; position: number }>
+  /**
+   * 整体替换对齐参考线：实现负责归一化、生成 id，并按当前画布尺寸夹取越界位置，
+   * 同时触发草稿保存；返回应用后的完整列表（撤销快照由调用方提交）。
+   */
+  setDocumentGuides: (
+    guides: Array<{ orientation: 'horizontal' | 'vertical'; position: number }>
+  ) => Array<{ id: string; orientation: 'horizontal' | 'vertical'; position: number }>
+
+  /**
+   * 全局颜色替换：把画布全部对象 fill/stroke/渐变色标中等于 from 的颜色替换为 to
+   * （归一化比较），返回替换对象数与颜色槽位数（撤销快照由调用方提交）。
+   */
+  replaceDocumentColorOnCanvas: (from: string, to: string) => { objectCount: number; slotCount: number }
+
+  // 文档级符号系统（Symbol），随撤销快照（editorSymbols）与工程 JSON（symbols）双通道持久化
+  /** 读取当前文档级符号定义列表。 */
+  getDocumentSymbols: () => ProjectSymbol[]
+  /** 统计画布上引用指定符号定义的实例数量。 */
+  getSymbolInstanceCount: (symbolId: string) => number
+  /**
+   * 用画布对象创建符号定义（原对象保持不变，定义坐标按包围盒归一化）；
+   * 撤销快照由调用方提交。定义数量超限或对象无效时抛中文错误。
+   */
+  defineSymbolFromObjects: (name: string, objects: FabricObject[]) => ProjectSymbol
+  /**
+   * 插入符号定义的一个联动实例（实例 = fabric Group，挂 symbolId / symbolInstanceId 元数据）：
+   * scenePoint 为包围盒中心落点，null 表示落画布中心；实现内部提交一条撤销记录。
+   * symbolId 不存在时抛中文错误，返回实例 Group。
+   */
+  insertSymbolInstanceById: (
+    symbolId: string,
+    scenePoint: { x: number; y: number } | null
+  ) => Promise<FabricObject>
+  /**
+   * 用画布对象重写符号定义并按旧实例几何重建全部实例（保持中心/显示尺寸/角度）；
+   * 实现内部提交一条撤销记录，返回更新后的定义。symbolId 不存在时抛中文错误。
+   */
+  updateSymbolFromObjects: (symbolId: string, objects: FabricObject[]) => Promise<ProjectSymbol>
+  /**
+   * 解除对象列表中符号实例的关联（转普通对象），返回实际解除的对象；
+   * 实现内部在有解除时提交一条撤销记录。
+   */
+  detachSymbolInstancesFromObjects: (objects: FabricObject[]) => FabricObject[]
   /** 读取当前画布序列化 JSON（与撤销快照同一取数路径）。 */
   serializeCanvasJson: () => Record<string, unknown>
   /**
@@ -170,6 +232,36 @@ export interface McpEditorGatewayOptions {
    * 转换 + 替换 + 选中在一条撤销记录内完成，返回新路径对象 id。
    */
   outlineText: (target: FabricObject) => Promise<string>
+
+  /**
+   * 更新文本对象的内容与排版属性（update_text 的运行时实现）：updates 的键为
+   * text/fontSize/fontFamily/fontWeight/fontStyle/charSpacing/lineHeight/textAlign/
+   * underline/linethrough，目标非文本对象时抛中文错误；实现负责在落值后重算
+   * 文本布局（换行与宽高随内容刷新）；撤销快照由调用方挂起/提交。
+   */
+  updateTextObject: (target: FabricObject, updates: Record<string, unknown>) => void
+
+  /**
+   * 整体替换目标位图的滤镜设置列表（可选同时设置混合模式，normal 表示正常）：
+   * 目标非位图或 blendMode 非法时抛中文错误；撤销快照由调用方挂起/提交。
+   */
+  applyImageFilterToObject: (target: FabricObject, settings: BitmapFilterSetting[], blendMode?: string) => void
+
+  /**
+   * 裁剪目标位图：rect 以图片当前显示包围盒为坐标系（angle=0 语义，同摘要 bboxLeft/bboxTop），
+   * 实现负责换算为 fabric cropX/cropY/width/height；越界/面积过小抛中文错误；
+   * 撤销快照由调用方挂起/提交。
+   */
+  cropImageToDisplayRect: (target: FabricObject, rect: { left: number; top: number; width: number; height: number }) => void
+
+  /**
+   * 为目标对象设置图案填充：source 为 null 时清除图案恢复纯色，其余参数经归一化后
+   * 构建 fabric Pattern（图片加载失败抛中文错误）；撤销快照由调用方挂起/提交。
+   */
+  applyPatternFillToObject: (
+    target: FabricObject,
+    request: { source: string | null; repeat?: 'repeat' | 'repeat-x' | 'repeat-y' | 'no-repeat'; scale?: number }
+  ) => Promise<void>
 
   // 历史
   undo: () => void
@@ -258,11 +350,38 @@ export function createMcpEditorGateway(options: McpEditorGatewayOptions): McpEdi
     return options.ensureEditorObjectId(obj)
   }
 
+  /**
+   * 序列化对象阴影摘要：优先取原生 fabric shadow；多阴影对象原生 shadow 为空
+   * （由 multiShadow 模块按 shadowEffects 元数据自绘），此时回退输出首个启用的投影效果，
+   * 保证 MCP 摘要在两种渲染路径下都能读到阴影。
+   */
+  function serializeObjectShadowSummary(obj: FabricObject) {
+    if (obj.shadow) return serializeShadowSummary(obj.shadow)
+    const effects = (getShadowEffectsMetadata(obj)?.shadowEffects ?? [])
+      .filter(effect => effect?.enabled && effect.type === 'drop')
+    const first = effects[0]
+    return first
+      ? { color: first.color, blur: first.blur, offsetX: first.offsetX, offsetY: first.offsetY }
+      : null
+  }
+
   /** 把 Fabric 对象转为 MCP 摘要。fill/stroke 为渐变时序列化为可读 JSON，shadow 输出阴影摘要。 */
   function toSummary(obj: FabricObject, index: number): McpObjectSummary {
     const target = obj as AnyFabricObject
     const width = obj.getScaledWidth?.() ?? Number(obj.width ?? 0)
     const height = obj.getScaledHeight?.() ?? Number(obj.height ?? 0)
+    // group 类型对象自身的 fill 无视觉意义（fabric 默认 rgb(0,0,0)），组的视觉样式由子对象表达，
+    // 摘要一律输出 null，避免调用方把组误读为黑色填充对象再去修改组的 fill。
+    const isGroup = String(obj.type ?? '').toLowerCase() === 'group'
+    // bboxLeft/bboxTop 表示 angle=0 时的包围盒左上角。left/top 是对象 origin 基准点
+    // （fabric v7 默认 center，但布尔运算结果与吸附轮廓辅助对象在 pathKitToFabric 中
+    // 以 left/top 原点创建），因此不能直接用 left - width/2 假设中心原点；
+    // 改用 origin 无关的 getCenterPoint() 取几何中心再减去显示尺寸一半——
+    // 与 fabric calcACoords 同源计算（getCenterPoint + getScaledWidth/Height），
+    // 结果和 angle=0 时的 getBoundingRect() 严格一致（含描边外扩）。
+    const center = obj.getCenterPoint?.()
+    const centerX = center ? center.x : Number(obj.left ?? 0)
+    const centerY = center ? center.y : Number(obj.top ?? 0)
     return {
       id: ensureId(obj),
       name: String(target.name ?? obj.type ?? '对象'),
@@ -271,19 +390,24 @@ export function createMcpEditorGateway(options: McpEditorGatewayOptions): McpEdi
       locked: !!obj.lockMovementX,
       left: Number(obj.left ?? 0),
       top: Number(obj.top ?? 0),
+      bboxLeft: centerX - width / 2,
+      bboxTop: centerY - height / 2,
       width,
       height,
       scaleX: Number(obj.scaleX ?? 1),
       scaleY: Number(obj.scaleY ?? 1),
       angle: Number(obj.angle ?? 0),
       opacity: Number(obj.opacity ?? 1),
-      fill: serializeStyleFillSummary(obj.fill),
+      fill: isGroup ? null : serializeStyleFillSummary(obj.fill),
       stroke: serializeStyleFillSummary(obj.stroke),
       strokeWidth: Number(obj.strokeWidth ?? 0),
       cornerRadius: Number.isFinite(Number(target.cornerRadius)) ? Number(target.cornerRadius) : undefined,
-      shadow: serializeShadowSummary(obj.shadow),
+      shadow: serializeObjectShadowSummary(obj),
       masked: !!obj.clipPath,
-      zIndex: index
+      zIndex: index,
+      // 混合模式所有对象都携带（source-over 对外展示为 normal）；位图滤镜仅位图对象携带
+      blendMode: compositeOperationToBlendMode(obj.globalCompositeOperation),
+      filters: obj instanceof FabricImage ? readBitmapFilterSettings(obj) : undefined
     }
   }
 
@@ -384,38 +508,93 @@ export function createMcpEditorGateway(options: McpEditorGatewayOptions): McpEdi
   }
 
   /**
-   * 对多个对象应用同一组属性的合并批次实现（batch_set_props 与 apply_style_preset 共用）。
-   * 应用前先整体校验：所有目标对象存在、样式值中的 swatch 引用/渐变/阴影结构可解析，
-   * 任一失败即整批报错，不会留下部分应用状态。
-   * 批次内抑制自动快照，结束后提交一条合并撤销记录并恢复操作前的选中态。
+   * 对多个对象应用同一组属性的合并批次实现（batch_set_props 同值批量与 apply_style_preset 共用）。
+   * 先解析全部目标对象（任一不存在即整批报错），再交给 applyPropsBatchCore 完成统一应用。
    */
   function applyPropsBatch(objectIds: string[], props: Record<string, unknown>, description: string): McpObjectSummary[] {
     if (!objectIds.length) throw new Error('缺少 objectIds 参数')
     if (!props || !Object.keys(props).length) throw new Error('缺少 props 参数')
-    const targets = objectIds.map((id) => {
-      const target = findObject(id)
-      if (!target) throw new Error(`未找到对象: ${id}`)
-      return target
-    })
+    return applyPropsBatchCore(
+      objectIds.map((id) => {
+        const target = findObject(id)
+        if (!target) throw new Error(`未找到对象: ${id}`)
+        return { target, props }
+      }),
+      description
+    )
+  }
+
+  /**
+   * 合并批次核心：对“目标对象 + 各自属性”条目序列应用属性并合并为一条撤销记录
+   * （batch_set_props 的同值批量/逐对象条目与 apply_style_preset 共用此路径）。
+   * 应用前先整体校验：每个条目的样式值中的 swatch 引用/渐变/阴影结构可解析，
+   * 任一失败即整批报错，不会留下部分应用状态；目标对象的存在性由调用方先行解析。
+   * 批次内抑制自动快照，结束后恢复操作前的选中态并提交一条合并撤销记录。
+   */
+  function applyPropsBatchCore(
+    entries: Array<{ target: FabricObject; props: Record<string, unknown> }>,
+    description: string
+  ): McpObjectSummary[] {
+    if (!entries.length) throw new Error('缺少应用目标')
     const swatches = options.getDocumentSwatches()
-    for (const [prop, value] of Object.entries(props)) {
-      normalizeStylePropValue(prop, value, swatches)
+    for (const entry of entries) {
+      if (!entry.props || !Object.keys(entry.props).length) throw new Error('缺少 props 参数')
+      for (const [prop, value] of Object.entries(entry.props)) {
+        normalizeStylePropValue(prop, value, swatches)
+      }
     }
     const previousSelection = options.getSelection()
     options.withSnapshotSuppressed(() => {
-      targets.forEach((target) => {
-        applyPropsToObject(target, props)
+      entries.forEach((entry) => {
+        applyPropsToObject(entry.target, entry.props)
       })
     })
     // 批量应用不应改变用户当前的选择，恢复操作前的选中态。
     options.applyActiveObjectsSelection(previousSelection)
     // 逐项应用产生的自动快照已被抑制，这里手动提交一条合并记录，保证一次 undo 即可整体还原。
     options.snapshot({ description })
-    return targets.map((target) => {
-      const summary = gateway.getObjectSummary(ensureId(target))
-      if (!summary) throw new Error(`对象摘要读取失败: ${ensureId(target)}`)
+    return entries.map((entry) => {
+      const summary = gateway.getObjectSummary(ensureId(entry.target))
+      if (!summary) throw new Error(`对象摘要读取失败: ${ensureId(entry.target)}`)
       return summary
     })
+  }
+
+  /**
+   * 从创建类 settings（add_shape / insert_svg / create_objects 条目）中收集已提供的
+   * 初始样式字段：值原样保留（解析统一在 applyPropsToObject 内完成），
+   * undefined/null 视为未提供（新建对象没有可清除的旧样式，null 与缺失同义）。
+   */
+  function collectCreateStyleProps(settings: McpCreateStyleSettings | undefined): Record<string, unknown> {
+    if (!settings) return {}
+    const props: Record<string, unknown> = {}
+    for (const field of ['fill', 'stroke', 'strokeWidth', 'cornerRadius', 'opacity', 'shadow'] as const) {
+      const value = settings[field]
+      if (value !== undefined && value !== null) props[field] = value
+    }
+    return props
+  }
+
+  /**
+   * 创建对象后应用 settings 携带的初始样式：走与 set_object_props 完全相同的
+   * applyPropsToObject 路径（自动获得 swatch 解析、渐变、shadow 与 cornerRadius 重建语义），
+   * 未携带任何样式字段时跳过。
+   */
+  function applyCreatedStyleProps(created: FabricObject, settings: McpCreateStyleSettings | undefined): void {
+    const styleProps = collectCreateStyleProps(settings)
+    if (!Object.keys(styleProps).length) return
+    applyPropsToObject(created, styleProps)
+  }
+
+  /** 组装单个符号定义的摘要：补充定义对象数与画布实例数（实时统计）。 */
+  function toSymbolSummary(symbol: ProjectSymbol): McpSymbolSummary {
+    return {
+      id: symbol.id,
+      name: symbol.name,
+      createdAt: symbol.createdAt,
+      objectCount: symbol.objects.length,
+      instanceCount: options.getSymbolInstanceCount(symbol.id)
+    }
   }
 
   const gateway: McpEditorGateway = {
@@ -486,7 +665,7 @@ export function createMcpEditorGateway(options: McpEditorGatewayOptions): McpEdi
         fill: serializeStyleFillSummary(target.fill) ?? undefined,
         stroke: serializeStyleFillSummary(target.stroke) ?? undefined,
         strokeWidth: target.strokeWidth,
-        shadow: serializeShadowSummary(target.shadow) ?? undefined,
+        shadow: serializeObjectShadowSummary(target) ?? undefined,
         cornerRadius: typed.cornerRadius,
         editable: typed.editablePath !== undefined
       }
@@ -535,6 +714,127 @@ export function createMcpEditorGateway(options: McpEditorGatewayOptions): McpEdi
       if (settings.margin !== undefined) options.setKeylineMargin(settings.margin)
     },
 
+    listGuides(): { guides: McpGuide[] } {
+      return { guides: options.getDocumentGuides().map((guide) => ({ ...guide })) }
+    },
+
+    setGuides(guides: McpGuideInput[]): { guides: McpGuide[] } {
+      // 越界位置由运行时按当前画布尺寸夹取（见 gateway 类型注释），这里直接透传。
+      const applied = options.setDocumentGuides(guides)
+      options.snapshot({ description: '设置参考线' })
+      return { guides: applied }
+    },
+
+    clearGuides(): { guides: McpGuide[] } {
+      const applied = options.setDocumentGuides([])
+      options.snapshot({ description: '设置参考线' })
+      return { guides: applied }
+    },
+
+    // ── 符号系统（见 symbols.ts 的数据模型与实例语义说明） ──
+
+    /**
+     * 从画布对象创建符号定义（define_symbol 实现）：先整体校验 objectIds，
+     * 再创建定义并提交一条撤销记录；原对象保持不变（不自动转为实例）。
+     */
+    defineSymbol(name: string, objectIds: string[]): McpSymbolSummary {
+      if (!objectIds.length) throw new Error('缺少 objectIds 参数（非空字符串数组）')
+      const targets = objectIds.map((id) => {
+        const target = findObject(id)
+        if (!target) throw new Error(`未找到对象: ${id}`)
+        return target
+      })
+      const symbol = options.defineSymbolFromObjects(name, targets)
+      options.snapshot({ description: `创建符号: ${symbol.name}` })
+      return toSymbolSummary(symbol)
+    },
+
+    listSymbols(): { symbols: McpSymbolSummary[] } {
+      return { symbols: options.getDocumentSymbols().map((symbol) => toSymbolSummary(symbol)) }
+    },
+
+    /**
+     * 插入符号定义的一个联动实例（insert_symbol_instance 实现）：
+     * x/y 语义与 add_shape 一致（默认包围盒中心，anchor='top-left' 按左上角定位），
+     * 插入实现内部已提交一条撤销记录，这里只做落点校正与摘要返回。
+     */
+    async insertSymbolInstance(symbolId: string, insertOptions?: { x?: number; y?: number; anchor?: 'center' | 'top-left' }): Promise<McpSymbolInstanceInsertResult> {
+      const hasPosition = insertOptions?.x !== undefined || insertOptions?.y !== undefined
+      const scenePoint = hasPosition
+        ? { x: insertOptions?.x ?? options.canvasWidth() / 2, y: insertOptions?.y ?? options.canvasHeight() / 2 }
+        : null
+      const instance = await options.insertSymbolInstanceById(symbolId, scenePoint)
+      // anchor='top-left'：把包围盒左上角平移到目标点（delta 法不依赖 origin 假设，同 add_shape）。
+      if (scenePoint && insertOptions?.anchor === 'top-left') {
+        instance.setCoords()
+        const bounds = instance.getBoundingRect()
+        instance.set({
+          left: Number(instance.left ?? 0) + scenePoint.x - bounds.left,
+          top: Number(instance.top ?? 0) + scenePoint.y - bounds.top
+        })
+        instance.setCoords()
+        options.getFabricCanvas()?.requestRenderAll()
+      }
+      const metadata = (instance as AnyFabricObject) as unknown as { symbolId?: string; symbolInstanceId?: string }
+      return {
+        objectId: ensureId(instance),
+        symbolId: String(metadata.symbolId ?? symbolId),
+        symbolInstanceId: String(metadata.symbolInstanceId ?? '')
+      }
+    },
+
+    /**
+     * 用画布对象更新符号定义并同步全部实例（update_symbol 实现）：
+     * 重建策略与撤销合并在运行时实现内部完成（一条撤销记录），这里负责校验与摘要返回。
+     */
+    async updateSymbol(symbolId: string, objectIds: string[]): Promise<McpSymbolSummary> {
+      if (!objectIds.length) throw new Error('缺少 objectIds 参数（非空字符串数组）')
+      const targets = objectIds.map((id) => {
+        const target = findObject(id)
+        if (!target) throw new Error(`未找到对象: ${id}`)
+        return target
+      })
+      const symbol = await options.updateSymbolFromObjects(symbolId, targets)
+      return toSymbolSummary(symbol)
+    },
+
+    /** 解除单个对象的符号关联（detach_symbol_instance 实现），返回解除后的对象摘要。 */
+    async detachSymbolInstance(objectId: string): Promise<McpObjectSummary> {
+      const target = findObject(objectId)
+      if (!target) throw new Error(`未找到对象: ${objectId}`)
+      const detached = options.detachSymbolInstancesFromObjects([target])
+      if (!detached.length) throw new Error(`对象不是符号实例，无法解除关联: ${objectId}`)
+      const summary = gateway.getObjectSummary(objectId)
+      if (!summary) throw new Error(`对象摘要读取失败: ${objectId}`)
+      return summary
+    },
+
+    replaceColor(from: string, to: string): { replacedObjects: number; replacedSlots: number; from: string; to: string } {
+      // 双重校验（调度层已做格式校验）：归一化失败说明写法不支持，给出与 add_swatch 一致的可读错误。
+      const fromKey = normalizeColorKey(from)
+      const toKey = normalizeColorKey(to)
+      if (!fromKey) {
+        throw new Error(`from 非法: ${from}。支持 hex（如 #f00/#ff0000/#ff000080）或 rgb()/rgba() 表达式或 transparent`)
+      }
+      if (!toKey) {
+        throw new Error(`to 非法: ${to}。支持 hex（如 #f00/#ff0000/#ff000080）或 rgb()/rgba() 表达式或 transparent`)
+      }
+      if (fromKey === toKey) {
+        throw new Error(`from 与 to 是同一种颜色: ${fromKey}`)
+      }
+      const result = options.replaceDocumentColorOnCanvas(fromKey, toKey)
+      // 没有命中任何颜色时不提交撤销快照，避免产生无意义的历史记录。
+      if (result.objectCount > 0) {
+        options.snapshot({ description: `颜色替换 ${fromKey} → ${toKey}` })
+      }
+      return {
+        replacedObjects: result.objectCount,
+        replacedSlots: result.slotCount,
+        from: fromKey,
+        to: toKey
+      }
+    },
+
     addShape(shape, settings): string {
       // 允许 AI 传短名（rectangle）或目录全名（base-rectangle）。
       const normalizedId = shape.startsWith('base-') ? shape : `base-${shape}`
@@ -542,10 +842,10 @@ export function createMcpEditorGateway(options: McpEditorGatewayOptions): McpEdi
       if (!item) {
         throw new Error(`未知图形: ${shape}。可用图形见 list: ${basicShapes.map((s) => s.id).join(', ')}`)
       }
-      const scenePoint =
-        settings?.x !== undefined || settings?.y !== undefined
-          ? { x: settings.x ?? options.canvasWidth() / 2, y: settings.y ?? options.canvasHeight() / 2 }
-          : null
+      const hasPosition = settings?.x !== undefined || settings?.y !== undefined
+      const scenePoint = hasPosition
+        ? { x: settings?.x ?? options.canvasWidth() / 2, y: settings?.y ?? options.canvasHeight() / 2 }
+        : null
       // 指定 width/height 时直接按目标尺寸生成本体几何（scale 恒为 1，圆角与描边不随缩放变形）；
       // 只传其一时另一维度沿用目录默认尺寸，均未传时保持默认尺寸插入行为。
       const hasTargetSize = settings?.width !== undefined || settings?.height !== undefined
@@ -559,6 +859,18 @@ export function createMcpEditorGateway(options: McpEditorGatewayOptions): McpEdi
       // addShape 内部会把新对象设为选中，从选中态读取新对象 id。
       const created = options.getSelection()[0]
       if (!created) throw new Error('图形创建后未能读取到新对象')
+      // settings 携带的初始样式在定位前应用（与 set_object_props 同一条 applyPropsToObject
+      // 路径），使 anchor='top-left' 的落位基于应用样式后的最终包围盒。
+      applyCreatedStyleProps(created, settings)
+      // anchor='top-left'：把包围盒左上角平移到目标点（缺省/center 时 x/y 即中心点，无需处理）。
+      // delta 法不依赖 origin 假设：先 setCoords 刷新包围盒缓存，再按包围盒实测左上角求位移。
+      if (scenePoint && settings?.anchor === 'top-left') {
+        created.setCoords()
+        const bounds = created.getBoundingRect()
+        options.setObjProp('left', Number(created.left ?? 0) + scenePoint.x - bounds.left)
+        options.setObjProp('top', Number(created.top ?? 0) + scenePoint.y - bounds.top)
+        created.setCoords()
+      }
       return ensureId(created)
     },
 
@@ -592,9 +904,22 @@ export function createMcpEditorGateway(options: McpEditorGatewayOptions): McpEdi
       })
       const created = options.getSelection()[0]
       if (!created) throw new Error('SVG 导入后未能读取到新对象')
+      // settings 携带的初始样式在定位前应用（与 set_object_props 同一条 applyPropsToObject
+      // 路径），使 anchor='top-left' 落位与越界检测都基于应用样式后的最终包围盒。
+      applyCreatedStyleProps(created, settings)
       if (settings?.x !== undefined || settings?.y !== undefined) {
         options.setObjProp('left', settings.x ?? Number(created.left ?? 0))
         options.setObjProp('top', settings.y ?? Number(created.top ?? 0))
+        created.setCoords()
+        // anchor='top-left'：把包围盒左上角平移到目标点（缺省/center 时 x/y 即中心点，无需处理）。
+        // delta 法不依赖 origin 假设，按包围盒实测左上角求位移；未提供的轴保持导入后的当前位置。
+        if (settings.anchor === 'top-left') {
+          const positioned = created.getBoundingRect()
+          const targetX = settings.x ?? positioned.left
+          const targetY = settings.y ?? positioned.top
+          options.setObjProp('left', Number(created.left ?? 0) + targetX - positioned.left)
+          options.setObjProp('top', Number(created.top ?? 0) + targetY - positioned.top)
+        }
       }
       created.setCoords()
       // 越界不做静默处理：操作仍成功，但把包围盒超出画布的事实写进 message 提醒调用方。
@@ -820,6 +1145,27 @@ export function createMcpEditorGateway(options: McpEditorGatewayOptions): McpEdi
     },
 
     /**
+     * 更新文本对象的内容与排版属性（update_text 实现）：校验目标为文本对象后应用更新，
+     * 文本布局由运行时实现在落值后重算；过程挂起自动快照，
+     * 结束时提交一条合并撤销记录并返回更新后的摘要。
+     */
+    async updateText(objectId: string, request: McpUpdateTextRequest): Promise<McpObjectSummary> {
+      const target = findObject(objectId)
+      if (!target) throw new Error(`未找到对象: ${objectId}`)
+      if (!(target instanceof Text)) {
+        throw new Error(`对象不是文本对象: ${objectId}。update_text 仅对文本对象生效`)
+      }
+      const textName = String((target as AnyFabricObject).name ?? objectId)
+      await options.withSnapshotSuppressed(() => {
+        options.updateTextObject(target, request as Record<string, unknown>)
+      })
+      options.snapshot({ description: `更新文本: ${textName}` })
+      const summary = gateway.getObjectSummary(objectId)
+      if (!summary) throw new Error(`对象摘要读取失败: ${objectId}`)
+      return summary
+    },
+
+    /**
      * 把蒙版对象设为目标对象的 clipPath 裁切。
      *
      * 坐标换算：fabric 对 clipPath（absolutePositioned=false）的渲染合成是
@@ -881,6 +1227,67 @@ export function createMcpEditorGateway(options: McpEditorGatewayOptions): McpEdi
       return summary
     },
 
+    /**
+     * 整体替换目标位图的滤镜列表（apply_image_filter 实现）：
+     * 校验目标为位图后整体应用滤镜设置（可选同时设置混合模式）；
+     * 过程挂起自动快照，结束时提交一条合并撤销记录并返回更新后的摘要。
+     */
+    async applyImageFilter(objectId: string, filterSettings: BitmapFilterSetting[] | undefined, blendMode?: string): Promise<McpObjectSummary> {
+      const target = findObject(objectId)
+      if (!target) throw new Error(`未找到对象: ${objectId}`)
+      if (!(target instanceof FabricImage)) {
+        throw new Error(`对象不是位图（FabricImage）: ${objectId}。滤镜仅对位图对象生效`)
+      }
+      const filterName = String((target as AnyFabricObject).name ?? objectId)
+      await options.withSnapshotSuppressed(() => {
+        options.applyImageFilterToObject(target, filterSettings ?? readBitmapFilterSettings(target), blendMode)
+      })
+      options.snapshot({ description: `应用位图滤镜: ${filterName}` })
+      const summary = gateway.getObjectSummary(objectId)
+      if (!summary) throw new Error(`对象摘要读取失败: ${objectId}`)
+      return summary
+    },
+
+    /**
+     * 裁剪目标位图（crop_image 实现）：校验目标为位图后按显示包围盒坐标系换算并应用裁剪，
+     * 过程挂起自动快照，结束时提交一条合并撤销记录并返回更新后的摘要。
+     */
+    async cropImage(objectId: string, rect: { left: number; top: number; width: number; height: number }): Promise<McpObjectSummary> {
+      const target = findObject(objectId)
+      if (!target) throw new Error(`未找到对象: ${objectId}`)
+      if (!(target instanceof FabricImage)) {
+        throw new Error(`对象不是位图（FabricImage）: ${objectId}。裁剪仅对位图对象生效`)
+      }
+      const imageName = String((target as AnyFabricObject).name ?? objectId)
+      await options.withSnapshotSuppressed(() => {
+        options.cropImageToDisplayRect(target, rect)
+      })
+      options.snapshot({ description: `裁剪位图: ${imageName}` })
+      const summary = gateway.getObjectSummary(objectId)
+      if (!summary) throw new Error(`对象摘要读取失败: ${objectId}`)
+      return summary
+    },
+
+    /**
+     * 设置/清除目标对象的图案填充（set_pattern_fill 实现）：
+     * source 为 null 时清除图案恢复纯色；过程挂起自动快照，
+     * 结束时提交一条合并撤销记录并返回更新后的摘要。
+     */
+    async setPatternFill(objectId: string, request: McpPatternFillRequest): Promise<McpObjectSummary> {
+      const target = findObject(objectId)
+      if (!target) throw new Error(`未找到对象: ${objectId}`)
+      const objectName = String((target as AnyFabricObject).name ?? objectId)
+      await options.withSnapshotSuppressed(() => {
+        return options.applyPatternFillToObject(target, request)
+      })
+      options.snapshot({
+        description: request.source === null ? `清除图案填充: ${objectName}` : `设置图案填充: ${objectName}`
+      })
+      const summary = gateway.getObjectSummary(objectId)
+      if (!summary) throw new Error(`对象摘要读取失败: ${objectId}`)
+      return summary
+    },
+
     alignObjects(objectIds, mode): string[] {
       const targets = withTargets(objectIds)
       if (targets.length < 2) throw new Error('对齐至少需要 2 个对象')
@@ -900,6 +1307,18 @@ export function createMcpEditorGateway(options: McpEditorGatewayOptions): McpEdi
       return applyPropsBatch(objectIds, props, `批量设置对象属性（${objectIds.length} 个对象）`)
     },
 
+    batchSetObjectsPropsItems(items: McpBatchPropsItem[]): McpObjectSummary[] {
+      if (!Array.isArray(items) || !items.length) throw new Error('缺少 items 参数')
+      return applyPropsBatchCore(
+        items.map((item) => {
+          const target = findObject(item.objectId)
+          if (!target) throw new Error(`未找到对象: ${item.objectId}`)
+          return { target, props: item.props }
+        }),
+        `批量设置对象属性（${items.length} 个对象，逐对象条目）`
+      )
+    },
+
     async createObjects(items, createOptions): Promise<{ objectIds: string[]; groupId?: string }> {
       if (!Array.isArray(items) || !items.length) throw new Error('缺少 items 参数')
       const createdIds: string[] = []
@@ -907,13 +1326,16 @@ export function createMcpEditorGateway(options: McpEditorGatewayOptions): McpEdi
         const item = items[index]
         const svg = typeof item.svg === 'string' ? item.svg.trim() : ''
         const text = typeof item.text === 'string' ? item.text.trim() : ''
-        // 单个条目按 svg > shape > text 的优先级解析创建方式，创建方法内部会把新对象设为选中。
+        // 单个条目按 svg > shape > text 的优先级解析创建方式，创建方法内部会把新对象设为选中；
+        // anchor 透传给创建方法（调度层已校验取值），控制 x/y 是中心点还是包围盒左上角。
         let createdViaText = false
         if (svg) {
           const result = await gateway.insertSvg(svg, {
             x: item.x,
             y: item.y,
-            scale: item.scale
+            scale: item.scale,
+            anchor: item.anchor,
+            ...collectCreateStyleProps(item)
           })
           createdIds.push(result.objectId)
         } else if (item.shape !== undefined && item.shape !== null && String(item.shape).trim()) {
@@ -921,20 +1343,24 @@ export function createMcpEditorGateway(options: McpEditorGatewayOptions): McpEdi
             x: item.x,
             y: item.y,
             width: item.width,
-            height: item.height
+            height: item.height,
+            anchor: item.anchor,
+            ...collectCreateStyleProps(item)
           }))
         } else if (text) {
           createdViaText = true
-          createdIds.push(gateway.addText({ text, x: item.x, y: item.y, fill: item.fill }))
+          // 文本条目只负责内容与定位：初始样式（含 fill）在创建后与其他条目一样
+          // 统一经 applyPropsToObject 应用（addText 的 fill 分支保留给 add_text 操作）。
+          createdIds.push(gateway.addText({ text, x: item.x, y: item.y }))
         } else {
           throw new Error(`items[${index}] 缺少 shape/svg/text 之一，无法创建对象`)
         }
         const created = findObject(createdIds[createdIds.length - 1])
         if (!created) throw new Error(`items[${index}] 创建后未能读取到新对象`)
-        // 创建方法已把新对象设为选中，fill 直接作用到刚创建的对象上（文本条目已在 addText 内应用）；
-        // fill 支持 "swatch:名字" 引用与对象形式渐变，统一经样式值解析。
-        if (item.fill !== undefined && item.fill !== null && !createdViaText) {
-          options.setObjProp('fill', resolvePropValueForTarget(created, 'fill', item.fill))
+        // shape/svg 条目的初始样式已在 addShape/insertSvg 内应用；文本条目在此统一补齐，
+        // 与 set_object_props 完全同源（swatch 解析、渐变、shadow、cornerRadius 重建语义一致）。
+        if (createdViaText) {
+          applyCreatedStyleProps(created, item)
         }
         if (item.name !== undefined && item.name !== null && String(item.name).trim()) {
           options.setObjectName(created, String(item.name))
@@ -1106,27 +1532,52 @@ export function createMcpEditorGateway(options: McpEditorGatewayOptions): McpEdi
     },
 
     /**
-     * 渲染画布快速预览图：复用 exportPngDataUrl 的渲染路径但固定透明底，
-     * 输出宽高按画布宽高比由 size 推导（宽 = size，高 = size × 画布高宽比），
-     * 不落盘，供 AI 做低成本视觉自检。指定 artboardId 时在画板临时加载上下文内取
-     * 画布尺寸，保证宽高与实际渲染内容一致。
+     * 渲染画布快速预览图：复用导出管线的渲染路径但固定透明底，
+     * 输出宽高按画布宽高比由 size 推导（宽 = size，高 = size × 画布高宽比）。
+     * 提供 outputPath 时走文件落盘管线：把路径拆为 outputDir（最后一个 / 或 \ 之前，含分隔符）
+     * 与 fileName（最后一段）后复用 exportPngFile 写盘，只返回 filePath（不生成 dataUrl，
+     * 避免 base64 占用大量 token）；未提供 outputPath 时返回 dataUrl，行为与历史版本一致。
+     * 指定 artboardId 时在画板临时加载上下文内取画布尺寸，保证宽高与实际渲染内容一致。
      */
     async getCanvasThumbnail(thumbnailOptions: McpCanvasThumbnailOptions = {}): Promise<McpCanvasThumbnailResult> {
       const size = thumbnailOptions.size ?? 256
-      const run = (): McpCanvasThumbnailResult => {
+      const measure = (): { width: number; height: number } => {
         const canvasWidth = options.canvasWidth()
         const canvasHeight = options.canvasHeight()
+        return {
+          width: Math.round(canvasWidth * (size / canvasWidth)),
+          height: Math.round(canvasHeight * (size / canvasWidth))
+        }
+      }
+      const outputPath = thumbnailOptions.outputPath
+      if (outputPath) {
+        const lastSeparator = Math.max(outputPath.lastIndexOf('/'), outputPath.lastIndexOf('\\'))
+        const outputDir = lastSeparator >= 0 ? outputPath.slice(0, lastSeparator + 1) : undefined
+        const fileName = lastSeparator >= 0 ? outputPath.slice(lastSeparator + 1) : outputPath
+        if (!fileName) throw new Error(`outputPath 缺少文件名: ${outputPath}`)
+        const runFile = (): McpCanvasThumbnailResult => {
+          const filePath = options.exportPngFile({
+            size,
+            fileName,
+            transparentBackground: true,
+            format: 'png',
+            outputDir
+          })
+          if (!filePath) throw new Error(`缩略图写入文件失败: ${outputPath}（导出服务不可用或写入被拒绝）`)
+          return { ...measure(), filePath }
+        }
+        return thumbnailOptions.artboardId
+          ? options.withArtboardExport(thumbnailOptions.artboardId, runFile)
+          : runFile()
+      }
+      const run = (): McpCanvasThumbnailResult => {
         const dataUrl = options.exportPngDataUrl({
           size,
           transparentBackground: true,
           format: 'png'
         })
         if (!dataUrl) throw new Error('画布渲染失败')
-        return {
-          dataUrl,
-          width: Math.round(canvasWidth * (size / canvasWidth)),
-          height: Math.round(canvasHeight * (size / canvasWidth))
-        }
+        return { ...measure(), dataUrl }
       }
       return thumbnailOptions.artboardId
         ? options.withArtboardExport(thumbnailOptions.artboardId, run)

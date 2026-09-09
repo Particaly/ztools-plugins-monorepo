@@ -1,10 +1,13 @@
 import { ref } from 'vue'
-import { DRAFT_SAVE_DELAY, DRAFT_STORAGE_KEY, PROJECT_FILE_EXTENSION, PROJECT_SCHEMA_VERSION } from '../constants'
+import { DRAFT_QUOTA_TOAST_THROTTLE, DRAFT_SAVE_DELAY, DRAFT_STORAGE_KEY, PROJECT_FILE_EXTENSION, PROJECT_SCHEMA_VERSION } from '../constants'
 import { normalizeKeylineMargin, normalizeKeylineOpacity, normalizeKeylineTemplate, normalizePixelGridSize } from '../canvasSettings'
 import { isEmptyDocumentStyleMeta, normalizeDocumentStyleMeta } from '../documentStyleMeta'
 import type { DocumentStyleMeta } from '../documentStyleMeta'
-import { normalizeProjectCanvasSettings, parseProjectFileText, stringifyProjectFile } from '../projectFile'
+import { normalizeProjectCanvasSettings, stringifyProjectFile } from '../projectFile'
+import { buildDraftWriteCandidates, buildLegacyDraftWriteCandidates, decodeProjectDraft, encodeProjectDraft } from '../projectDraft'
+import type { ProjectDraftFile } from '../projectDraft'
 import type { IconCreatorDraftFile, IconCreatorProjectFile, SnapshotOptions } from '../types'
+import type { DecodedProjectDraft } from '../projectDraft'
 import type { HistorySnapshot, HistoryState, UseHomeDocumentOptions, UseHomeDocumentReturn } from './contracts'
 
 export function useHomeDocument(options: UseHomeDocumentOptions): UseHomeDocumentReturn {
@@ -42,7 +45,15 @@ export function useHomeDocument(options: UseHomeDocumentOptions): UseHomeDocumen
     applyDocumentStyleMeta,
     restoreDocumentStyleMetaFromSnapshot,
     getDocumentSnapshots,
-    applyDocumentSnapshots
+    applyDocumentSnapshots,
+    getDocumentGuides,
+    applyDocumentGuides,
+    restoreDocumentGuidesFromSnapshot,
+    getDocumentSymbols,
+    applyDocumentSymbols,
+    restoreDocumentSymbolsFromSnapshot,
+    getDraftTabsSnapshot,
+    applyDraftTabs
   } = options
 
   const { canvasWidth, canvasHeight, canvasBg, lastOpaqueCanvasBg, showPixelGrid, snapToPixelGrid, pixelGridSize, keylineTemplate, keylineMargin, keylineOpacity } = canvasState
@@ -57,16 +68,27 @@ export function useHomeDocument(options: UseHomeDocumentOptions): UseHomeDocumen
   let draftSaveTimer: ReturnType<typeof window.setTimeout> | null = null
   let draftDirty = false
   let restoringDraftPromptShown = false
+  // 上次草稿写入失败提示的时间戳：按节流间隔 toast，避免连续编辑失败时提示刷屏。
+  let lastDraftQuotaToastAt = 0
 
   /**
-   * 组装撤销快照 JSON：画布序列化结果 + 文档级样式元数据（editorMeta 字段）。
-   * 元数据为空时省略字段，保持与旧快照结构一致。
+   * 组装撤销快照 JSON：画布序列化结果 + 文档级样式元数据（editorMeta 字段）+ 对齐参考线（editorGuides 字段）
+   * + 符号定义（editorSymbols 字段）。
+   * 元数据 / 参考线 / 符号为空时省略对应字段，保持与旧快照结构一致。
+   * 参考线与符号定义入撤销快照：增删改与画布对象保持一致的可撤销体验
+   * （见 documentGuides.ts / symbols.ts 说明）。
    */
   function buildSnapshotPayload(): Record<string, unknown> {
     const canvasPayload = serializeFabricCanvas()
     const styleMeta = getDocumentStyleMeta?.() as DocumentStyleMeta | undefined
-    if (!styleMeta || isEmptyDocumentStyleMeta(styleMeta)) return canvasPayload
-    return { ...canvasPayload, editorMeta: styleMeta }
+    const payload: Record<string, unknown> = styleMeta && !isEmptyDocumentStyleMeta(styleMeta)
+      ? { ...canvasPayload, editorMeta: styleMeta }
+      : canvasPayload
+    const guides = getDocumentGuides?.() as unknown[] | undefined
+    if (guides && guides.length > 0) payload.editorGuides = guides
+    const symbols = getDocumentSymbols?.() as unknown[] | undefined
+    if (symbols && symbols.length > 0) payload.editorSymbols = symbols
+    return payload
   }
 
   function snapshot(options: SnapshotOptions = {}) {
@@ -126,6 +148,14 @@ export function useHomeDocument(options: UseHomeDocumentOptions): UseHomeDocumen
         ...(documentSnapshots.length > 0 ? { snapshots: documentSnapshots } : {})
       }
     }
+
+    // 对齐参考线挂工程顶层 guides 字段，为空时省略保持旧文件结构不变。
+    const guides = getDocumentGuides?.() as unknown[] | undefined
+    if (guides && guides.length > 0) projectFile.guides = guides as IconCreatorProjectFile['guides']
+
+    // 符号定义挂工程顶层 symbols 字段，为空时省略保持旧文件结构不变（见 symbols.ts 说明）。
+    const symbols = getDocumentSymbols?.() as unknown[] | undefined
+    if (symbols && symbols.length > 0) projectFile.symbols = symbols as IconCreatorProjectFile['symbols']
 
     if (artboards.value.length > 0) {
       if (activeArtboardId.value) {
@@ -229,6 +259,10 @@ export function useHomeDocument(options: UseHomeDocumentOptions): UseHomeDocumen
     applyDocumentSnapshots?.(
       (project as { meta?: { snapshots?: unknown } | undefined }).meta?.snapshots ?? []
     )
+    // 对齐参考线随工程 guides 字段恢复；旧工程无该字段时归一化为空列表。
+    applyDocumentGuides?.((project as { guides?: unknown }).guides)
+    // 符号定义随工程 symbols 字段恢复；旧工程无该字段时归一化为空列表。
+    applyDocumentSymbols?.((project as { symbols?: unknown }).symbols)
 
     if (project.artboards && project.artboards.length > 0) {
       artboards.value = project.artboards.map((artboard) => ({ ...artboard }))
@@ -258,20 +292,81 @@ export function useHomeDocument(options: UseHomeDocumentOptions): UseHomeDocumen
     }, DRAFT_SAVE_DELAY)
   }
 
+  /**
+   * 草稿写入失败（含配额超限）的统一出口：只记录警告并节流 toast 提示，
+   * 绝不向编辑主流程抛错，保证草稿通道异常不影响画布交互。
+   */
+  function warnDraftSaveFailure(error: unknown) {
+    console.warn('保存自动草稿失败', error)
+    const now = Date.now()
+    if (now - lastDraftQuotaToastAt < DRAFT_QUOTA_TOAST_THROTTLE) return
+    lastDraftQuotaToastAt = now
+    try {
+      showToast('草稿保存失败：浏览器存储空间不足', 'warning')
+    } catch {
+      // toast 通道异常时忽略，失败提示本身也不允许影响编辑主流程
+    }
+  }
+
+  /**
+   * 把草稿信封按降级链逐级尝试写入 localStorage：全量 → 去命名快照 → 去画板缩略图 → 去次要元数据。
+   * 写入方式保持现状的「同步 JSON.stringify + setItem」：单文件草稿通常在数百 KB 量级，
+   * 序列化耗时可接受；改为 requestIdleCallback 分片会引入跨帧状态一致性复杂度，收益有限。
+   * 任一级成功即结束；全部失败返回 false，由调用方节流提示。
+   */
+  function writeDraftWithDegradation(envelope: IconCreatorDraftFile | ProjectDraftFile): boolean {
+    const candidates = 'tabs' in envelope
+      ? buildDraftWriteCandidates(envelope)
+      : buildLegacyDraftWriteCandidates(envelope)
+    for (let index = 0; index < candidates.length; index += 1) {
+      try {
+        window.localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(candidates[index]))
+        if (index > 0) console.warn(`自动草稿已降级保存（裁剪等级 ${index}）`)
+        return true
+      } catch {
+        // 本级写入失败（多为配额超限），继续尝试下一级降级
+      }
+    }
+    return false
+  }
+
   function saveDraftNow() {
     if (!getFabricCanvas() || typeof window === 'undefined') return
     try {
-      const project = createProjectFile()
+      const updatedAt = new Date().toISOString()
+      const currentProject = createProjectFile()
+      const tabsSnapshot = getDraftTabsSnapshot?.(currentProject) ?? null
+      // 页面层提供多标签通道时一律按多标签结构写入（覆盖标签列表 / 顺序 / 激活态与每标签工程）；
+      // 返回 null 表示标签未就绪（启动早期 / 切换中），跳过本次写入避免用过场状态覆盖已有草稿。
+      if (getDraftTabsSnapshot) {
+        if (!tabsSnapshot) return
+        const draft = encodeProjectDraft({
+          activeTabId: tabsSnapshot.activeTabId,
+          tabs: tabsSnapshot.tabs,
+          updatedAt
+        })
+        if (writeDraftWithDegradation(draft)) {
+          draftDirty = false
+        } else {
+          warnDraftSaveFailure(new Error('localStorage 配额超限，草稿降级链全部失败'))
+        }
+        return
+      }
+      // 无多标签通道的宿主退化为旧版单标签结构。
       const draft: IconCreatorDraftFile = {
         app: 'icon-creator',
         schemaVersion: PROJECT_SCHEMA_VERSION,
-        updatedAt: new Date().toISOString(),
-        project
+        updatedAt,
+        project: currentProject
       }
-      window.localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft))
-      draftDirty = false
+      if (writeDraftWithDegradation(draft)) {
+        draftDirty = false
+      } else {
+        warnDraftSaveFailure(new Error('localStorage 配额超限，草稿降级链全部失败'))
+      }
     } catch (error) {
-      console.warn('保存自动草稿失败', error)
+      // createProjectFile / 序列化异常同样不允许打断编辑主流程
+      warnDraftSaveFailure(error)
     }
   }
 
@@ -296,11 +391,18 @@ export function useHomeDocument(options: UseHomeDocumentOptions): UseHomeDocumen
     if (draftDirty) saveDraftNow()
   }
 
-  function readStoredDraft() {
+  // 读取并解码草稿：兼容旧版单标签结构与新版多标签结构，脏数据按无草稿处理并清理存储。
+  function readStoredDraft(): DecodedProjectDraft | null {
     try {
       const raw = window.localStorage.getItem(DRAFT_STORAGE_KEY)
       if (!raw) return null
-      return parseProjectFileText(raw).project
+      const decoded = decodeProjectDraft(JSON.parse(raw))
+      if (!decoded) {
+        // 结构无法识别的脏数据直接清理，避免每次启动重复解析失败
+        clearStoredDraft()
+        return null
+      }
+      return decoded
     } catch (error) {
       console.warn('读取自动草稿失败', error)
       clearStoredDraft()
@@ -313,9 +415,17 @@ export function useHomeDocument(options: UseHomeDocumentOptions): UseHomeDocumen
     restoringDraftPromptShown = true
     const draft = readStoredDraft()
     if (!draft) return
-    const shouldRestore = window.confirm('检测到上次未保存的自动草稿，是否恢复？')
+    // 沿用启动确认交互：多标签草稿在文案中体现标签数，一次确认恢复全部标签与激活态。
+    const shouldRestore = draft.tabs.length > 1
+      ? window.confirm(`检测到上次未保存的自动草稿，包含 ${draft.tabs.length} 个项目标签，是否全部恢复？`)
+      : window.confirm('检测到上次未保存的自动草稿，是否恢复？')
     if (shouldRestore) {
-      await loadProjectFile(draft, { keepDraft: true })
+      if (applyDraftTabs) {
+        await applyDraftTabs(draft)
+      } else {
+        // 无多标签通道的宿主退化为仅恢复第一个标签
+        await loadProjectFile(draft.tabs[0].project, { keepDraft: true })
+      }
       saveDraftNow()
     } else {
       clearStoredDraft()
@@ -331,6 +441,10 @@ export function useHomeDocument(options: UseHomeDocumentOptions): UseHomeDocumen
       await fabricCanvas.loadFromJSON(json)
       // 快照 JSON 内嵌的文档级样式元数据（色板/预设）随历史一并还原。
       restoreDocumentStyleMetaFromSnapshot?.(json)
+      // 对齐参考线同样随撤销快照还原，撤销 / 重做可以回滚参考线的增删改。
+      restoreDocumentGuidesFromSnapshot?.(json)
+      // 符号定义随撤销快照还原；实例外观由画布 JSON 保持（恢复后不自动按定义重建，见 symbols.ts）。
+      restoreDocumentSymbolsFromSnapshot?.(json)
       await syncAllKaleidoscopes()
       ensureCanvasObjectMetadata()
       rehydrateCanvasGradientFills()
@@ -469,6 +583,7 @@ export function useHomeDocument(options: UseHomeDocumentOptions): UseHomeDocumen
     resetHistoryToCurrentCanvas,
     loadProjectFile,
     scheduleDraftSave,
+    saveDraftNow,
     clearStoredDraft,
     promptRestoreDraft,
     flushDraftBeforeDispose,

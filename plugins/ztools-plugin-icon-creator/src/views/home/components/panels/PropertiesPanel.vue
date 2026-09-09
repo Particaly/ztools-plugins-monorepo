@@ -134,8 +134,18 @@
           <div class="prop-group transform-actions-row">
             <label>变换</label>
             <div class="transform-actions">
-              <button class="tb-btn sm" title="水平翻转" @click="flipObject('x')">水平翻</button>
-              <button class="tb-btn sm" title="垂直翻转" @click="flipObject('y')">垂直翻</button>
+              <button
+                class="tb-btn sm"
+                :class="{ active: objProps.flipX }"
+                :title="objProps.flipX ? '取消水平翻转' : '水平翻转'"
+                @click="flipObject('x')"
+              >水平翻</button>
+              <button
+                class="tb-btn sm"
+                :class="{ active: objProps.flipY }"
+                :title="objProps.flipY ? '取消垂直翻转' : '垂直翻转'"
+                @click="flipObject('y')"
+              >垂直翻</button>
               <button class="tb-btn sm" title="重置变换" @click="resetTransform">重置</button>
             </div>
           </div>
@@ -234,6 +244,12 @@
                 title="线性渐变"
                 @click="setFillStyleMode('linear')"
               />
+              <button
+                class="stroke-line-swatch fill-style-pattern"
+                :class="{ active: currentFillStyleMode === 'pattern' }"
+                title="图案"
+                @click="setFillStyleMode('pattern')"
+              />
             </div>
           </div>
           <div v-if="objProps.fillEnabled && currentFillStyleMode === 'solid'" class="prop-group style-color-row">
@@ -328,6 +344,48 @@
                 <span class="val-label">{{ objProps.fillGradientRadius.toFixed(2) }}</span>
               </div>
             </template>
+          </template>
+          <!-- 图案填充参数：来源（本地图片上传）/ 平铺方式 / 图案缩放，change 提交并入撤销栈 -->
+          <template v-if="objProps.fillEnabled && currentFillStyleMode === 'pattern'">
+            <div class="prop-group style-color-row">
+              <label>来源</label>
+              <div class="pattern-source-row">
+                <label class="tb-btn sm pattern-upload-btn" title="上传本地图片作为图案">
+                  上传图片
+                  <input
+                    type="file"
+                    accept="image/*"
+                    class="pattern-file-input"
+                    @change="setPatternFillFromFile($event)"
+                  />
+                </label>
+                <span class="pattern-source-name" :title="objProps.fillPatternSourceName || '默认图案'">
+                  {{ objProps.fillPatternSourceName || '默认图案' }}
+                </span>
+              </div>
+            </div>
+            <div class="prop-group">
+              <label>平铺</label>
+              <ZSelect
+                size="small"
+                class="w-100%"
+                :model-value="objProps.fillPatternRepeat"
+                :options="patternRepeatOptions"
+                @change="setPatternFillRepeat(String($event))"
+              />
+            </div>
+            <div class="prop-group rotation-row">
+              <label>缩放</label>
+              <ZSlider
+                :model-value="objProps.fillPatternScale"
+                :min="0.05"
+                :max="20"
+                :step="0.05"
+                :formatter="(value) => `${Number(value).toFixed(2)}x`"
+                @change="setPatternFillScale($event)"
+              />
+              <span class="val-label">{{ Number(objProps.fillPatternScale).toFixed(2) }}x</span>
+            </div>
           </template>
         </div>
         <div class="prop-section">
@@ -436,13 +494,15 @@
                   <ZInput
                     size="small"
                     type="text"
-                    :model-value="shadow.offsetX"
+                    :model-value="shadow.offsetXInput"
+                    @update:model-value="objProps.shadowEffects[index].offsetXInput = String($event)"
                     @change="setShadowEffectProp(index, 'offsetX', $event)"
                   ><template #suffix>px</template></ZInput>
                   <ZInput
                     size="small"
                     type="text"
-                    :model-value="shadow.offsetY"
+                    :model-value="shadow.offsetYInput"
+                    @update:model-value="objProps.shadowEffects[index].offsetYInput = String($event)"
                     @change="setShadowEffectProp(index, 'offsetY', $event)"
                   ><template #suffix>px</template></ZInput>
                 </div>
@@ -451,7 +511,8 @@
                   <ZInput
                     size="small"
                     type="text"
-                    :model-value="shadow.blur"
+                    :model-value="shadow.blurInput"
+                    @update:model-value="objProps.shadowEffects[index].blurInput = String($event)"
                     @change="setShadowEffectProp(index, 'blur', $event)"
                   ><template #suffix>px</template></ZInput>
                 </div>
@@ -459,6 +520,159 @@
                   <button class="tb-btn sm danger" @click="removeShadowEffect(index)">删除</button>
                 </div>
               </template>
+            </div>
+          </div>
+        </div>
+        <!-- 位图区：选中位图时显示；裁剪会话中活动对象切换为裁剪框，本区保持可见但隐藏滤镜列表 -->
+        <div v-if="isBitmapActiveObject || cropModeActive" class="prop-section">
+          <!-- 位图裁剪：进入裁剪模式后画布上出现可拖拽/调尺寸的裁剪框，确认应用 / 取消或 Esc 恢复原状 -->
+          <div class="prop-group style-toggle-row">
+            <label>裁剪</label>
+            <div v-if="!cropModeActive" class="crop-session-actions">
+              <button class="tb-btn sm" title="进入裁剪模式，在图片上拖出保留区域" @click="beginBitmapCrop">进入裁剪</button>
+            </div>
+            <div v-else class="crop-session-actions">
+              <button class="tb-btn sm" title="应用当前裁剪区域（一条撤销记录）" @click="confirmBitmapCrop">确认裁剪</button>
+              <button class="tb-btn sm danger" title="取消裁剪并恢复原图（Esc 同效）" @click="cancelBitmapCrop">取消</button>
+            </div>
+          </div>
+          <template v-if="!cropModeActive">
+            <div class="prop-group style-toggle-row">
+              <label>滤镜</label>
+            </div>
+            <div class="bitmap-filter-list">
+              <div
+                v-for="filter in objProps.bitmapFilters"
+                :key="filter.type"
+                class="bitmap-filter-item"
+              >
+                <div class="prop-group style-toggle-row bitmap-filter-header">
+                  <label>{{ filter.label }}</label>
+                  <ZSwitch size="small" :model-value="filter.enabled" @change="toggleImageFilter(filter.type, $event)" />
+                </div>
+                <!-- 有参滤镜在启用态展示参数滑杆；change 提交时应用滤镜并入撤销栈 -->
+                <div v-if="filter.enabled && filter.paramKey" class="prop-group rotation-row">
+                  <label>{{ filter.paramLabel }}</label>
+                  <ZSlider
+                    :model-value="Number(filter[filter.paramKey])"
+                    :min="filter.paramMin"
+                    :max="filter.paramMax"
+                    :step="BITMAP_FILTER_PARAM_STEP"
+                    :formatter="(value) => `${Math.round(value * 100)}%`"
+                    @change="setImageFilterParam(filter.type, filter.paramKey, $event)"
+                  />
+                  <span class="val-label">{{ Math.round(Number(filter[filter.paramKey]) * 100) }}%</span>
+                </div>
+              </div>
+            </div>
+          </template>
+        </div>
+        <!-- 混合模式区：所有对象类型通用 -->
+        <div class="prop-section">
+          <div class="prop-group">
+            <label>混合模式</label>
+            <ZSelect
+              size="small"
+              class="w-100%"
+              :model-value="objProps.blendMode"
+              :options="blendModeOptions"
+              @change="setObjectBlendMode(String($event))"
+            />
+          </div>
+        </div>
+        <!-- 文本区：选中集合包含文本对象时显示（单选文本或多选/编组中的文本子对象），
+             属性批量应用到集合内全部文本目标，回显取第一个文本对象 -->
+        <div v-if="showTextSection" class="prop-section">
+          <div class="prop-group">
+            <label>字体</label>
+            <ZSelect
+              size="small"
+              class="w-100%"
+              :model-value="objProps.fontFamily"
+              :options="fontFamilyOptions"
+              @change="setTextProp('fontFamily', String($event))"
+            />
+          </div>
+          <div class="prop-group rotation-row">
+            <label>字号</label>
+            <ZInput
+              size="small"
+              type="text"
+              :model-value="objProps.fontSizeInput"
+              @update:model-value="objProps.fontSizeInput = String($event)"
+              @change="setTextPropFromInput('fontSize', $event)"
+            ><template #suffix>px</template></ZInput>
+          </div>
+          <div class="prop-group">
+            <label>样式</label>
+            <div class="text-style-actions">
+              <button
+                class="tb-btn sm text-style-btn bold"
+                :class="{ active: objProps.fontBold }"
+                title="粗体"
+                @click="toggleTextBold"
+              >B</button>
+              <button
+                class="tb-btn sm text-style-btn italic"
+                :class="{ active: objProps.fontItalic }"
+                title="斜体"
+                @click="toggleTextItalic"
+              >I</button>
+              <button
+                class="tb-btn sm text-style-btn underline"
+                :class="{ active: objProps.fontUnderline }"
+                title="下划线"
+                @click="toggleTextUnderline"
+              >U</button>
+              <button
+                class="tb-btn sm text-style-btn linethrough"
+                :class="{ active: objProps.fontLinethrough }"
+                title="删除线"
+                @click="toggleTextLinethrough"
+              >S</button>
+            </div>
+          </div>
+          <div class="prop-group rotation-row">
+            <label>字间距</label>
+            <ZInput
+              size="small"
+              type="text"
+              :model-value="objProps.charSpacingInput"
+              @update:model-value="objProps.charSpacingInput = String($event)"
+              @change="setTextPropFromInput('charSpacing', $event)"
+            />
+          </div>
+          <div class="prop-group rotation-row">
+            <label>行高</label>
+            <ZInput
+              size="small"
+              type="text"
+              :model-value="objProps.lineHeightInput"
+              @update:model-value="objProps.lineHeightInput = String($event)"
+              @change="setTextPropFromInput('lineHeight', $event)"
+            />
+          </div>
+          <div class="prop-group">
+            <label>对齐</label>
+            <div class="text-style-actions">
+              <button
+                class="tb-btn sm"
+                :class="{ active: objProps.textAlign === 'left' }"
+                title="左对齐"
+                @click="setTextAlign('left')"
+              >左</button>
+              <button
+                class="tb-btn sm"
+                :class="{ active: objProps.textAlign === 'center' }"
+                title="水平居中"
+                @click="setTextAlign('center')"
+              >中</button>
+              <button
+                class="tb-btn sm"
+                :class="{ active: objProps.textAlign === 'right' }"
+                title="右对齐"
+                @click="setTextAlign('right')"
+              >右</button>
             </div>
           </div>
         </div>
@@ -742,101 +956,107 @@
       </template>
     </template>
     <template v-else>
-      <div class="section-title">画布设置</div>
-      <div class="prop-group">
-        <label>预设</label>
-        <ZSelect
-          size="small"
-          class="w-100%"
-          :model-value="canvasPresetValue"
-          :options="canvasPresetOptions"
-          placeholder="请选择预设"
-          @change="applyCanvasPreset(String($event))"
-        />
-      </div>
-      <div class="prop-group">
-        <label>宽高</label>
-        <ZInput
-          size="small"
-          type="text"
-          :model-value="canvasWidthInput"
-          @update:model-value="canvasWidthInput = String($event)"
-          @change="setCanvasSizeFromInput('width', $event)"
-        ><template #suffix>px</template></ZInput>
-        <ZInput
-          size="small"
-          type="text"
-          :model-value="canvasHeightInput"
-          @update:model-value="canvasHeightInput = String($event)"
-          @change="setCanvasSizeFromInput('height', $event)"
-        ><template #suffix>px</template></ZInput>
-      </div>
-      <div class="prop-group">
-        <label>背景</label>
-        <div class="canvas-bg-picker">
-          <ZButton
-            class="transparent-swatch"
-            :class="{ active: isCanvasBgTransparent }"
-            title="透明"
-            @click="setCanvasBg('transparent')"
-          />
-          <ZColorPicker
+      <div class="canvas-settings">
+        <div class="section-title">画布设置</div>
+        <div class="prop-group">
+          <label>预设</label>
+          <ZSelect
             size="small"
-            :show-input="false"
-            :model-value="canvasBgPickerValue"
-            @change="setCanvasBg(String($event))"
+            class="w-100%"
+            :model-value="canvasPresetValue"
+            :options="canvasPresetOptions"
+            placeholder="请选择预设"
+            @change="applyCanvasPreset(String($event))"
           />
         </div>
-      </div>
-      <div class="prop-group style-toggle-row">
-        <label>网格</label>
-        <ZSwitch size="small" :model-value="showPixelGrid" @change="setPixelGridVisible" />
-      </div>
-      <div class="prop-group style-toggle-row">
-        <label>吸附</label>
-        <ZSwitch size="small" :model-value="snapToPixelGrid" @change="setSnapToPixelGrid" />
-      </div>
-      <div class="prop-group style-color-row">
-        <label>间距</label>
-        <ZInput
-          size="small"
-          type="text"
-          :model-value="pixelGridSizeInput"
-          @update:model-value="pixelGridSizeInput = String($event)"
-          @change="setPixelGridSizeFromInput"
-        ><template #suffix>px</template></ZInput>
-      </div>
-      <div class="prop-group style-color-row">
-        <label>参考线</label>
-        <ZSelect
-          size="small"
-          class="w-100%"
-          :model-value="keylineTemplate"
-          :options="keylineTemplateOptions"
-          @change="setKeylineTemplate(String($event) as KeylineTemplate)"
-        />
-      </div>
-      <div v-if="keylineTemplate === 'custom'" class="prop-group style-color-row">
-        <label>安全区</label>
-        <ZInput
-          size="small"
-          type="text"
-          :model-value="keylineMarginInput"
-          @update:model-value="keylineMarginInput = String($event)"
-          @change="setKeylineMarginFromInput"
-        ><template #suffix>px</template></ZInput>
-      </div>
-      <div v-if="keylineTemplate !== 'none'" class="prop-group rotation-row">
-        <label>透明度</label>
-        <ZSlider
-          :model-value="keylineOpacity"
-          :min="0"
-          :max="1"
-          :step="0.01"
-          :formatter="(value) => `${Math.round(Number(value) * 100)}%`"
-          @change="setKeylineOpacity"
-        />
-        <span class="val-label">{{ `${Math.round(keylineOpacity * 100)}%` }}</span>
+        <div class="prop-group">
+          <label>宽高</label>
+          <ZInput
+            size="small"
+            type="text"
+            :model-value="canvasWidthInput"
+            @update:model-value="canvasWidthInput = String($event)"
+            @change="setCanvasSizeFromInput('width', $event)"
+          ><template #suffix>px</template></ZInput>
+          <ZInput
+            size="small"
+            type="text"
+            :model-value="canvasHeightInput"
+            @update:model-value="canvasHeightInput = String($event)"
+            @change="setCanvasSizeFromInput('height', $event)"
+          ><template #suffix>px</template></ZInput>
+        </div>
+        <div class="prop-group">
+          <label>背景</label>
+          <div class="canvas-bg-picker">
+            <ZButton
+              class="transparent-swatch"
+              :class="{ active: isCanvasBgTransparent }"
+              title="透明"
+              @click="setCanvasBg('transparent')"
+            />
+            <ZColorPicker
+              size="small"
+              :show-input="false"
+              :model-value="canvasBgPickerValue"
+              @change="setCanvasBg(String($event))"
+            />
+          </div>
+        </div>
+        <div class="prop-group style-toggle-row">
+          <label>网格</label>
+          <ZSwitch size="small" :model-value="showPixelGrid" @change="setPixelGridVisible" />
+        </div>
+        <div class="prop-group style-toggle-row">
+          <label>吸附</label>
+          <ZSwitch size="small" :model-value="snapToPixelGrid" @change="setSnapToPixelGrid" />
+        </div>
+        <div class="prop-group style-color-row">
+          <label>间距</label>
+          <ZInput
+            size="small"
+            type="text"
+            :model-value="pixelGridSizeInput"
+            @update:model-value="pixelGridSizeInput = String($event)"
+            @change="setPixelGridSizeFromInput"
+          ><template #suffix>px</template></ZInput>
+        </div>
+        <div class="prop-group style-color-row">
+          <label>参考线</label>
+          <ZSelect
+            size="small"
+            class="w-100%"
+            :model-value="keylineTemplate"
+            :options="keylineTemplateOptions"
+            @change="setKeylineTemplate(String($event) as KeylineTemplate)"
+          />
+        </div>
+        <div v-if="keylineTemplate === 'custom'" class="prop-group style-color-row">
+          <label>安全区</label>
+          <ZInput
+            size="small"
+            type="text"
+            :model-value="keylineMarginInput"
+            @update:model-value="keylineMarginInput = String($event)"
+            @change="setKeylineMarginFromInput"
+          ><template #suffix>px</template></ZInput>
+        </div>
+        <div v-if="keylineTemplate !== 'none'" class="prop-group rotation-row">
+          <label>透明度</label>
+          <ZSlider
+            :model-value="keylineOpacity"
+            :min="0"
+            :max="1"
+            :step="0.01"
+            :formatter="(value) => `${Math.round(Number(value) * 100)}%`"
+            @change="setKeylineOpacity"
+          />
+          <span class="val-label">{{ `${Math.round(keylineOpacity * 100)}%` }}</span>
+        </div>
+        <div class="prop-group">
+          <label>颜色</label>
+          <ZButton size="small" class="w-100%" title="扫描文档颜色并批量替换" @click="openColorReplace">颜色替换…</ZButton>
+        </div>
       </div>
     </template>
   </div>
@@ -846,8 +1066,11 @@
 import { computed, ref } from 'vue'
 import { VueDraggable } from 'vue-draggable-plus'
 import { Icon } from '@iconify/vue'
-import { ActiveSelection, type FabricObject } from 'fabric'
+import { ActiveSelection, FabricImage, Textbox, type FabricObject } from 'fabric'
 import { ZButton, ZColorPicker, ZInput, ZPopover, ZSelect, ZSlider, ZSwitch } from 'ztools-ui'
+import { BLEND_MODE_OPTIONS, BITMAP_FILTER_PARAM_STEP } from '../../bitmapFilters'
+import { FONT_FAMILY_OPTIONS } from '../../fontCatalog'
+import { PATTERN_FILL_REPEATS, PATTERN_FILL_REPEAT_LABELS } from '../../fabric/patternFill'
 import type { ColorPaletteGroup, GradientPresetItem, KeylineTemplate, StylePresetManagerTab, StyleTargetChannel } from '../../types'
 
 type AnyFn = (...args: any[]) => any
@@ -898,6 +1121,8 @@ const props = defineProps<{
   keylineTemplateOptions: SelectOption[]
   keylineMarginInput: string
   keylineOpacity: number
+  /** 打开全局颜色替换弹窗（文档级工具，无对象选中时展示在画布设置区）。 */
+  openColorReplace: AnyFn
   colorPaletteGroups: ColorPaletteGroup[]
   gradientPresets: GradientPresetItem[]
   colorPaletteColumns: number
@@ -969,6 +1194,23 @@ const props = defineProps<{
   toggleShadowEffect: AnyFn
   setShadowEffectProp: AnyFn
   removeShadowEffect: AnyFn
+  setObjectBlendMode: AnyFn
+  setTextProp: AnyFn
+  setTextPropFromInput: AnyFn
+  toggleTextBold: AnyFn
+  toggleTextItalic: AnyFn
+  toggleTextUnderline: AnyFn
+  toggleTextLinethrough: AnyFn
+  setTextAlign: AnyFn
+  toggleImageFilter: AnyFn
+  setImageFilterParam: AnyFn
+  cropModeActive: boolean
+  beginBitmapCrop: AnyFn
+  confirmBitmapCrop: AnyFn
+  cancelBitmapCrop: AnyFn
+  setPatternFillFromFile: AnyFn
+  setPatternFillRepeat: AnyFn
+  setPatternFillScale: AnyFn
   flipObject: AnyFn
   resetTransform: AnyFn
   setRotate3DFromInput: AnyFn
@@ -1051,6 +1293,23 @@ const colorPaletteColumns = computed(() => {
   const parsed = Number(props.colorPaletteColumns)
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 6
 })
+// 位图滤镜区仅对单个选中的位图对象显示（多选/组合时 activeObject 是 ActiveSelection，不命中）
+const isBitmapActiveObject = computed(() => props.activeObject instanceof FabricImage)
+const blendModeOptions = BLEND_MODE_OPTIONS
+// 字体下拉选项（fontCatalog 常见系统字体清单，value 即 fabric fontFamily 字符串）
+const fontFamilyOptions = FONT_FAMILY_OPTIONS
+// 文本区显隐：选中集合内包含文本对象即显示（单选文本，或多选/编组中的文本子对象，支持批量应用）
+const showTextSection = computed(() => {
+  const obj = props.activeObject
+  if (!obj) return false
+  const candidates = obj instanceof ActiveSelection ? obj.getObjects() : [obj]
+  return candidates.some((candidate) => candidate instanceof Textbox)
+})
+// 图案填充平铺方式下拉选项（value 与 fabric Pattern.repeat / MCP 契约一致）
+const patternRepeatOptions = PATTERN_FILL_REPEATS.map((value) => ({
+  label: PATTERN_FILL_REPEAT_LABELS[value],
+  value
+}))
 const alignPopoverVisible = computed({
   get: () => props.alignPopoverVisible,
   set: (value: boolean) => emit('update:align-popover-visible', value)
@@ -1223,6 +1482,9 @@ const keylineMarginInput = computed({
   .fill-style-linear {
     background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 16'><defs><linearGradient id='g' x1='0%25' y1='50%25' x2='100%25' y2='50%25'><stop offset='0%25' stop-color='%23333'/><stop offset='100%25' stop-color='%23d8d8d8'/></linearGradient></defs><rect x='3' y='3' width='12' height='10' rx='2' fill='url(%23g)' stroke='%23333' stroke-width='0.6'/></svg>");
   }
+  .fill-style-pattern {
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 16'><defs><pattern id='p' width='5' height='5' patternUnits='userSpaceOnUse'><rect width='5' height='5' fill='%23ffffff'/><rect width='2.5' height='2.5' fill='%23333'/><rect x='2.5' y='2.5' width='2.5' height='2.5' fill='%23333'/></pattern></defs><rect x='3' y='3' width='12' height='10' rx='2' fill='url(%23p)' stroke='%23333' stroke-width='0.6'/></svg>");
+  }
 }
 .size-lock-icon,
 .size-lock-spacer {
@@ -1331,12 +1593,14 @@ const keylineMarginInput = computed({
 .prop-group {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
   padding: 4px 8px;
-  label {
+  label:not(.zt-switch) {
     font-size: 11px;
     color: #666;
-    min-width: 36px;
+    min-width: 48px;
+    white-space: nowrap;
+    flex-shrink: 0;
   }
   :deep(.zt-input) {
     width: 100%;
@@ -1399,6 +1663,24 @@ const keylineMarginInput = computed({
   &.style-toggle-row {
     :deep(.zt-switch) {
       justify-self: end;
+    }
+  }
+}
+/* 画布设置区：label 最小宽度统一为 36px，覆盖共享行样式里更宽的网格列 / 固定宽度 */
+.canvas-settings {
+  .prop-group {
+    label {
+      min-width: 36px;
+    }
+    &.rotation-row {
+      label {
+        width: auto;
+        min-width: 36px;
+      }
+    }
+    &.style-toggle-row,
+    &.style-color-row {
+      grid-template-columns: 36px 1fr;
     }
   }
 }
@@ -1517,6 +1799,70 @@ const keylineMarginInput = computed({
 }
 .shadow-header {
   padding: 4px 0 !important;
+}
+/* 位图滤镜列表：与阴影效果列表同风格，每行 = 一种滤镜（开关头 + 可选参数滑杆行） */
+.bitmap-filter-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 8px 8px;
+}
+/* 位图裁剪会话按钮组：进入/确认/取消右对齐，与面板开关行风格一致 */
+.crop-session-actions {
+  display: flex;
+  gap: 4px;
+  justify-self: end;
+}
+/* 图案填充来源行：上传按钮 + 来源名（超出省略），来源名用 val-label 同款弱化色 */
+.pattern-source-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.pattern-upload-btn {
+  position: relative;
+  flex: 0 0 auto;
+  cursor: pointer;
+}
+.pattern-file-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+.pattern-source-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: #666;
+}
+.bitmap-filter-item {
+  border: 1px solid rgba(128, 128, 128, 0.2);
+  border-radius: 6px;
+  padding: 2px 8px 4px;
+  background: #fafafa;
+}
+.bitmap-filter-header {
+  padding: 4px 0 !important;
+}
+/* 文本区样式按钮行：粗体/斜体/下划线/删除线与对齐三态按钮，右对齐与线型选择器一致 */
+.text-style-actions {
+  display: flex;
+  gap: 4px;
+  justify-self: end;
+}
+.text-style-btn {
+  justify-content: center;
+  min-width: 28px;
+  &.bold { font-weight: 700; }
+  &.italic { font-style: italic; }
+  &.underline { text-decoration: underline; }
+  &.linethrough { text-decoration: line-through; }
 }
 .transform-actions-row {
   display: grid !important;

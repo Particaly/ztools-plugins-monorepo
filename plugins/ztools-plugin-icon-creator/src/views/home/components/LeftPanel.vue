@@ -9,6 +9,7 @@
         :text-presets="textPresets"
         :icon-templates="iconTemplates"
         :user-assets="userAssets"
+        :symbols="symbols"
         :iconify-search="iconifySearch"
         :filtered-iconify-results="filteredIconifyResults"
         :iconify-collection-options="iconifyCollectionOptions"
@@ -20,6 +21,9 @@
         @insert-user-asset="$emit('insert-user-asset', $event)"
         @rename-user-asset="$emit('rename-user-asset', $event)"
         @delete-user-asset="$emit('delete-user-asset', $event)"
+        @insert-symbol="$emit('insert-symbol', $event)"
+        @update-symbol="$emit('update-symbol', $event)"
+        @delete-symbol="$emit('delete-symbol', $event)"
         @update:iconify-query="$emit('update:iconify-query', $event)"
         @search-iconify-icons="$emit('search-iconify-icons')"
         @load-more-iconify-browse-results="$emit('load-more-iconify-browse-results')"
@@ -34,6 +38,7 @@
 import InsertPanelContent from './InsertPanelContent.vue'
 import type { IconTemplateItem, ShapeId, ShapeLibraryItem, TextLibraryItem } from '../editorCatalog'
 import type { IconifySearchState, LeftPanelTab, UserAssetItem } from '../types'
+import type { ProjectSymbol } from '../symbols'
 
 type SelectOption = {
   label: string
@@ -48,6 +53,7 @@ defineProps<{
   textPresets: TextLibraryItem[]
   iconTemplates: IconTemplateItem[]
   userAssets: UserAssetItem[]
+  symbols: ProjectSymbol[]
   iconifySearch: IconifySearchState
   filteredIconifyResults: string[]
   iconifyCollectionOptions: SelectOption[]
@@ -62,6 +68,9 @@ defineEmits<{
   (event: 'insert-user-asset', asset: UserAssetItem): void
   (event: 'rename-user-asset', asset: UserAssetItem): void
   (event: 'delete-user-asset', asset: UserAssetItem): void
+  (event: 'insert-symbol', symbol: ProjectSymbol): void
+  (event: 'update-symbol', symbol: ProjectSymbol): void
+  (event: 'delete-symbol', symbol: ProjectSymbol): void
   (event: 'update:iconify-query', value: string): void
   (event: 'search-iconify-icons'): void
   (event: 'load-more-iconify-browse-results'): void

@@ -168,6 +168,7 @@ export interface HomeExportDeliveryShortcutOptions extends HomeExportDeliveryLay
   canUndo: { value: boolean }
   deleteObject: () => void
   activatePenTool: () => void
+  activatePaintBucketTool: () => void
   saveProject: () => void
   selectionMode: { value: 'shape' | 'point' | 'segment' }
   showToast: (message: string, type?: 'success' | 'error' | 'info' | 'warning', duration?: number) => void

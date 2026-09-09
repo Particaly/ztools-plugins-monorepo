@@ -3,6 +3,7 @@ export type InsertDragPayload =
   | { kind: 'text'; itemId: string }
   | { kind: 'template'; itemId: string }
   | { kind: 'user-asset'; itemId: string }
+  | { kind: 'symbol'; itemId: string }
   | { kind: 'iconify'; iconName: string }
 
 export const INSERT_DRAG_MIME = 'application/x-icon-creator-insert'
@@ -32,7 +33,7 @@ export function readInsertDragPayload(dataTransfer: DataTransfer | null | undefi
       return { kind: 'iconify', iconName: parsed.iconName }
     }
     if (
-      (parsed.kind === 'shape' || parsed.kind === 'text' || parsed.kind === 'template' || parsed.kind === 'user-asset')
+      (parsed.kind === 'shape' || parsed.kind === 'text' || parsed.kind === 'template' || parsed.kind === 'user-asset' || parsed.kind === 'symbol')
       && typeof parsed.itemId === 'string'
       && parsed.itemId.trim()
     ) {

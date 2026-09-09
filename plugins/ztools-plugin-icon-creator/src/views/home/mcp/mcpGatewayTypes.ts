@@ -6,6 +6,57 @@ import type {
   ExportSizeSetResult
 } from '../editor/modules/export-delivery/exportDeliveryTypes'
 import type { DocumentStylePresetSummary, DocumentSwatch } from '../documentStyleMeta'
+import type { BitmapFilterSetting } from '../bitmapFilters'
+
+/** MCP 侧位图滤镜设置：与编辑器内部 BitmapFilterSetting 同构（type 小写约定 + 可选参数）。 */
+export type McpBitmapFilterSetting = BitmapFilterSetting
+
+/**
+ * 对齐参考线的对外结构（用户从标尺拖出的辅助线，与 set_keyline 的 Keyline 安全区模板无关）：
+ * orientation 取 horizontal（水平线，position 为 y）/ vertical（垂直线，position 为 x），
+ * position 为画布坐标系像素。
+ */
+export interface McpGuide {
+  id: string
+  orientation: 'horizontal' | 'vertical'
+  position: number
+}
+
+/** set_guides 的入参条目：与 McpGuide 相比省略 id（由实现侧生成）。 */
+export interface McpGuideInput {
+  orientation: 'horizontal' | 'vertical'
+  position: number
+}
+
+/**
+ * set_pattern_fill 的请求参数：source 为 null 表示清除图案恢复纯色；
+ * repeat 缺省 repeat；scale 为图案缩放倍数（缺省 1，越界值自动收敛到 0.05-20）。
+ */
+export interface McpPatternFillRequest {
+  source: string | null
+  repeat?: 'repeat' | 'repeat-x' | 'repeat-y' | 'no-repeat'
+  scale?: number
+}
+
+/**
+ * update_text 的更新字段（全部可选但至少一项）：对象必须是文本对象（Text/Textbox/IText）。
+ * fontSize 取 6-500，charSpacing 为字间距（千分之一 em，取 -200~800），
+ * lineHeight 为行高倍数（取 0.5-3），越界值由调度层校验报错。
+ */
+export interface McpUpdateTextRequest {
+  /** 新文本内容（支持换行符）。 */
+  text?: string
+  fontSize?: number
+  fontFamily?: string
+  /** 字重：'normal'/'bold' 或 100-900 的数字。 */
+  fontWeight?: 'normal' | 'bold' | number
+  fontStyle?: 'normal' | 'italic'
+  charSpacing?: number
+  lineHeight?: number
+  textAlign?: 'left' | 'center' | 'right' | 'justify'
+  underline?: boolean
+  linethrough?: boolean
+}
 
 /**
  * 摘要中渐变样式的可读 JSON 形式：coords 单位与 fabric Gradient 一致
@@ -62,6 +113,10 @@ export interface McpObjectSummary {
   locked: boolean
   left: number
   top: number
+  /** angle=0 时的包围盒左上角 x（left/top 是对象中心点，不能直接当左上角使用）。 */
+  bboxLeft: number
+  /** angle=0 时的包围盒左上角 y。 */
+  bboxTop: number
   width: number
   height: number
   scaleX: number
@@ -77,22 +132,53 @@ export interface McpObjectSummary {
   /** 是否设置了 clipPath 蒙版（mask_objects 应用后为 true，unmask_object 后为 false）。 */
   masked: boolean
   zIndex: number
+  /** 混合模式（对外约定名，normal 表示正常；所有对象都携带）。 */
+  blendMode?: string
+  /** 位图滤镜设置列表（仅位图对象携带，按面板固定顺序，含禁用条目）。 */
+  filters?: McpBitmapFilterSetting[]
+}
+
+/**
+ * 创建类操作（add_shape / insert_svg / create_objects 条目）可选携带的初始样式字段：
+ * 值语义与 set_object_props 完全一致——fill/stroke 支持 hex/rgba、"swatch:名字" 色板引用、
+ * 渐变 JSON 对象与 'none'；shadow 支持 { color, blur, offsetX, offsetY }、null 或 'none'；
+ * cornerRadius 按本体几何重建圆角，opacity 取 0-1。
+ * 类型保持 unknown 原样透传，解析统一在网关层的 applyPropsToObject 路径完成。
+ */
+export interface McpCreateStyleSettings {
+  /** 初始填充色（hex/rgba、"swatch:名字"、渐变 JSON 或 'none'）。 */
+  fill?: unknown
+  /** 初始描边色（取值语义同 fill）。 */
+  stroke?: unknown
+  /** 初始描边宽度。 */
+  strokeWidth?: unknown
+  /** 初始圆角半径（按本体几何重建，仅基础形状等可编辑路径对象生效）。 */
+  cornerRadius?: unknown
+  /** 初始不透明度（0-1）。 */
+  opacity?: unknown
+  /** 初始阴影（{ color, blur, offsetX, offsetY }、null 或 'none'）。 */
+  shadow?: unknown
 }
 
 /**
  * 批量创建对象的单个条目：shape / svg / text 三选一（同时提供时按 svg > shape > text 优先），
- * 其余字段为可选的位置、尺寸与初始样式设置。
+ * 其余字段为可选的位置、尺寸与初始样式设置（样式字段语义见 McpCreateStyleSettings）。
  */
-export interface McpCreateObjectItem {
+export interface McpCreateObjectItem extends McpCreateStyleSettings {
   /** 基础图形短名或 base- 前缀目录 id（同 add_shape 的 shape 参数）。 */
   shape?: string
   /** SVG 文本（完整 <svg> 文档、<path> 片段或 path d 属性均可）。 */
   svg?: string
   /** 文本内容。 */
   text?: string
-  /** 画布坐标（省略时使用画布中心）。 */
+  /** 目标位置坐标（语义由 anchor 决定，缺省为包围盒中心点；省略时使用画布中心）。 */
   x?: number
   y?: number
+  /**
+   * x/y 的定位锚点：'center'（默认）时 x/y 为对象包围盒中心点，
+   * 'top-left' 时 x/y 为包围盒左上角。省略 x/y 时本字段不生效（对象落在画布中心）。
+   */
+  anchor?: 'center' | 'top-left'
   /** 目标显示尺寸，仅对 shape 生效（形状按该尺寸生成本体几何）。 */
   width?: number
   height?: number
@@ -100,8 +186,17 @@ export interface McpCreateObjectItem {
   scale?: number
   /** 图层名（省略时沿用默认自动命名）。 */
   name?: string
-  /** 初始填充色（hex/rgba）。 */
-  fill?: string
+}
+
+/**
+ * batch_set_props 逐对象条目形态的单条设置：每个条目给指定对象应用各自的属性键值
+ * （值语义与 setObjectProps 的 props 一致），与"objectIds + props 同值批量"形态二选一。
+ */
+export interface McpBatchPropsItem {
+  /** 目标对象 id。 */
+  objectId: string
+  /** 该对象各自应用的属性键值（语义与 setObjectProps 的 props 一致）。 */
+  props: Record<string, unknown>
 }
 
 /**
@@ -112,16 +207,24 @@ export interface McpExportArtboardOptions {
   artboardId?: string
 }
 
-/** 画布快速预览图（缩略图）选项：size 为输出宽度像素。 */
+/**
+ * 画布快速预览图（缩略图）选项：size 为输出宽度像素；
+ * outputPath 为可选的绝对文件路径，提供时把缩略图 PNG 落盘并返回 filePath（不再返回 dataUrl）。
+ */
 export interface McpCanvasThumbnailOptions extends McpExportArtboardOptions {
   size?: number
+  outputPath?: string
 }
 
-/** 画布快速预览图结果：dataUrl 为透明底 PNG，width/height 为实际输出像素。 */
+/**
+ * 画布快速预览图结果：width/height 为实际输出像素。
+ * 提供 outputPath 时返回 filePath（不返回 dataUrl，节省 token）；未提供时返回 dataUrl（透明底 PNG）。
+ */
 export interface McpCanvasThumbnailResult {
-  dataUrl: string
   width: number
   height: number
+  dataUrl?: string
+  filePath?: string
 }
 
 /** SVG 文本导出选项。 */
@@ -171,6 +274,28 @@ export interface McpSnapshotSummary {
   objectCount: number
 }
 
+/**
+ * 符号定义摘要（list_symbols / define_symbol / update_symbol 的返回结构）：
+ * instanceCount 为画布上当前引用此定义的实例数量（实时统计）。
+ */
+export interface McpSymbolSummary {
+  id: string
+  name: string
+  /** 定义创建时间（毫秒时间戳）。 */
+  createdAt: number
+  /** 定义内的对象数量。 */
+  objectCount: number
+  /** 画布上引用此定义的实例数量。 */
+  instanceCount: number
+}
+
+/** insert_symbol_instance 的返回结构：objectId 为实例 Group 的编辑器对象 id。 */
+export interface McpSymbolInstanceInsertResult {
+  objectId: string
+  symbolId: string
+  symbolInstanceId: string
+}
+
 /** save_snapshot 的返回结构。 */
 export interface McpSnapshotSaveResult {
   name: string
@@ -214,15 +339,68 @@ export interface McpEditorGateway {
   setCanvasBackground: (color: string) => void
   /** 控制像素网格显示、吸附与网格尺寸。 */
   setPixelGrid: (options: { visible?: boolean; snap?: boolean; size?: number }) => void
-  /** 控制参考线模板与边距。 */
+  /** 控制 Keyline 安全区模板与边距（模板参考线 overlay，与对齐参考线无关）。 */
   setKeyline: (options: { template?: string; margin?: number }) => void
+
+  /** 列出文档级对齐参考线（用户参考线，随工程保存与撤销历史持久化）。 */
+  listGuides: () => { guides: McpGuide[] }
+  /**
+   * 整体替换对齐参考线：position 越界（负值 / 超出画布）时夹取到画布范围内而非报错，
+   * id 由实现生成，返回夹取后的完整列表。整个操作合并为一条撤销记录。
+   */
+  setGuides: (guides: McpGuideInput[]) => { guides: McpGuide[] }
+  /** 清空全部对齐参考线，返回空列表；整个操作合并为一条撤销记录。 */
+  clearGuides: () => { guides: McpGuide[] }
+
+  /**
+   * 从画布现有对象创建（或按 id 覆盖）文档级符号定义（见 symbols.ts 说明）：
+   * objectIds 须为画布上已存在的对象 id，原对象保持不变（不自动转为实例），
+   * 定义坐标按包围盒左上角归一化。整个操作合并为一条撤销记录，返回符号摘要。
+   */
+  defineSymbol: (name: string, objectIds: string[]) => McpSymbolSummary
+  /** 列出全部文档级符号定义（含定义对象数与画布实例数）。 */
+  listSymbols: () => { symbols: McpSymbolSummary[] }
+  /**
+   * 插入符号定义的一个联动实例（一个 fabric Group，携带 symbolId / symbolInstanceId 元数据）：
+   * x/y 为实例包围盒中心点（anchor 默认 'center'，省略 x/y 时落画布中心），
+   * anchor='top-left' 时 x/y 为包围盒左上角。symbolId 不存在时抛错；
+   * 实例超出画布时操作仍成功。整个操作为一条撤销记录，返回实例摘要。
+   */
+  insertSymbolInstance: (
+    symbolId: string,
+    options?: { x?: number; y?: number; anchor?: 'center' | 'top-left' }
+  ) => Promise<McpSymbolInstanceInsertResult>
+  /**
+   * 用画布对象重写指定符号定义并同步全部实例（update_symbol）：
+   * 实例按新定义重建，保持各自的包围盒中心、显示尺寸与旋转角（见 symbols.ts 映射策略）。
+   * 整个操作合并为一条撤销记录，返回更新后的符号摘要。
+   */
+  updateSymbol: (symbolId: string, objectIds: string[]) => Promise<McpSymbolSummary>
+  /**
+   * 解除单个对象与符号定义的关联（detach_symbol_instance）：
+   * 移除 symbolId / symbolInstanceId 元数据转普通对象，外观与定义均不变；
+   * 目标不是符号实例时抛错。整个操作为一条撤销记录，返回解除后的对象摘要。
+   */
+  detachSymbolInstance: (objectId: string) => Promise<McpObjectSummary>
+  /**
+   * 全局颜色替换：把全部对象的 fill/stroke 与渐变色标中等于 from 的颜色整体替换为 to
+   * （写法简并比较，大小写不敏感，支持 transparent），返回替换对象数 / 槽位数与
+   * 归一化后的 from/to；没有匹配时不产生撤销记录，有替换则合并为一条。
+   */
+  replaceColor: (from: string, to: string) => { replacedObjects: number; replacedSlots: number; from: string; to: string }
 
   /**
    * 添加基础图形。shape 取值见 editorCatalog.basicShapes 的 id；
-   * x/y 为画布坐标（未传时以画布中心插入）；width/height 指定目标尺寸时
+   * x/y 为对象包围盒中心点（anchor 默认 'center'，未传 x/y 时以画布中心插入），
+   * anchor='top-left' 时 x/y 为包围盒左上角；width/height 指定目标尺寸时
    * 形状按该尺寸生成本体几何（scale 保持 1），返回新对象 id。
+   * settings 可携带初始样式字段（fill/stroke/strokeWidth/cornerRadius/opacity/shadow，
+   * 值语义与 setObjectProps 一致，见 McpCreateStyleSettings），创建后统一应用。
    */
-  addShape: (shape: string, options?: { x?: number; y?: number; width?: number; height?: number }) => string
+  addShape: (
+    shape: string,
+    options?: { x?: number; y?: number; width?: number; height?: number; anchor?: 'center' | 'top-left' } & McpCreateStyleSettings
+  ) => string
   /**
    * 添加文本对象。preset 为 textPresets id 或省略时用正文样式；
    * text 为实际文本内容，fill 支持颜色字符串或 "swatch:名字" 色板引用，返回新对象 id。
@@ -231,9 +409,15 @@ export interface McpEditorGateway {
   /**
    * 导入 SVG 内容（完整 <svg> 文档、<path> 片段或 path d 属性均可）。
    * 默认按原始尺寸 1:1 导入；scale 为可选缩放倍数。
+   * x/y 为对象包围盒中心点（anchor 默认 'center'），anchor='top-left' 时 x/y 为包围盒左上角。
    * 导入对象超出画布边界时操作仍成功，返回的 message 字段携带提示信息。
+   * settings 可携带初始样式字段（fill/stroke/strokeWidth/cornerRadius/opacity/shadow，
+   * 值语义与 setObjectProps 一致，见 McpCreateStyleSettings），导入后统一应用。
    */
-  insertSvg: (svg: string, options?: { name?: string; x?: number; y?: number; scale?: number }) => Promise<{ objectId: string; message?: string }>
+  insertSvg: (
+    svg: string,
+    options?: { name?: string; x?: number; y?: number; scale?: number; anchor?: 'center' | 'top-left' } & McpCreateStyleSettings
+  ) => Promise<{ objectId: string; message?: string }>
   /** 从 Iconify 插入图标，iconName 形如 "mdi:home"。 */
   insertIconifyIcon: (iconName: string, options?: { x?: number; y?: number }) => Promise<string>
   /** 插入内置图标模板（iconTemplates id）。 */
@@ -295,7 +479,16 @@ export interface McpEditorGateway {
    */
   batchSetObjectsProps: (objectIds: string[], props: Record<string, unknown>) => McpObjectSummary[]
   /**
-   * 按条目顺序批量创建对象（每条目 shape/svg/text 三选一），可选 fill/name 在创建后应用；
+   * 按逐对象条目批量设置属性：每个条目给指定对象应用各自的 props
+   * （语义与 setObjectProps 一致），适合一次调用完成多个对象的不同属性修改；
+   * 整批合并为一条撤销记录，一次 undo 即可整体还原；任一条目目标缺失或
+   * 样式值非法时整批报错，不留部分应用状态；返回摘要顺序与 items 一致。
+   */
+  batchSetObjectsPropsItems: (items: McpBatchPropsItem[]) => McpObjectSummary[]
+  /**
+   * 按条目顺序批量创建对象（每条目 shape/svg/text 三选一），条目可携带初始样式字段
+   * （McpCreateStyleSettings，语义与 setObjectProps 一致，创建后统一应用）与 name；
+   * 条目 x/y 的锚点语义与 addShape/insertSvg 一致（默认包围盒中心，anchor='top-left' 按左上角定位）；
    * group 为 true 且创建对象数不少于 2 时把全部新对象编组，groupName 设置组名。
    * 返回全部新对象 id 与可选的组 id。
    */
@@ -340,6 +533,13 @@ export interface McpEditorGateway {
   outlineText: (objectId?: string) => Promise<{ objectId: string }>
 
   /**
+   * 更新文本对象的内容与排版属性（request 字段见 McpUpdateTextRequest，至少一项）：
+   * text 变更后实现会重算文本布局（换行与宽高随内容刷新）。
+   * 目标不存在或非文本对象时抛错；整个操作合并为一条撤销记录，返回更新后的对象摘要。
+   */
+  updateText: (objectId: string, request: McpUpdateTextRequest) => Promise<McpObjectSummary>
+
+  /**
    * 把蒙版对象设为目标对象的 clipPath 裁切：裁剪区域与蒙版当前在画布上的
    * 视觉位置/尺寸一致（内部换算目标与蒙版之间的旋转/缩放/位移差）。
    * removeMaskObject 为 true 时应用后从画布移除蒙版对象。
@@ -352,6 +552,37 @@ export interface McpEditorGateway {
   ) => Promise<{ objectId: string; clipPathId?: string }>
   /** 移除目标对象上的 clipPath 蒙版恢复完整显示，返回移除后的对象摘要；对象没有蒙版时抛错。 */
   unmaskObject: (objectId: string) => Promise<McpObjectSummary>
+
+  /**
+   * 整体替换目标位图的滤镜列表（与属性面板数据一致，按固定顺序重建），
+   * 可选同时设置混合模式（normal 表示正常）；filters 省略时保留现有滤镜只设混合模式。
+   * 整个操作合并为一条撤销记录，目标不存在或非位图时抛错，返回更新后的对象摘要。
+   */
+  applyImageFilter: (
+    objectId: string,
+    filters: McpBitmapFilterSetting[] | undefined,
+    blendMode?: string
+  ) => Promise<McpObjectSummary>
+
+  /**
+   * 裁剪目标位图：rect 以图片当前显示包围盒为坐标系（angle=0 语义，
+   * 与对象摘要的 bboxLeft/bboxTop 同一坐标系），left/top 为矩形左上角。
+   * 越界或换算后源区域过小时抛错；整个操作合并为一条撤销记录，返回更新后的对象摘要。
+   */
+  cropImage: (
+    objectId: string,
+    rect: { left: number; top: number; width: number; height: number }
+  ) => Promise<McpObjectSummary>
+
+  /**
+   * 为目标对象设置图案填充（fabric Pattern fill）：source 为 dataURL 或 http(s) 图片 URL，
+   * repeat 取 repeat/repeat-x/repeat-y/no-repeat（缺省 repeat），scale 为缩放倍数（缺省 1）。
+   * source 为 null 时清除图案并恢复纯色。整个操作合并为一条撤销记录，返回更新后的对象摘要。
+   */
+  setPatternFill: (
+    objectId: string,
+    request: McpPatternFillRequest
+  ) => Promise<McpObjectSummary>
 
   /**
    * 把当前画布内容（完整序列化 JSON，不含色板/样式预设等文档级元数据）存为命名快照。
@@ -398,9 +629,10 @@ export interface McpEditorGateway {
   /** 导出 PNG/WebP dataURL（不落盘）。size 为输出宽度像素，format 默认 png。 */
   exportPngDataUrl: (options?: McpExportPngDataUrlOptions) => Promise<string>
   /**
-   * 渲染画布快速预览图（透明底 PNG dataURL，不落盘），语义为“给 AI 看的低成本视觉自检”：
+   * 渲染画布快速预览图（透明底 PNG），语义为“给 AI 看的低成本视觉自检”：
    * 修改布局/样式后先用它确认效果，再决定是否继续精调或正式导出。
-   * size 为输出宽度像素（默认 256），artboardId 指定按该画板渲染。
+   * size 为输出宽度像素（默认 256），artboardId 指定按该画板渲染；
+   * 提供 outputPath（绝对文件路径）时写入该文件并返回 filePath（不返回 dataUrl），未提供时返回 dataUrl。
    */
   getCanvasThumbnail: (options?: McpCanvasThumbnailOptions) => Promise<McpCanvasThumbnailResult>
   /** 导出 SVG 到下载目录或 outputDir（绝对目录），返回写入的文件路径。 */

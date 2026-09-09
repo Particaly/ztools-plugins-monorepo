@@ -48,6 +48,8 @@ export interface CreateHomeLayersModuleOptions {
   clearKaleidoscopeMetadata: (obj: FabricObject) => void
   copyStyle: () => void
   deleteObjects: (objects?: FabricObject[]) => void
+  /** 解除选中对象的符号关联（符号实例转普通对象，一条撤销记录），见 symbols.ts 说明。 */
+  detachSymbolInstances: (objects: FabricObject[]) => void
   duplicateSelection: () => Promise<boolean>
   ensureEditorObjectId: (obj: FabricObject | null | undefined) => string
   getFabricCanvas: () => Canvas | null
@@ -56,11 +58,15 @@ export interface CreateHomeLayersModuleOptions {
   groupObjects: () => void
   isBooleanPreviewObject: (obj: FabricObject | null | undefined) => boolean
   isKaleidoscopeInstance: (obj: FabricObject | null | undefined) => boolean
+  /** 判断对象是否为符号实例（携带合法 symbolId / symbolInstanceId 元数据）。 */
+  isSymbolInstance: (obj: FabricObject | null | undefined) => boolean
   layerBottom: () => void
   layerDown: () => void
   layerTop: () => void
   layerUp: () => void
   layerVersion: Ref<number>
+  /** 打开「创建为符号」命名弹窗（以当前选区为内容）。 */
+  openCreateSymbolDialog: () => void
   openCreateUserAssetDialog: () => void
   pasteStyle: () => void
   refreshActiveObject: () => void
@@ -145,6 +151,8 @@ export function createHomeLayersModule(options: CreateHomeLayersModuleOptions): 
 
   const canLayerContextDetach = computed(() => layerContextMenuTargets.value.some((obj) => options.isKaleidoscopeInstance(obj)))
   const canLayerContextSelectSource = computed(() => !!layerContextMenuSourceTarget.value)
+  // 选中集合中存在符号实例时才允许解除符号关联（见 symbols.ts 说明）。
+  const canLayerContextDetachSymbol = computed(() => layerContextMenuTargets.value.some((obj) => options.isSymbolInstance(obj)))
   const canLayerContextMove = computed(() => {
     const target = singleLayerContextTarget.value
     return !!target && !isLayerKaleidoscopeLocked(target)
@@ -183,7 +191,9 @@ export function createHomeLayersModule(options: CreateHomeLayersModuleOptions): 
         { key: 'detach-source', label: '脱离源对象', disabled: !options.isKaleidoscopeInstance(target) },
         { key: 'select-source', label: '选中源对象', disabled: !canLayerContextSelectSource.value },
         { type: 'separator' },
-        { key: 'save-user-asset', label: '保存到素材库', disabled: !options.canSaveUserAsset.value }
+        { key: 'save-user-asset', label: '保存到素材库', disabled: !options.canSaveUserAsset.value },
+        { key: 'create-symbol', label: '创建为符号' },
+        { key: 'detach-symbol', label: '解除符号关联', disabled: !options.isSymbolInstance(target) }
       ]
     }
     return [
@@ -192,6 +202,7 @@ export function createHomeLayersModule(options: CreateHomeLayersModuleOptions): 
       { key: 'group', label: '成组', disabled: !options.canGroup.value },
       { key: 'ungroup', label: '解组', disabled: !options.canUngroup.value },
       { key: 'save-user-asset', label: '保存到素材库', disabled: !options.canSaveUserAsset.value },
+      { key: 'create-symbol', label: '创建为符号' },
       { key: 'delete', label: '删除', danger: true },
       { type: 'separator' },
       { key: 'copy-style', label: '复制样式', icon: 'mdi:content-copy' },
@@ -200,7 +211,8 @@ export function createHomeLayersModule(options: CreateHomeLayersModuleOptions): 
       { key: 'hide', label: '隐藏', disabled: !targets.some((obj) => obj.visible !== false) },
       { key: 'lock', label: '锁定', disabled: !targets.some((obj) => !obj.lockMovementX) },
       { key: 'unlock', label: '解锁', disabled: !targets.some((obj) => !!obj.lockMovementX) },
-      { key: 'detach-source', label: '脱离源对象', disabled: !canLayerContextDetach.value }
+      { key: 'detach-source', label: '脱离源对象', disabled: !canLayerContextDetach.value },
+      { key: 'detach-symbol', label: '解除符号关联', disabled: !canLayerContextDetachSymbol.value }
     ]
   })
 
@@ -481,6 +493,12 @@ export function createHomeLayersModule(options: CreateHomeLayersModuleOptions): 
         return
       case 'save-user-asset':
         options.openCreateUserAssetDialog()
+        return
+      case 'create-symbol':
+        options.openCreateSymbolDialog()
+        return
+      case 'detach-symbol':
+        options.detachSymbolInstances(targets)
         return
       case 'copy-style':
         options.copyStyle()

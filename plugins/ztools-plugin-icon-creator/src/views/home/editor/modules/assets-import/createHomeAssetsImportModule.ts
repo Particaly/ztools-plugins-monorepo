@@ -50,6 +50,7 @@ import type {
 } from '../../../types'
 import type { HomeAssetsImportController, InsertScenePoint } from './assetsImportTypes'
 import { readInsertDragPayload } from './insertDragPayload'
+import { readFileAsDataURL } from '../../../fileUtils'
 
 export interface CreateHomeAssetsImportModuleOptions {
   svgInputRef: Ref<HTMLInputElement | null>
@@ -64,6 +65,8 @@ export interface CreateHomeAssetsImportModuleOptions {
   snapshot: () => void
   newDoc: () => void
   clearStoredDraft: () => void
+  /** 模板应用为新建文档完成后的页面层钩子：多标签场景由页面层立即补写草稿，避免丢失其他标签内容。 */
+  onTemplateAppliedAsDocument?: () => void
   resetHistoryToCurrentCanvas: () => void
   createProjectFile: () => IconCreatorProjectFile
   loadProjectFile: (project: IconCreatorProjectFile, options?: ProjectLoadOptions) => Promise<void>
@@ -72,6 +75,8 @@ export interface CreateHomeAssetsImportModuleOptions {
   clearPointEditing: () => void
   addShape: (item: ShapeLibraryItem, scenePoint?: InsertScenePoint | null) => void
   addText: (item: TextLibraryItem, scenePoint?: InsertScenePoint | null) => void
+  /** 插入文档符号实例（拖拽落点插入复用，见 symbols.ts 说明）；symbolId 不存在时抛中文错误。 */
+  insertSymbolById: (symbolId: string, scenePoint: InsertScenePoint | null) => Promise<void>
   refreshLayers: () => void
   syncActiveObjectPreservingPointMode: (obj: FabricObject | null) => void
   setSelectionMode: (mode: 'shape' | 'point' | 'segment') => void
@@ -80,6 +85,8 @@ export interface CreateHomeAssetsImportModuleOptions {
   applyCanvasSize: () => void
   ensureEditorObjectId: (obj: FabricObject | null | undefined) => string
   nextName: (type: string) => string
+  /** 无序号优先命名：画布无同名对象时直接返回 type，重名时返回最小的 `type N`（SVG 导入命名链路使用）。 */
+  nextNameUnique: (type: string) => string
   prepareClonedObjectMetadata: (obj: FabricObject) => void
   normalizeEndpointAttachments: (obj: FabricObject) => void
   applyCanvasThemeToObject: (obj: FabricObject | null | undefined) => void
@@ -616,10 +623,11 @@ export function createHomeAssetsImportModule(
     if (lockSizeRatio) {
       options.markObjectSizeRatioLocked(obj)
     }
+    // SVG 导入命名走 nextNameUnique：首次导入不带序号，仅与画布现有对象重名时追加最小可用序号
     if (isRoot) {
-      target.name = options.nextName(displayName)
+      target.name = options.nextNameUnique(displayName)
     } else if (!String(target.name || '').trim()) {
-      target.name = options.nextName('SVG 元素')
+      target.name = options.nextNameUnique('SVG 元素')
     }
     if (typeof obj.fill === 'string' && obj.fill.trim() && obj.fill !== 'transparent') {
       target.lastFill = obj.fill
@@ -713,27 +721,25 @@ export function createHomeAssetsImportModule(
   /**
    * 把本地图片文件导入为 Fabric Image，并补齐编辑器元数据后放到画布中心附近。
    * 图片资源默认锁定宽高比例，避免拖拽缩放时把位图和外部素材意外拉伸变形。
+   * 先用 FileReader 读成 base64 dataURL 再建图，使对象 src 可随工程 JSON 持久化，刷新后仍能恢复；
+   * 读取或解码失败时异常向上抛出，由调用方统一 toast 提示。
    */
   async function importImageFile(file: File) {
     if (!options.getFabricCanvas()) return
-    const url = URL.createObjectURL(file)
-    try {
-      const image = await FabricImage.fromURL(url)
-      applyDefaultKaleidoscopeMetadata(image)
-      applyDefaultEndpointSnapMargin(image)
-      applyDefaultSizeRatioLockMetadata(image)
-      options.markObjectSizeRatioLocked(image)
-      image.set({
-        left: options.canvasWidth.value / 2 - (image.width || 60) / 2,
-        top: options.canvasHeight.value / 2 - (image.height || 60) / 2,
-        name: options.nextName(file.name)
-      })
-      options.ensureEditorObjectId(image)
-      image.setCoords()
-      await commitImportedObjects([image])
-    } finally {
-      URL.revokeObjectURL(url)
-    }
+    const dataUrl = await readFileAsDataURL(file)
+    const image = await FabricImage.fromURL(dataUrl)
+    applyDefaultKaleidoscopeMetadata(image)
+    applyDefaultEndpointSnapMargin(image)
+    applyDefaultSizeRatioLockMetadata(image)
+    options.markObjectSizeRatioLocked(image)
+    image.set({
+      left: options.canvasWidth.value / 2 - (image.width || 60) / 2,
+      top: options.canvasHeight.value / 2 - (image.height || 60) / 2,
+      name: options.nextName(file.name)
+    })
+    options.ensureEditorObjectId(image)
+    image.setCoords()
+    await commitImportedObjects([image])
   }
 
   /**
@@ -779,6 +785,8 @@ export function createHomeAssetsImportModule(
       await importSVGText(template.svg, template.name)
       options.clearStoredDraft()
       options.resetHistoryToCurrentCanvas()
+      // 模板应用内部清空了草稿；多标签场景由页面层立即补写，保留其他标签的未保存内容
+      options.onTemplateAppliedAsDocument?.()
     } catch (error) {
       await options.loadProjectFile(previousProject, { keepDraft: true })
       options.showToast(error instanceof Error ? error.message : '应用模板失败', 'error')
@@ -952,6 +960,14 @@ export function createHomeAssetsImportModule(
         case 'user-asset': {
           const asset = findUserAsset(insertPayload.itemId)
           if (asset) await insertUserAsset(asset, scenePoint)
+          break
+        }
+        case 'symbol': {
+          try {
+            await options.insertSymbolById(insertPayload.itemId, scenePoint)
+          } catch (error) {
+            options.showToast(error instanceof Error ? error.message : '插入符号实例失败', 'error')
+          }
           break
         }
         case 'iconify':

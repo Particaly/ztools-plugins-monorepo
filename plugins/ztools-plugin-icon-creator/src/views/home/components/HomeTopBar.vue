@@ -33,6 +33,7 @@
             :text-presets="textPresets"
             :icon-templates="iconTemplates"
             :user-assets="userAssets"
+            :symbols="symbols"
             :iconify-search="iconifySearch"
             :filtered-iconify-results="filteredIconifyResults"
             :iconify-collection-options="iconifyCollectionOptions"
@@ -44,6 +45,9 @@
             @insert-user-asset="handleInsertPanelValueChange('insert-user-asset', $event)"
             @rename-user-asset="handleInsertPanelValueChange('rename-user-asset', $event)"
             @delete-user-asset="handleInsertPanelValueChange('delete-user-asset', $event)"
+            @insert-symbol="handleInsertPanelValueChange('insert-symbol', $event)"
+            @update-symbol="handleInsertPanelValueChange('update-symbol', $event)"
+            @delete-symbol="handleInsertPanelValueChange('delete-symbol', $event)"
             @update:iconify-query="handleInsertPanelValueChange('update:iconify-query', $event, false)"
             @search-iconify-icons="handleInsertPanelCommand('search-iconify-icons', false)"
             @load-more-iconify-browse-results="handleInsertPanelCommand('load-more-iconify-browse-results', false)"
@@ -88,6 +92,7 @@ import { computed, ref } from 'vue'
 import { ZButton, ZPopover } from 'ztools-ui'
 import type { IconTemplateItem, ShapeId, ShapeLibraryItem, TextLibraryItem } from '../editorCatalog'
 import type { IconifySearchState, LeftPanelTab, UserAssetItem } from '../types'
+import type { ProjectSymbol } from '../symbols'
 import InsertPanelContent from './InsertPanelContent.vue'
 
 type TopMenuId = 'file' | 'insert' | 'edit' | 'view' | 'output'
@@ -108,6 +113,8 @@ type TopMenuEvent =
   | 'toggle-pixel-grid'
   | 'toggle-snap-to-pixel-grid'
   | 'toggle-keyline-overlay'
+  | 'toggle-guides'
+  | 'clear-guides'
   | 'open-shortcut-drawer'
 
 type TopMenuItem = {
@@ -145,6 +152,10 @@ const props = defineProps<{
   showPixelGrid: boolean
   snapToPixelGrid: boolean
   keylineActive: boolean
+  /** 对齐参考线显示开关（用户从标尺拖出的参考线，与 Keyline 模板无关）。 */
+  showGuides: boolean
+  /** 文档中是否存在对齐参考线，用于「清除参考线」菜单项的禁用态。 */
+  hasGuides: boolean
   shortcutDrawerOpen: boolean
   selectionMode: 'shape' | 'point' | 'segment'
   hasEditablePoints: boolean
@@ -156,6 +167,8 @@ const props = defineProps<{
   textPresets: TextLibraryItem[]
   iconTemplates: IconTemplateItem[]
   userAssets: UserAssetItem[]
+  /** 文档级符号定义列表（见 symbols.ts 说明）。 */
+  symbols: ProjectSymbol[]
   iconifySearch: IconifySearchState
   filteredIconifyResults: string[]
   iconifyCollectionOptions: SelectOption[]
@@ -178,6 +191,8 @@ const emit = defineEmits<{
   (event: 'toggle-pixel-grid'): void
   (event: 'toggle-snap-to-pixel-grid'): void
   (event: 'toggle-keyline-overlay'): void
+  (event: 'toggle-guides'): void
+  (event: 'clear-guides'): void
   (event: 'open-shortcut-drawer'): void
   (event: 'set-selection-mode', mode: 'shape' | 'point' | 'segment'): void
   (event: 'set-zoom', zoom: number): void
@@ -189,6 +204,9 @@ const emit = defineEmits<{
   (event: 'insert-user-asset', asset: UserAssetItem): void
   (event: 'rename-user-asset', asset: UserAssetItem): void
   (event: 'delete-user-asset', asset: UserAssetItem): void
+  (event: 'insert-symbol', symbol: ProjectSymbol): void
+  (event: 'update-symbol', symbol: ProjectSymbol): void
+  (event: 'delete-symbol', symbol: ProjectSymbol): void
   (event: 'update:iconify-query', value: string): void
   (event: 'search-iconify-icons'): void
   (event: 'load-more-iconify-browse-results'): void
@@ -239,6 +257,8 @@ const topMenus = computed<TopMenu[]>(() => [
       { type: 'item', id: 'toggle-pixel-grid', label: '网格', title: '显示或隐藏像素网格', icon: 'mdi:grid', event: 'toggle-pixel-grid', active: props.showPixelGrid },
       { type: 'item', id: 'toggle-snap-to-pixel-grid', label: '吸附', title: '切换吸附到像素网格', icon: 'mdi:magnet', event: 'toggle-snap-to-pixel-grid', active: props.snapToPixelGrid },
       { type: 'item', id: 'toggle-keyline-overlay', label: '参考线', title: '显示或隐藏 Keyline 与安全区参考线', icon: 'mdi:vector-square', event: 'toggle-keyline-overlay', active: props.keylineActive },
+      { type: 'item', id: 'toggle-guides', label: '对齐参考线', title: '显示或隐藏从标尺拖出的对齐参考线', icon: 'mdi:vector-line', event: 'toggle-guides', active: props.showGuides },
+      { type: 'item', id: 'clear-guides', label: '清除参考线', title: '清除全部对齐参考线', icon: 'mdi:notification-clear-all', event: 'clear-guides', disabled: !props.hasGuides },
       { type: 'separator', id: 'view-shortcut-separator' },
       { type: 'item', id: 'open-shortcut-drawer', label: '快捷键', title: '打开快捷键设置', icon: 'mdi:keyboard-outline', event: 'open-shortcut-drawer', active: props.shortcutDrawerOpen }
     ]
@@ -349,6 +369,12 @@ function runTopMenuItem(entry: TopMenuItem): void {
       break
     case 'toggle-keyline-overlay':
       emit('toggle-keyline-overlay')
+      break
+    case 'toggle-guides':
+      emit('toggle-guides')
+      break
+    case 'clear-guides':
+      emit('clear-guides')
       break
     case 'open-shortcut-drawer':
       emit('open-shortcut-drawer')

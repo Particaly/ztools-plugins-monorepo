@@ -3,10 +3,13 @@ import type { FabricBooleanStyleSnapshot } from './geometry/fabricToPathKit'
 import type { EditablePathObject, EditableSegmentRef } from './geometry/editablePath'
 import type { FillGradientStop, FillGradientType } from './fabric/objectMetadata'
 import type { DocumentProjectMeta } from './documentSnapshots'
+import type { ProjectGuide } from './documentGuides'
+import type { ProjectSymbol } from './symbols'
 
 export type FabricControls = Record<string, Control>
 
-export type LeftPanelTab = 'shape' | 'text' | 'assets' | 'iconify' | 'templates'
+// 左侧面板插入页签：symbols 为文档符号库（可复用定义 + 联动实例，见 symbols.ts 说明）
+export type LeftPanelTab = 'shape' | 'text' | 'assets' | 'iconify' | 'templates' | 'symbols'
 export type RightPanelTab = 'properties' | 'layers' | 'history'
 
 export type BooleanPreviewHiddenObject = {
@@ -16,7 +19,8 @@ export type BooleanPreviewHiddenObject = {
 
 export type StrokeLineType = 'solid' | 'dashed'
 export type CurveControlPointKey = 'cp1' | 'cp2'
-export type FillModeOption = 'solid' | 'gradient'
+// 填充面板模式：solid 纯色 / gradient 渐变 / pattern 图案（fabric Pattern fill）。
+export type FillModeOption = 'solid' | 'gradient' | 'pattern'
 
 export type UiFillGradientStop = FillGradientStop & {
   id: string
@@ -145,6 +149,18 @@ export type IconCreatorProjectFile = {
    * 色板与预设同时随撤销快照持久化，命名快照数据量大只随工程 JSON 保存。
    */
   meta?: DocumentProjectMeta
+  /**
+   * 文档级对齐参考线（用户从标尺拖出的辅助线，全画板共享，见 documentGuides.ts 说明）。
+   * 随工程 JSON / 自动草稿 round-trip，同时以 editorGuides 进入撤销快照；
+   * 旧工程无此字段，为空时写出侧省略字段保持旧文件结构不变。
+   */
+  guides?: ProjectGuide[]
+  /**
+   * 文档级符号定义（可复用组件库，实例通过 symbolId 引用定义，见 symbols.ts 说明）。
+   * 随工程 JSON / 自动草稿 round-trip，同时以 editorSymbols 进入撤销快照；
+   * 旧工程无此字段，为空时写出侧省略字段保持旧文件结构不变。
+   */
+  symbols?: ProjectSymbol[]
 }
 
 export type IconCreatorDraftFile = {
@@ -229,6 +245,12 @@ export type LayerContextMenuAction =
   | 'save-user-asset'
   | 'copy-style'
   | 'paste-style'
+  // 符号系统：把选中对象保存为可复用定义 / 解除实例与定义的关联（见 symbols.ts 说明）
+  | 'create-symbol'
+  | 'detach-symbol'
+  // 对齐参考线右键菜单（标尺 / 参考线场景复用 LayerContextMenu 组件渲染）
+  | 'toggle-guides'
+  | 'clear-guides'
 
 export type LayerContextMenuRowAction = {
   key: LayerContextMenuAction

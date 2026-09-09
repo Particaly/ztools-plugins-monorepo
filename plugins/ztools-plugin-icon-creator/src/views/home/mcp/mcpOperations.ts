@@ -1,9 +1,17 @@
 import type {
   McpCanvasOverview,
   McpEditorGateway,
-  McpEditorGatewayProvider
+  McpEditorGatewayProvider,
+  McpPatternFillRequest,
+  McpUpdateTextRequest
 } from './mcpGatewayTypes'
 import { isSupportedColorString } from '../documentStyleMeta'
+import {
+  BITMAP_FILTER_TYPES,
+  normalizeBlendMode,
+  normalizeBitmapFilterSetting,
+  type BitmapFilterSetting
+} from '../bitmapFilters'
 
 /**
  * MCP 工具调用的统一响应。
@@ -88,6 +96,17 @@ function optionalImageFormat(value: unknown): 'png' | 'webp' | undefined {
   return format
 }
 
+/**
+ * 校验可选的创建定位锚点，仅接受 center/top-left，非法值抛错。
+ * center 表示 x/y 为对象包围盒中心点（默认），top-left 表示 x/y 为包围盒左上角。
+ */
+function optionalAnchor(value: unknown): 'center' | 'top-left' | undefined {
+  const anchor = optionalString(value)
+  if (anchor === undefined) return undefined
+  if (anchor !== 'center' && anchor !== 'top-left') throw new Error('anchor 必须是 center 或 top-left')
+  return anchor
+}
+
 /** 校验可选的编码质量（0-1，仅对 webp 生效），缺省返回 undefined。 */
 function optionalQuality(value: unknown): number | undefined {
   const quality = optionalNumber(value)
@@ -96,12 +115,144 @@ function optionalQuality(value: unknown): number | undefined {
   return quality
 }
 
+/**
+ * 归一化单条位图滤镜设置（apply_image_filter 的 filters 条目）：
+ * type 必填且仅接受受支持的 7 种滤镜；enabled 缺省视为启用；
+ * 数值参数由 normalizeBitmapFilterSetting 收敛到各自合法区间（越界截断不报错）。
+ */
+function parseBitmapFilterSetting(raw: unknown, index: number): BitmapFilterSetting {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new Error(`filters[${index}] 必须是对象`)
+  }
+  const entry = raw as Record<string, unknown>
+  const type = optionalString(entry.type)
+  if (!type || !BITMAP_FILTER_TYPES.includes(type as BitmapFilterSetting['type'])) {
+    throw new Error(`filters[${index}].type 必须是 ${BITMAP_FILTER_TYPES.join('/')} 之一`)
+  }
+  return normalizeBitmapFilterSetting({ ...entry, type })!
+}
+
 /** 校验可选的输出目录（必须为绝对路径：盘符、UNC 或 POSIX 根），非法值抛错。 */
 function optionalOutputDir(value: unknown): string | undefined {
   const dir = optionalString(value)
   if (dir === undefined) return undefined
   if (!/^([a-zA-Z]:[\\/]|\\\\|\/)/.test(dir)) throw new Error(`outputDir 必须是绝对目录路径（如 D:\\exports 或 /Users/me/exports）: ${dir}`)
   return dir
+}
+
+/** 校验可选的输出文件路径（必须为绝对路径：盘符、UNC 或 POSIX 根），非法值抛错。 */
+function optionalOutputPath(value: unknown): string | undefined {
+  const filePath = optionalString(value)
+  if (filePath === undefined) return undefined
+  if (!/^([a-zA-Z]:[\\/]|\\\\|\/)/.test(filePath)) {
+    throw new Error(`outputPath 必须是绝对文件路径（如 D:\\icons\\thumb.png 或 /tmp/thumb.png）: ${filePath}`)
+  }
+  return filePath
+}
+
+/** 文本数值字段的合法区间：字号 6-500、字间距 -200~800（千分之一 em）、行高 0.5-3。 */
+const UPDATE_TEXT_NUMBER_RANGES: Record<'fontSize' | 'charSpacing' | 'lineHeight', { min: number; max: number }> = {
+  fontSize: { min: 6, max: 500 },
+  charSpacing: { min: -200, max: 800 },
+  lineHeight: { min: 0.5, max: 3 }
+}
+
+/**
+ * 解析 update_text 的更新字段（纯字符串/数字校验，不引入 fabric 依赖，
+ * 文本对象类型校验由网关层完成）：数值字段越界或枚举非法时抛中文错误；
+ * 未提供任何合法字段时返回 undefined，由调用方报"至少提供一项"。
+ */
+function parseUpdateTextRequest(args: Record<string, unknown>): McpUpdateTextRequest | undefined {
+  const request: McpUpdateTextRequest = {}
+  const text = optionalString(args.text)
+  if (text !== undefined) request.text = text
+  const fontFamily = optionalString(args.fontFamily)
+  if (fontFamily !== undefined) request.fontFamily = fontFamily
+  for (const key of ['fontSize', 'charSpacing', 'lineHeight'] as const) {
+    const value = optionalNumber(args[key])
+    if (value === undefined) continue
+    const range = UPDATE_TEXT_NUMBER_RANGES[key]
+    if (value < range.min || value > range.max) {
+      throw new Error(`${key} 取值范围 ${range.min}-${range.max}`)
+    }
+    request[key] = value
+  }
+  if (args.fontWeight !== undefined && args.fontWeight !== null) {
+    const raw = args.fontWeight
+    if (typeof raw === 'number' && Number.isFinite(raw)) {
+      if (raw < 100 || raw > 900) throw new Error('fontWeight 数字取值范围 100-900')
+      request.fontWeight = raw
+    } else if (raw === 'normal' || raw === 'bold') {
+      request.fontWeight = raw
+    } else {
+      throw new Error('fontWeight 必须是 normal/bold 或 100-900 的数字')
+    }
+  }
+  const fontStyle = optionalString(args.fontStyle)
+  if (fontStyle !== undefined) {
+    if (fontStyle !== 'normal' && fontStyle !== 'italic') throw new Error('fontStyle 必须是 normal 或 italic')
+    request.fontStyle = fontStyle
+  }
+  const textAlign = optionalString(args.textAlign)
+  if (textAlign !== undefined) {
+    if (textAlign !== 'left' && textAlign !== 'center' && textAlign !== 'right' && textAlign !== 'justify') {
+      throw new Error('textAlign 必须是 left/center/right/justify 之一')
+    }
+    request.textAlign = textAlign
+  }
+  const underline = optionalBoolean(args.underline)
+  if (underline !== undefined) request.underline = underline
+  const linethrough = optionalBoolean(args.linethrough)
+  if (linethrough !== undefined) request.linethrough = linethrough
+  return Object.keys(request).length ? request : undefined
+}
+
+/** 创建类条目支持的初始样式字段集合（键名固定，值类型保持 unknown 原样透传）。 */
+type CreateStyleFields = Partial<Record<'fill' | 'stroke' | 'strokeWidth' | 'cornerRadius' | 'opacity' | 'shadow', unknown>>
+
+/**
+ * 从创建类入参（add_shape / insert_svg / create_objects 条目）中收集初始样式字段：
+ * 值原样透传、不在此解析（styleValueParser 依赖 fabric，禁止在调度层引入以免破坏
+ * Node 测试链路，样式合法性由网关层 applyPropsToObject 内的归一化校验兜底）；
+ * undefined/null 视为未提供，与"省略字段"语义一致。
+ */
+function collectCreateStyleFields(source: Record<string, unknown>): CreateStyleFields {
+  const style: CreateStyleFields = {}
+  for (const field of ['fill', 'stroke', 'strokeWidth', 'cornerRadius', 'opacity', 'shadow'] as const) {
+    const value = source[field]
+    if (value !== undefined && value !== null) style[field] = value
+  }
+  return style
+}
+
+/**
+ * 解析 set_guides 的 guides 参数：每条须为 { orientation, position }。
+ * orientation 枚举校验、position 必须为有限数字；整体替换语义允许空数组（等价清空）。
+ */
+function parseGuideInputs(value: unknown): Array<{ orientation: 'horizontal' | 'vertical'; position: number }> {
+  if (!Array.isArray(value)) throw new Error('guides 必须是数组（可为空数组表示清空全部参考线）')
+  return value.map((raw, index) => {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      throw new Error(`guides[${index}] 必须是包含 orientation 与 position 的对象`)
+    }
+    const entry = raw as Record<string, unknown>
+    const orientation = optionalString(entry.orientation)
+    if (orientation !== 'horizontal' && orientation !== 'vertical') {
+      throw new Error(`guides[${index}].orientation 必须是 horizontal 或 vertical`)
+    }
+    const position = optionalNumber(entry.position)
+    if (position === undefined) {
+      throw new Error(`guides[${index}].position 必须是数字（画布坐标系像素）`)
+    }
+    return { orientation, position }
+  })
+}
+
+/** 校验 replace_color 的颜色参数：接受 hex/rgb()/rgba() 与 transparent 关键字，非法抛中文错误。 */
+function parseReplaceColorValue(value: string, label: 'from' | 'to'): string {
+  if (value.trim().toLowerCase() === 'transparent') return 'transparent'
+  if (isSupportedColorString(value)) return value
+  throw new Error(`${label} 非法: ${value}。支持 hex（如 #f00/#ff0000/#ff000080）或 rgb()/rgba() 表达式或 transparent`)
 }
 
 /**
@@ -126,6 +277,39 @@ const OPERATIONS: Record<string, McpOperation> = {
       const summary = gateway.getObjectSummary(id)
       if (!summary) throw new Error(`未找到对象: ${id}`)
       return summary
+    }
+  },
+  find_objects: {
+    description: '按条件查找对象并返回匹配摘要数组（只读查询，不改变画布与选区）。条件字段 name/type/fill 至少提供一个：name 为图层名匹配串，配合 nameMatch 指定匹配方式——prefix 为区分大小写的前缀匹配（默认），exact 为全等匹配；type 为对象类型全等匹配（与摘要 type 一致，如 rectangle/path/group）；fill 为纯色填充匹配（忽略大小写，比较的是色板解析后的实际色值而非 swatch 名，渐变填充对象与无填充对象不参与该条件）。返回 { objects: 匹配摘要数组, count: 数量 }；无匹配不是错误，count 为 0 并携带 message 说明已用条件。长会话中建议按命名约定（如 name=\'lbar-\'）一次召回一组对象 id，再交给 select_objects / batch_set_props 等操作使用。',
+    handler: (gateway, args) => {
+      const name = optionalString(args.name)
+      const type = optionalString(args.type)
+      const fill = optionalString(args.fill)
+      if (!name && type === undefined && fill === undefined) throw new Error('至少提供 name/type/fill 之一')
+      const nameMatchValue = optionalString(args.nameMatch)
+      let nameMatch: 'prefix' | 'exact' = 'prefix'
+      if (nameMatchValue === 'prefix' || nameMatchValue === 'exact') {
+        nameMatch = nameMatchValue
+      } else if (nameMatchValue !== undefined) {
+        throw new Error('nameMatch 必须是 prefix 或 exact')
+      }
+      const matched = gateway.listObjects().filter((summary) => {
+        if (name !== undefined && (nameMatch === 'exact' ? summary.name !== name : !summary.name.startsWith(name))) return false
+        if (type !== undefined && summary.type !== type) return false
+        // fill 仅与纯色字符串摘要比较（忽略大小写）；渐变摘要与无填充（null）不参与匹配
+        if (fill !== undefined && (typeof summary.fill !== 'string' || summary.fill.toLowerCase() !== fill.toLowerCase())) return false
+        return true
+      })
+      if (!matched.length) {
+        // 空结果不是错误，但显式带 message 说明条件，避免调用方把"没找到"误解为静默失败
+        const conditions = [
+          ...(name !== undefined ? [`name ${nameMatch === 'exact' ? '全等' : '前缀'} "${name}"`] : []),
+          ...(type !== undefined ? [`type "${type}"`] : []),
+          ...(fill !== undefined ? [`fill "${fill}"`] : [])
+        ]
+        return { objects: matched, count: 0, message: `未找到匹配对象（条件：${conditions.join('、')}）` }
+      }
+      return { objects: matched, count: matched.length }
     }
   },
   get_selection: {
@@ -215,7 +399,7 @@ const OPERATIONS: Record<string, McpOperation> = {
     }
   },
   set_keyline: {
-    description: '配置图标参考线：template 取值 none/material/ios/favicon/custom，margin 为安全边距。',
+    description: '配置图标参考线：template 取值 none/material/ios/favicon/custom，margin 为安全边距。（这是 Keyline 安全区模板 overlay，与用户从标尺拖出的对齐参考线 list_guides/set_guides/clear_guides 是两套独立系统。）',
     handler: (gateway, args) => {
       const template = optionalString(args.template)
       const margin = optionalNumber(args.margin)
@@ -225,9 +409,82 @@ const OPERATIONS: Record<string, McpOperation> = {
     }
   },
 
+  /* ── 对齐参考线（用户参考线）── */
+  list_guides: {
+    description: '列出当前文档的对齐参考线（用户从标尺拖出的辅助线，与 set_keyline 的 Keyline 安全区模板无关）。每条形如 { id, orientation: \'horizontal\'|\'vertical\', position }，position 为画布坐标系像素（水平线为 y、垂直线为 x）。参考线随工程保存与撤销历史持久化。',
+    handler: (gateway) => gateway.listGuides()
+  },
+  set_guides: {
+    description: '整体替换当前文档的对齐参考线：guides 必填为数组（传空数组等价清空），每条 { orientation: \'horizontal\'|\'vertical\', position: 数字 }，position 为画布坐标系像素。position 越界（负值或超出画布）时自动夹取到画布范围内（选夹取而非报错，保证每条参考线都可见可再编辑），返回夹取后的完整列表（含生成的 id）。整个操作合并为一条撤销记录。',
+    handler: (gateway, args) => {
+      if (args.guides === undefined || args.guides === null) throw new Error('缺少 guides 参数（参考线数组，可为空数组）')
+      return gateway.setGuides(parseGuideInputs(args.guides))
+    }
+  },
+  clear_guides: {
+    description: '清空当前文档的全部对齐参考线（一条撤销记录），返回空列表。',
+    handler: (gateway) => gateway.clearGuides()
+  },
+  replace_color: {
+    description: '全局颜色替换：扫描全部对象的 fill/stroke 与渐变色标，把等于 from 的颜色整体替换为 to。颜色写法简并比较（#f00/#ff0000/rgb(255,0,0)/rgba(255,0,0,1) 视为同色，大小写不敏感；支持 hex/rgb()/rgba() 与 transparent）。整个操作合并为一条撤销记录，返回 { replacedObjects 替换对象数, replacedSlots 颜色槽位数, from, to（归一化 hex） }；没有匹配颜色时 replacedObjects 为 0 且不产生撤销记录。',
+    handler: (gateway, args) => {
+      const from = optionalString(args.from)
+      const to = optionalString(args.to)
+      if (!from) throw new Error('缺少 from 参数（被替换的源颜色）')
+      if (!to) throw new Error('缺少 to 参数（替换后的目标颜色）')
+      return gateway.replaceColor(parseReplaceColorValue(from, 'from'), parseReplaceColorValue(to, 'to'))
+    }
+  },
+
+  /* ── 组件/符号（Symbol）── */
+  define_symbol: {
+    description: '从画布现有对象创建文档级符号定义（可复用组件）：name 必填（非空字符串），objectIds 必填（非空字符串数组，画布上已存在的对象 id）。定义内容按包围盒左上角归一化存储，画布原对象保持不变（不会自动转为实例）；之后可用 insert_symbol_instance 反复插入联动实例。整个操作合并为一条撤销记录，返回符号摘要（id/name/objectCount/instanceCount）。',
+    handler: (gateway, args) => {
+      const name = optionalString(args.name)
+      if (!name) throw new Error('缺少 name 参数')
+      const objectIds = optionalStringArray(args.objectIds)
+      if (!objectIds) throw new Error('缺少 objectIds 参数（非空字符串数组，画布上已存在的对象 id）')
+      return gateway.defineSymbol(name, objectIds)
+    }
+  },
+  list_symbols: {
+    description: '列出当前文档的全部符号定义：每条含 id、name、createdAt（毫秒时间戳）、objectCount（定义内对象数）与 instanceCount（画布上引用此定义的实时实例数）。符号定义随工程保存与撤销历史持久化；可用 insert_symbol_instance 插入实例、update_symbol 更新定义、detach_symbol_instance 解除实例关联。',
+    handler: (gateway) => gateway.listSymbols()
+  },
+  insert_symbol_instance: {
+    description: '插入符号定义的一个联动实例（实例为一个 fabric Group，整体移动/缩放/旋转）：symbolId 必填（list_symbols 查询，不存在报错）。x/y 为实例包围盒中心点（默认 anchor=\'center\'，省略 x/y 时定位不生效、落画布中心），anchor=\'top-left\' 时 x/y 为包围盒左上角。实例携带 symbolId/symbolInstanceId 元数据并随工程保存；更新定义时全部实例按新定义重建并保持各自位置/尺寸/角度。返回 { objectId, symbolId, symbolInstanceId }。',
+    handler: async (gateway, args) => {
+      const symbolId = optionalString(args.symbolId)
+      if (!symbolId) throw new Error('缺少 symbolId 参数')
+      return gateway.insertSymbolInstance(symbolId, {
+        x: optionalNumber(args.x),
+        y: optionalNumber(args.y),
+        anchor: optionalAnchor(args.anchor)
+      })
+    }
+  },
+  update_symbol: {
+    description: '用画布现有对象重写指定符号定义，并同步全部实例：symbolId 与 objectIds 均必填。全部实例按新定义重建，保持各自此前的包围盒中心、显示尺寸与旋转角（新定义内容映射进旧实例包围盒，宽高比变化时内容按方向拉伸）；symbolInstanceId 保持不变。整个操作合并为一条撤销记录（undo 可整体回到更新前），返回更新后的符号摘要。',
+    handler: async (gateway, args) => {
+      const symbolId = optionalString(args.symbolId)
+      if (!symbolId) throw new Error('缺少 symbolId 参数')
+      const objectIds = optionalStringArray(args.objectIds)
+      if (!objectIds) throw new Error('缺少 objectIds 参数（非空字符串数组，画布上已存在的对象 id）')
+      return gateway.updateSymbol(symbolId, objectIds)
+    }
+  },
+  detach_symbol_instance: {
+    description: '解除单个对象与符号定义的关联：objectId 必填且必须是符号实例（携带 symbolId 元数据，否则报错）。解除后移除 symbolId/symbolInstanceId 元数据转为普通对象，外观与符号定义均不变（后续更新定义不再影响该对象）。整个操作为一条撤销记录，返回解除后的对象摘要。',
+    handler: async (gateway, args) => {
+      const objectId = optionalString(args.objectId)
+      if (!objectId) throw new Error('缺少 objectId 参数')
+      return gateway.detachSymbolInstance(objectId)
+    }
+  },
+
   /* ── 添加对象 ── */
   add_shape: {
-    description: '添加基础图形。shape 取值：rectangle/square/circle/line/triangle/inverted-triangle/rhombus/wide-cross/parallelogram/inverted-parallelogram/trapezoid/inverted-trapezoid/doorway/inverted-arch/rotated-right-triangle/half-moon/pentagon/hexagon/octagon/arrow-right/solid-shaft-arrow/double-solid-shaft-arrow/star/heart（可加 base- 前缀）。x/y 为画布坐标（默认画布中心）；width/height 可指定目标尺寸，形状按该尺寸直接生成本体几何（scaleX=scaleY=1，圆角/描边不变形），只传其一时另一维度沿用默认尺寸。',
+    description: '添加基础图形。shape 取值：rectangle/square/circle/line/triangle/inverted-triangle/rhombus/wide-cross/parallelogram/inverted-parallelogram/trapezoid/inverted-trapezoid/doorway/inverted-arch/rotated-right-triangle/half-moon/pentagon/hexagon/octagon/arrow-right/solid-shaft-arrow/double-solid-shaft-arrow/star/heart（可加 base- 前缀）。x/y 为对象包围盒中心点（默认 anchor=\'center\'，省略 x/y 时定位不生效、落画布中心），anchor=\'top-left\' 时 x/y 为包围盒左上角，可配合摘要的 bboxLeft/bboxTop 核对落位；width/height 可指定目标尺寸，形状按该尺寸直接生成本体几何（scaleX=scaleY=1，圆角/描边不变形），只传其一时另一维度沿用默认尺寸。另可携带初始样式字段 fill/stroke/strokeWidth/cornerRadius/opacity/shadow，取值语义与 set_object_props 完全一致（fill/stroke 支持 hex/rgba、"swatch:名字" 色板引用、渐变 JSON 对象与 \'none\'；shadow 支持 { color, blur, offsetX, offsetY }、null 或 \'none\'；cornerRadius 按本体几何重建圆角；opacity 取 0-1），创建时一步应用，无需再追加 set_object_props。',
     handler: (gateway, args) => {
       const shape = optionalString(args.shape)
       if (!shape) throw new Error('缺少 shape 参数')
@@ -235,7 +492,9 @@ const OPERATIONS: Record<string, McpOperation> = {
         x: optionalNumber(args.x),
         y: optionalNumber(args.y),
         width: optionalNumber(args.width),
-        height: optionalNumber(args.height)
+        height: optionalNumber(args.height),
+        anchor: optionalAnchor(args.anchor),
+        ...collectCreateStyleFields(args)
       })
       return { objectId: id }
     }
@@ -256,7 +515,7 @@ const OPERATIONS: Record<string, McpOperation> = {
     }
   },
   insert_svg: {
-    description: '导入 SVG 到画布：svg 传完整 <svg> 文档、<path> 片段或 path d 属性；name 可指定对象名称，x/y 可指定插入位置（默认画布中心）。默认按原始尺寸 1:1 导入不做缩放；scale 为可选缩放倍数（如 0.5）。导入对象超出画布边界时操作仍成功，返回的 message 字段会说明越界情况。',
+    description: '导入 SVG 到画布：svg 传完整 <svg> 文档、<path> 片段或 path d 属性；name 可指定对象名称，x/y 为对象包围盒中心点（默认 anchor=\'center\'，省略 x/y 时定位不生效、落画布中心），anchor=\'top-left\' 时 x/y 为包围盒左上角，可配合摘要的 bboxLeft/bboxTop 核对落位。默认按原始尺寸 1:1 导入不做缩放；scale 为可选缩放倍数（如 0.5）。另可携带初始样式字段 fill/stroke/strokeWidth/cornerRadius/opacity/shadow（取值语义与 set_object_props 完全一致，如 fill 支持 hex/rgba、"swatch:名字" 与渐变 JSON），导入后一步应用。导入对象超出画布边界时操作仍成功，返回的 message 字段会说明越界情况。',
     handler: async (gateway, args) => {
       const svg = optionalString(args.svg)
       if (!svg) throw new Error('缺少 svg 参数')
@@ -266,7 +525,9 @@ const OPERATIONS: Record<string, McpOperation> = {
         name: optionalString(args.name),
         x: optionalNumber(args.x),
         y: optionalNumber(args.y),
-        scale
+        scale,
+        anchor: optionalAnchor(args.anchor),
+        ...collectCreateStyleFields(args)
       })
       return result
     }
@@ -302,7 +563,7 @@ const OPERATIONS: Record<string, McpOperation> = {
     }
   },
   create_objects: {
-    description: '按顺序批量创建多个对象。items 为条目数组，每条目 shape/svg/text 三选一（同时提供时按 svg > shape > text 优先）：shape 为基础图形短名（同 add_shape 取值），svg 为 SVG 文本或片段（scale 为可选缩放倍数），text 为文本内容；每条目均可携带 x/y（画布坐标，默认画布中心）、name（图层名）、fill（初始填充色，hex/rgba 或 "swatch:名字" 色板引用），shape 条目另可用 width/height 指定目标尺寸。group 为 true 且创建对象数不少于 2 时自动编组，groupName 指定组名。items 为空或缺小时报错；返回全部新对象 id 与可选 groupId。',
+    description: '按顺序批量创建多个对象。items 为条目数组，每条目 shape/svg/text 三选一（同时提供时按 svg > shape > text 优先）：shape 为基础图形短名（同 add_shape 取值），svg 为 SVG 文本或片段（scale 为可选缩放倍数），text 为文本内容；每条目均可携带 x/y（对象包围盒中心点，默认 anchor=\'center\'，条目省略 x/y 时定位不生效、落画布中心；anchor=\'top-left\' 时 x/y 为包围盒左上角）、anchor（定位锚点，同 add_shape）、name（图层名），以及初始样式字段 fill/stroke/strokeWidth/cornerRadius/opacity/shadow（取值语义与 set_object_props 完全一致：fill/stroke 支持 hex/rgba、"swatch:名字" 色板引用、渐变 JSON 对象与 \'none\'，shadow 支持 { color, blur, offsetX, offsetY }、null 或 \'none\'，cornerRadius 按本体几何重建圆角，opacity 取 0-1），创建时一步应用，如 9 个条形可一次完成创建+赋样式；shape 条目另可用 width/height 指定目标尺寸。group 为 true 且创建对象数不少于 2 时自动编组，groupName 指定组名。items 为空或缺小时报错；返回全部新对象 id 与可选 groupId。',
     handler: async (gateway, args) => {
       const items = optionalRecordArray(args.items)
       if (!items || !items.length) throw new Error('缺少 items 参数（非空对象数组）')
@@ -315,11 +576,12 @@ const OPERATIONS: Record<string, McpOperation> = {
           text: typeof item.text === 'string' ? item.text : undefined,
           x: optionalNumber(item.x),
           y: optionalNumber(item.y),
+          anchor: optionalAnchor(item.anchor),
           width: optionalNumber(item.width),
           height: optionalNumber(item.height),
           scale: optionalNumber(item.scale),
           name: optionalString(item.name),
-          fill: optionalString(item.fill)
+          ...collectCreateStyleFields(item)
         })),
         { group, groupName }
       )
@@ -353,6 +615,18 @@ const OPERATIONS: Record<string, McpOperation> = {
       if (!props || !Object.keys(props).length) throw new Error('缺少 props 参数')
       gateway.setObjectProps(objectId, props)
       return gateway.getObjectSummary(objectId)
+    }
+  },
+  update_text: {
+    description: '更新文本对象的内容与排版：objectId 必填且必须是文本对象（Text/Textbox/IText），否则报错。更新字段全部可选但至少提供一项：text 为新内容（支持换行符，变更后自动重算换行与宽高）；fontSize 取 6-500；fontFamily 为系统字体名（如 Microsoft YaHei/Source Han Sans SC/Arial，渲染取决于查看端系统已安装字体、跨设备可能回退，发布图标建议转曲 outline_text）；fontWeight 取 normal/bold 或 100-900 的数字；fontStyle 取 normal/italic；charSpacing 为字间距（千分之一 em，取 -200~800）；lineHeight 为行高倍数（取 0.5-3）；textAlign 取 left/center/right/justify；underline/linethrough 为下划线/删除线开关。整个操作合并为一条撤销记录，返回更新后的对象摘要。',
+    handler: (gateway, args) => {
+      const objectId = optionalString(args.objectId)
+      if (!objectId) throw new Error('缺少 objectId 参数')
+      const request = parseUpdateTextRequest(args)
+      if (!request) {
+        throw new Error('至少提供 text/fontSize/fontFamily/fontWeight/fontStyle/charSpacing/lineHeight/textAlign/underline/linethrough 之一')
+      }
+      return gateway.updateText(objectId, request)
     }
   },
   move_layer: {
@@ -470,12 +744,41 @@ const OPERATIONS: Record<string, McpOperation> = {
     }
   },
   batch_set_props: {
-    description: '对多个对象应用同一组属性，整个批次合并为一条撤销记录（一次 undo 即可整体还原）。objectIds 必填且至少 1 个；props 键值与 set_object_props 相同，支持 left/top/width/height/angle/opacity/fill/stroke/strokeWidth/scaleX/scaleY/visible/cornerRadius/shadow 等（width/height 按显示尺寸换算缩放，cornerRadius 按本体几何重建圆角；fill/stroke 支持 swatch 引用与渐变 JSON，shadow 支持 { color, blur, offsetX, offsetY } 或 null，语义详见 set_object_props）。返回每个对象应用后的摘要（顺序与 objectIds 一致）。',
+    description: '对多个对象应用属性，整个批次合并为一条撤销记录（一次 undo 即可整体还原）。双形态二选一、不可同时提供：① 同值批量——objectIds（非空字符串数组，至少 1 个）+ props（所有对象应用同一组属性）；② 逐对象条目——items（非空对象数组，每条形如 { objectId, props }，objectId 为目标对象 id，props 为该对象各自应用的属性键值），适合一次调用完成多个对象的不同属性修改（如分别指定 left/top）。props 键值与 set_object_props 相同，支持 left/top/width/height/angle/opacity/fill/stroke/strokeWidth/scaleX/scaleY/visible/cornerRadius/shadow 等（width/height 按显示尺寸换算缩放，cornerRadius 按本体几何重建圆角；fill/stroke 支持 swatch 引用与渐变 JSON，shadow 支持 { color, blur, offsetX, offsetY } 或 null，语义详见 set_object_props），逐对象条目同样支持全部语义并整批一条撤销记录。返回每个对象应用后的摘要（顺序与 objectIds/items 一致）。',
     handler: (gateway, args) => {
+      const hasItems = args.items !== undefined
+      const hasIdsForm = args.objectIds !== undefined || args.props !== undefined
+      if (hasItems && hasIdsForm) {
+        throw new Error('objectIds+props 与 items 只能二选一：同值批量用 objectIds+props，逐对象条目用 items')
+      }
+      // 形态 B：items 逐对象条目，逐条校验后整批透传（网关负责目标存在性与样式值合法性）。
+      if (hasItems) {
+        if (!Array.isArray(args.items) || !args.items.length) {
+          throw new Error('items 必须是非空对象数组，每条形如 { objectId, props }')
+        }
+        const items = (args.items as unknown[]).map((raw, index) => {
+          if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+            throw new Error(`items[${index}] 必须是包含 objectId 与 props 的对象`)
+          }
+          const entry = raw as Record<string, unknown>
+          const objectId = optionalString(entry.objectId)
+          if (!objectId) throw new Error(`items[${index}] 缺少 objectId 参数`)
+          const props = optionalRecord(entry.props)
+          if (!props || !Object.keys(props).length) throw new Error(`items[${index}] 缺少 props 参数`)
+          return { objectId, props }
+        })
+        const results = gateway.batchSetObjectsPropsItems(items)
+        return { results }
+      }
+      // 形态 A：objectIds + props 同值批量。
       const objectIds = optionalStringArray(args.objectIds)
-      if (!objectIds) throw new Error('缺少 objectIds 参数（非空字符串数组）')
+      if (!objectIds) {
+        throw new Error('缺少 objectIds 参数（非空字符串数组），或改用 items 形态逐对象条目批量设置')
+      }
       const props = optionalRecord(args.props)
-      if (!props || !Object.keys(props).length) throw new Error('缺少 props 参数')
+      if (!props || !Object.keys(props).length) {
+        throw new Error('缺少 props 参数（与 objectIds 搭配同值批量），或改用 items 形态逐对象条目批量设置')
+      }
       const results = gateway.batchSetObjectsProps(objectIds, props)
       return { results }
     }
@@ -524,17 +827,18 @@ const OPERATIONS: Record<string, McpOperation> = {
 
   /* ── 布尔运算 ── */
   boolean_ops: {
-    description: '对 2 个及以上对象执行布尔运算并生成单一结果路径对象：operation 必填，取 union（并集）/intersect（交集）/subtract（差集）/xor（异或）；objectIds 可省略（省略时使用当前选中对象），按图层顺序参与运算，subtract 只取前两个对象；subtractDirection 可选 forward（A-B，默认）或 reverse（B-A），仅对 subtract 生效。万花筒实例与布尔预览对象不参与运算。运算成功后结果对象自动选中，返回 { objectId, operation }。',
+    description: '对 2 个及以上对象执行布尔运算并生成单一结果路径对象：type 必填，取 union（并集）/intersect（交集）/subtract（差集）/xor（异或）；objectIds 可省略（省略时使用当前选中对象），按图层顺序参与运算，subtract 只取前两个对象；subtractDirection 可选 forward（A-B，默认）或 reverse（B-A），仅对 subtract 生效。万花筒实例与布尔预览对象不参与运算。运算成功后结果对象自动选中，返回 { objectId, operation }。',
     handler: async (gateway, args) => {
-      const operation = optionalString(args.operation)
-      if (!operation) throw new Error('缺少 operation 参数（union/intersect/subtract/xor）')
+      // 布尔类型参数命名 type：沿用 operation 会与调度键同名，嵌套 args 合并时被覆盖导致本操作无法路由
+      const type = optionalString(args.type)
+      if (!type) throw new Error('缺少 type 参数（union/intersect/subtract/xor）')
       const subtractDirection = optionalString(args.subtractDirection)
       if (subtractDirection !== undefined && subtractDirection !== 'forward' && subtractDirection !== 'reverse') {
         throw new Error('subtractDirection 必须是 forward 或 reverse')
       }
       return gateway.booleanOps(
         optionalStringArray(args.objectIds),
-        operation as 'union' | 'intersect' | 'subtract' | 'xor',
+        type as 'union' | 'intersect' | 'subtract' | 'xor',
         (subtractDirection as 'forward' | 'reverse') ?? 'forward'
       )
     }
@@ -557,6 +861,79 @@ const OPERATIONS: Record<string, McpOperation> = {
       const objectId = optionalString(args.objectId)
       if (!objectId) throw new Error('缺少 objectId 参数')
       return gateway.unmaskObject(objectId)
+    }
+  },
+
+  /* ── 位图滤镜与混合模式 ── */
+  apply_image_filter: {
+    description: '整体替换目标位图的滤镜列表并可选设置混合模式：objectId 必填且必须是位图（FabricImage）对象。filters 为滤镜设置数组（整体替换语义，传空数组清除全部滤镜；省略 filters 时保留现有滤镜只设混合模式），每条形如 { type, enabled?, strength?, brightness?, contrast?, saturation? }：type 取 grayscale（灰度）/invert（反色）/sepia（褐色）/blur（模糊）/brightness（亮度）/contrast（对比度）/saturation（饱和度）之一；enabled 缺省为 true（false 保留参数但不参与渲染）；strength 为模糊强度 0-1（缺省 0.1），brightness/contrast/saturation 取 -1~1（缺省 0），越界值自动收敛。blendMode 可选，取 normal/multiply/screen/overlay/darken/lighten/color-dodge/difference/exclusion/hue/saturation/color/luminosity 之一（normal 表示正常）。滤镜按固定顺序整体应用，整个操作合并为一条撤销记录，返回更新后的对象摘要（含 filters 与 blendMode）。',
+    handler: async (gateway, args) => {
+      const objectId = optionalString(args.objectId)
+      if (!objectId) throw new Error('缺少 objectId 参数')
+      const blendModeRaw = optionalString(args.blendMode)
+      let blendMode: string | undefined
+      if (blendModeRaw !== undefined) {
+        const normalized = normalizeBlendMode(blendModeRaw)
+        if (!normalized) {
+          throw new Error('blendMode 必须是 normal/multiply/screen/overlay/darken/lighten/color-dodge/difference/exclusion/hue/saturation/color/luminosity 之一')
+        }
+        blendMode = normalized
+      }
+      let filters: BitmapFilterSetting[] | undefined
+      if (args.filters !== undefined && args.filters !== null) {
+        if (!Array.isArray(args.filters)) throw new Error('filters 必须是滤镜设置对象数组')
+        filters = args.filters.map((raw, index) => parseBitmapFilterSetting(raw, index))
+      }
+      if (filters === undefined && blendMode === undefined) {
+        throw new Error('至少提供 filters 或 blendMode 参数')
+      }
+      return gateway.applyImageFilter(objectId, filters, blendMode)
+    }
+  },
+
+  /* ── 位图裁剪 ── */
+  crop_image: {
+    description: '裁剪位图对象：objectId 必填且必须是位图（FabricImage）。left/top/width/height 必填，为裁剪矩形在图片"当前显示包围盒"坐标系中的位置与尺寸（angle=0 语义，与对象摘要的 bboxLeft/bboxTop 同一坐标系：bboxLeft+left 即相对图片显示区左边缘的偏移，矩形必须完整落在显示范围内，越界报错）。实现负责换算为图片源像素的 cropX/cropY/width/height，图片元素本身不动、缩放/角度等变换保持不变，支持对已裁剪的图连续再裁剪；换算后源区域不足 1×1 像素报错。整个操作合并为一条撤销记录，返回更新后的对象摘要（width/height 为裁剪后的显示尺寸）。',
+    handler: async (gateway, args) => {
+      const objectId = optionalString(args.objectId)
+      if (!objectId) throw new Error('缺少 objectId 参数')
+      const left = optionalNumber(args.left)
+      const top = optionalNumber(args.top)
+      const width = optionalNumber(args.width)
+      const height = optionalNumber(args.height)
+      if (left === undefined || top === undefined || width === undefined || height === undefined) {
+        throw new Error('缺少 left/top/width/height 参数（裁剪矩形，图片显示包围盒坐标系）')
+      }
+      return gateway.cropImage(objectId, { left, top, width, height })
+    }
+  },
+
+  /* ── 图案填充 ── */
+  set_pattern_fill: {
+    description: '为目标对象设置图案填充（fabric Pattern 平铺图片填充）：objectId 必填。source 必填，为 dataURL 图片（data:image/...）或 http(s) 图片 URL；传 null 时清除图案并恢复纯色。repeat 可选平铺方式，取 repeat（重复，默认）/repeat-x（横向平铺）/repeat-y（纵向平铺）/no-repeat（不重复）。scale 可选图案缩放倍数（默认 1，越界值自动收敛到 0.05-20）。清除与设置均合并为一条撤销记录，图片加载失败报错，返回更新后的对象摘要。',
+    handler: async (gateway, args) => {
+      const objectId = optionalString(args.objectId)
+      if (!objectId) throw new Error('缺少 objectId 参数')
+      const repeat = optionalString(args.repeat)
+      if (repeat !== undefined && repeat !== 'repeat' && repeat !== 'repeat-x' && repeat !== 'repeat-y' && repeat !== 'no-repeat') {
+        throw new Error('repeat 必须是 repeat/repeat-x/repeat-y/no-repeat 之一')
+      }
+      let scale: number | undefined
+      const rawScale = optionalNumber(args.scale)
+      if (rawScale !== undefined) {
+        if (rawScale <= 0) throw new Error('scale 必须是大于 0 的数字')
+        scale = rawScale
+      }
+      if (args.source === null) {
+        return gateway.setPatternFill(objectId, { source: null, repeat: repeat as McpPatternFillRequest['repeat'], scale })
+      }
+      const source = optionalString(args.source)
+      if (!source) throw new Error('缺少 source 参数（dataURL 图片或 http(s) 图片 URL，传 null 表示清除图案）')
+      // 调度层只做纯字符串校验（本文件禁止 import fabric 依赖），加载失败由网关层报可读错误。
+      if (!/^data:image\//i.test(source) && !/^https?:\/\//i.test(source)) {
+        throw new Error('source 必须是 dataURL 图片（data:image/...）或 http(s) 图片 URL')
+      }
+      return gateway.setPatternFill(objectId, { source, repeat: repeat as McpPatternFillRequest['repeat'], scale })
     }
   },
 
@@ -698,12 +1075,13 @@ const OPERATIONS: Record<string, McpOperation> = {
     }
   },
   get_canvas_thumbnail: {
-    description: '渲染画布快速预览缩略图（透明底 PNG dataURL，不落盘），语义是"给 AI 看的快速预览"：建议在每次修改布局/配色后调用本操作做视觉自检（低成本、透明底、适合确认整体效果），确认无误后再继续精调或用 export_* 系列正式导出。size 为输出宽度像素（默认 256，范围 32-512，高度按画布宽高比推导）；artboardId 可选，指定时按该画板渲染。返回 { dataUrl, width, height }。',
+    description: '渲染画布快速预览缩略图（透明底 PNG），语义是"给 AI 看的快速预览"：建议在每次修改布局/配色后调用本操作做视觉自检（低成本、透明底、适合确认整体效果），确认无误后再继续精调或用 export_* 系列正式导出。size 为输出宽度像素（默认 256，范围 32-512，高度按画布宽高比推导）；artboardId 可选，指定时按该画板渲染。outputPath 可选（绝对文件路径，如 D:\\icons\\thumb.png 或 /tmp/thumb.png）：提供时缩略图 PNG 写入该文件并返回 { filePath, width, height }（不返回 dataUrl，节省 token），不提供时返回 { dataUrl, width, height }。',
     handler: async (gateway, args) => {
       const size = optionalNumber(args.size)
       if (size !== undefined && (size < 32 || size > 512)) throw new Error('size 取值范围 32-512')
       return gateway.getCanvasThumbnail({
         size,
+        outputPath: optionalOutputPath(args.outputPath),
         artboardId: optionalString(args.artboardId)
       })
     }
@@ -799,7 +1177,11 @@ export async function dispatchMcpOperation(
   provider: McpEditorGatewayProvider,
   input: unknown
 ): Promise<McpToolResponse> {
-  const args = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>
+  const raw = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>
+  // plugin.json 的 inputSchema 把操作参数声明在嵌套的 args 字段里，
+  // 这里展开后与顶层字段合并（嵌套优先），兼容两种传参形态。
+  const nested = raw.args && typeof raw.args === 'object' ? (raw.args as Record<string, unknown>) : {}
+  const args = { ...raw, ...nested }
   const operationName = typeof args.operation === 'string' ? args.operation.trim() : ''
   if (!operationName) {
     return { ok: false, message: "缺少 operation 参数。用 operation='get_overview' 查看画布当前状态。" }

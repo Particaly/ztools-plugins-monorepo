@@ -1,6 +1,39 @@
 import { ref, shallowRef, triggerRef, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useZtoolsTheme } from 'ztools-ui'
-import { Canvas, Control, FabricObject, Gradient, Shadow, Text, Textbox, Group, ActiveSelection, FabricImage, Path, Point, Rect, Circle, Triangle, Polygon, Line, StaticCanvas, util, loadSVGFromString } from 'fabric'
+import { Canvas, Control, FabricObject, Gradient, Pattern, Shadow, Text, Textbox, Group, ActiveSelection, FabricImage, Path, Point, Rect, Circle, Triangle, Polygon, Line, StaticCanvas, util, loadSVGFromString } from 'fabric'
+import {
+  BITMAP_FILTER_LABELS,
+  BITMAP_FILTER_PARAM_CONFIG,
+  BITMAP_FILTER_PARAM_LABELS,
+  BITMAP_FILTER_TYPES,
+  blendModeToCompositeOperation,
+  clampBitmapFilterParam,
+  compositeOperationToBlendMode,
+  createDefaultBitmapFilterSetting,
+  normalizeBlendMode,
+  normalizeBitmapFilterSettings,
+  readBitmapFilterSettings,
+  type BitmapFilterParamKey,
+  type BitmapFilterSetting,
+  type BitmapFilterType
+} from './bitmapFilters'
+import { applyBitmapFilterSettings } from './fabric/imageFilters'
+import {
+  applyBitmapCropSourceRect,
+  computeBitmapCropFromDisplayRect,
+  type BitmapCropRect
+} from './fabric/imageCrop'
+import {
+  DEFAULT_PATTERN_FILL_REPEAT,
+  DEFAULT_PATTERN_FILL_SCALE,
+  applyDefaultPatternFillMetadata,
+  createPatternFromSource,
+  getPatternFillMetadata,
+  normalizePatternFillRepeat,
+  normalizePatternFillScale,
+  readPatternFillState,
+  type PatternFillRepeat
+} from './fabric/patternFill'
 import { html as beautifyHtml } from 'js-beautify'
 import { basicShapes, textPresets, canvasPresets, shapePreviewPaths, iconTemplates, colorPaletteGroups as defaultColorPaletteGroups, gradientPresets as defaultGradientPresets } from './editorCatalog'
 import type { ShapeLibraryItem, TextLibraryItem, IconTemplateItem } from './editorCatalog'
@@ -46,6 +79,8 @@ import {
   type FillMode,
   type ShadowEffectItem
 } from './fabric/objectMetadata'
+// 导入即安装多阴影渲染支持（多投影/内阴影的画布自绘 + SVG 多分支 filter 导出）
+import './fabric/multiShadow'
 import {
   isEmptyDocumentStyleMeta,
   normalizeDocumentStyleMeta,
@@ -64,6 +99,37 @@ import {
   upsertDocumentCanvasSnapshot,
   type DocumentCanvasSnapshot
 } from './documentSnapshots'
+import {
+  clampGuidePosition,
+  createGuideId,
+  findGuideAt,
+  moveGuidePosition,
+  normalizeDocumentGuides,
+  removeGuideById,
+  type GuideOrientation,
+  type ProjectGuide
+} from './documentGuides'
+import {
+  MAX_PROJECT_SYMBOLS,
+  computeSymbolInstanceScale,
+  createSymbolId,
+  createSymbolInstanceMetadata,
+  findProjectSymbolById,
+  normalizeProjectSymbols,
+  normalizeSymbolName,
+  normalizeSymbolObjects,
+  normalizeSymbolObjectsToBounds,
+  readSymbolInstanceMetadata,
+  removeProjectSymbolById,
+  upsertProjectSymbol,
+  type ProjectSymbol
+} from './symbols'
+import {
+  normalizeColorKey,
+  replaceDocumentColor,
+  scanDocumentColors,
+  type ScannedColorEntry
+} from './colorReplace'
 import { createShape } from './fabric/shapeFactories'
 import { createHomeMcpModule } from './mcp/createHomeMcpModule'
 import {
@@ -133,14 +199,17 @@ import type {
   UserAssetItem
 } from './types'
 import { isTransparentCanvasBg, normalizeCanvasBg, normalizeKeylineMargin, normalizeKeylineOpacity, normalizeKeylineTemplate, normalizePixelGridSize } from './canvasSettings'
+import { DEFAULT_TEXT_FONT_FAMILY } from './fontCatalog'
 import { buildIconCheckIssues as buildIconCheckIssuesFromContext } from './iconChecks'
 import { commitNumericInput, commitPositiveNumericInput, formatNumericInputValue, normalizeInputValue } from './inputUtils'
+import { readFileAsDataURL } from './fileUtils'
 import { isBooleanCandidate, fabricObjectToPathKitWithApi, fabricStrokeToPathKitWithApi, type FabricBooleanStyleSnapshot } from './geometry/fabricToPathKit'
 import { applyBooleanOperation, computeBooleanResult } from './geometry/booleanOps'
 import type { BooleanOperation, SubtractDirection } from './geometry/booleanOps'
 import { pathKitToEditablePathObject, pathKitToFabricPath } from './geometry/pathKitToFabric'
 import { getPathKit, peekPathKit } from './geometry/pathkit'
-import type { HistoryState } from './composables/contracts'
+import type { HistoryState, HomeDraftTabsSnapshot } from './composables/contracts'
+import type { DecodedProjectDraft } from './projectDraft'
 import { createHomeWorkspaceModule } from './editor/modules/workspace/createHomeWorkspaceModule'
 import { createHomeCanvasKernelModule } from './editor/modules/canvas/createHomeCanvasKernelModule'
 import { createHomeAssetsImportModule } from './editor/modules/assets-import/createHomeAssetsImportModule'
@@ -148,7 +217,10 @@ import { createHomeExportDeliveryModule } from './editor/modules/export-delivery
 import { createHomeSelectionModule } from './editor/modules/selection/createHomeSelectionModule'
 import { createHomeLayersModule } from './editor/modules/layers/createHomeLayersModule'
 import { createHomeDirectEditModule } from './editor/modules/direct-edit/createHomeDirectEditModule'
+import { createHomeCropModule } from './editor/modules/crop/createHomeCropModule'
 import { createHomePenToolModule } from './editor/modules/pen-tool/createHomePenToolModule'
+import type { PenPathData } from './editor/modules/pen-tool/createHomePenToolModule'
+import { createHomePaintBucketModule } from './editor/modules/paint-bucket/createHomePaintBucketModule'
 import { createEditorRuntime } from './editor/runtime/createEditorRuntime'
 import { createEditorServices } from './editor/runtime/editorServices'
 import type { EditorModule, EditorRuntime } from './editor/runtime/editorTypes'
@@ -158,6 +230,7 @@ import { createEditorStore } from './editor/state/editorStore'
 import {
   editablePointToLocalObjectPoint,
   getArrowRenderMode,
+  getContourSegmentParameterAt,
   getEditablePointArrowHead,
   getHollowShaftArrowLineWidth,
   getHollowShaftArrowSideAngle,
@@ -166,8 +239,10 @@ import {
   getEditableSegmentByLocalPoint,
   getEditableSegmentMidpoint,
   getEditableSegments,
+  getEditableAnchorHandleRefs,
   getPointRadius,
   getSelectableEditablePoints,
+  insertEditablePointOnObjectSegment,
   isEditablePathObject,
   isEditablePointOpenEndpoint,
   isSameEditableSegmentRef,
@@ -176,13 +251,13 @@ import {
   pathHasSolidArrowHead,
   rebuildEditablePathObject,
   rebuildEditablePathObjectFromPoint,
+  removeEditablePointsFromObject,
   resolveEditableSegmentRef,
   setEditablePointsArrowHead,
   setEditableSegmentControlPoint,
   setEditableSegmentType,
   createDefaultArrowHead,
   pathEditableModel,
-  polygonEditablePath,
   createEditablePathObject,
   setObjectCornerRadius,
   setPointCornerRadius,
@@ -191,6 +266,7 @@ import {
   type ArrowHeadShape,
   type ArrowRenderMode,
   type EditablePathObject,
+  type EditablePathSegment,
   type EditablePoint,
   type EditableSegmentRef
 } from './geometry/editablePath'
@@ -229,6 +305,14 @@ export function useHomeEditorRuntime() {
   const showRuler = ref(true)
   const showPixelGrid = ref(false)
   const snapToPixelGrid = ref(false)
+  // ── 对齐参考线（用户参考线，区别于 Keyline 安全区模板）──
+  // 参考线数据挂工程级 guides 通道持久化（documentGuides.ts 有归属说明）；
+  // showGuides 为会话级视图开关（与 showRuler 同策略），不写入工程文件。
+  const guides = ref<ProjectGuide[]>([])
+  const showGuides = ref(true)
+  // 进行中的参考线拖拽（标尺新建或画布内移动）：orientation + 最新位置 + 被移动的参考线 id
+  // （isNew=true 表示从标尺拖出的新建预览，未落定前不写入 guides 列表）。
+  const guideDragState = ref<{ orientation: GuideOrientation; position: number; guideId: string | null; isNew: boolean } | null>(null)
   const pixelGridSize = ref(DEFAULT_PIXEL_GRID_SIZE)
   const pixelGridSizeInput = ref(String(pixelGridSize.value))
   const keylineTemplate = ref<KeylineTemplate>(DEFAULT_KEYLINE_TEMPLATE)
@@ -253,7 +337,8 @@ export function useHomeEditorRuntime() {
   const canvasPresetValue = ref('512x512')
   const canvasPresetOptions = computed(() => canvasPresets.map(({ label, value }) => ({ label, value })))
   const isCanvasBgTransparent = computed(() => isTransparentCanvasBg(canvasBg.value))
-  const currentFillStyleMode = computed<'solid' | FillGradientType>(() => {
+  const currentFillStyleMode = computed<'solid' | FillGradientType | 'pattern'>(() => {
+    if (objProps.fillMode === 'pattern') return 'pattern'
     if (objProps.fillMode !== 'gradient') return 'solid'
     return objProps.fillGradientType === 'radial' ? 'radial' : 'linear'
   })
@@ -316,8 +401,12 @@ export function useHomeEditorRuntime() {
     widthInput: '0', heightInput: '0',
     scaleX: 1, scaleY: 1, angle: 0,
     rotateX: 0, rotateY: 0,
+    // 用户翻转意图回显（驱动变换区翻转按钮的激活态），值来自 rotation3dFlipX/Y 元数据而非原生 flip
+    flipX: false, flipY: false,
     rotateXInput: '0', rotateYInput: '0', angleInput: '0',
     fill: '#000000', fillEnabled: true, fillMode: 'solid' as FillModeOption, fillGradientType: DEFAULT_FILL_GRADIENT_TYPE as FillGradientType, fillGradientAngle: DEFAULT_FILL_GRADIENT_ANGLE, fillGradientAngleInput: String(DEFAULT_FILL_GRADIENT_ANGLE), fillGradientStops: decorateGradientStops(cloneFillGradientStops(undefined)), fillGradientCenterX: 0.5, fillGradientCenterY: 0.5, fillGradientRadius: DEFAULT_FILL_GRADIENT_RADIUS,
+    // 图案填充回显状态：面板展示来源名/平铺方式/缩放，由 syncObjProps 从对象元数据同步。
+    fillPatternSourceName: '', fillPatternRepeat: DEFAULT_PATTERN_FILL_REPEAT as PatternFillRepeat, fillPatternScale: DEFAULT_PATTERN_FILL_SCALE,
     stroke: '#000000', strokeEnabled: true, strokeWidth: 0, strokeWidthInput: '0', strokeLineType: 'solid' as StrokeLineType, strokeDashLength: 6, strokeDashGap: 4, strokeDashLengthInput: '6', strokeDashGapInput: '4', opacity: 1,
     bitmapTraceMode: 'alpha' as BitmapTraceMode,
     bitmapTraceThreshold: BITMAP_VECTOR_DEFAULT_THRESHOLD,
@@ -345,7 +434,23 @@ export function useHomeEditorRuntime() {
     kaleidoscopeCenterYInput: '0',
     kaleidoscopeFollowRotation: false,
     kaleidoscopeCountInput: String(DEFAULT_KALEIDOSCOPE_COUNT),
-    shadowEffects: [] as any[]
+    shadowEffects: [] as any[],
+    blendMode: 'normal',
+    // 文本专属回显状态：由 syncObjProps 从选中集合内的文本对象同步（多选时回显第一个文本对象），
+    // 数值字段附带可写的输入缓冲（fontSizeInput 等），键入期间由面板更新缓冲，change 时才提交数值。
+    fontFamily: DEFAULT_TEXT_FONT_FAMILY,
+    fontSize: 24,
+    fontSizeInput: '24',
+    fontBold: false,
+    fontItalic: false,
+    fontUnderline: false,
+    fontLinethrough: false,
+    charSpacing: 0,
+    charSpacingInput: '0',
+    lineHeight: 1.16,
+    lineHeightInput: '1.16',
+    textAlign: 'left',
+    bitmapFilters: [] as Array<BitmapFilterSetting & { label: string; paramKey: BitmapFilterParamKey | null; paramLabel: string; paramMin: number; paramMax: number }>
   })
   const sizeRatioLocked = ref(false)
   const lockedAspectRatio = ref(1)
@@ -431,8 +536,35 @@ export function useHomeEditorRuntime() {
     addPenPathObject,
     discardActiveObject: () => fabricCanvas?.discardActiveObject()
   })
+  const homePaintBucket = createHomePaintBucketModule({
+    getFabricCanvas: () => fabricCanvas,
+    isExcludedTarget: (obj) => !obj || isBooleanPreviewObject(obj) || isKaleidoscopeInstance(obj as FabricObject),
+    applyObjectFill: applyPaintBucketFill,
+    applyObjectStroke: applyPaintBucketStroke
+  })
+  const homeCrop = createHomeCropModule({
+    activeObject,
+    getCanvasAssistColors,
+    getFabricCanvas: () => fabricCanvas,
+    onCropApplied: (image, description) => {
+      triggerKaleidoscopeContentSync(image)
+      fabricCanvas?.requestRenderAll()
+      refreshLayers()
+      syncObjProps()
+      snapshot({ description })
+    },
+    showToast
+  })
+  const cropCommands = homeCrop.controller.commands
+  const cropModeActive = homeCrop.controller.state.cropModeActive
   const penToolActive = homePenTool.controller.state.penToolActive
   const penCommands = homePenTool.controller.commands
+  const paintBucketActive = homePaintBucket.controller.state.paintBucketActive
+  const paintBucketCommands = homePaintBucket.controller.commands
+  const paintBucketState = homePaintBucket.controller.state
+  // 钢笔/油漆桶等"点击画布产生效果"的工具态：抑制 Fabric 原生框选与命中，
+  // 避免 mouse:down 之后的内置 setActiveObject 把对象选中（见 canvas kernel 的 syncInteractionMode）。
+  const toolSuppressSelection = computed(() => penToolActive.value || paintBucketActive.value)
   const directEditState = homeDirectEdit.controller.state
   const directEditCommands = homeDirectEdit.controller.commands
   const {
@@ -477,9 +609,12 @@ export function useHomeEditorRuntime() {
   } = directEditCommands
   const pointGestureState = getPointGestureState()
 
-  // 钢笔工具与点位/线段模式互斥：切换到非 shape 模式时先退出钢笔态（不生成图形），避免覆盖层残留。
+  // 钢笔/油漆桶工具与点位/线段模式互斥：切换到非 shape 模式时先退出两个工具态（钢笔不生成图形），避免覆盖层残留。
   function setSelectionMode(mode: 'shape' | 'point' | 'segment') {
-    if (mode !== 'shape' && penToolActive.value) penCommands.deactivate(false)
+    if (mode !== 'shape') {
+      if (penToolActive.value) penCommands.deactivate(false)
+      paintBucketCommands.deactivate()
+    }
     return setSelectionModeDirect(mode)
   }
 
@@ -501,6 +636,7 @@ export function useHomeEditorRuntime() {
     sizeRatioLocked,
     selectionMode,
     snapToPixelGrid,
+    suppressSelection: toolSuppressSelection,
     isTransparentCanvasBg,
     getCanvasAssistColors,
     getAligningObjectsByTarget,
@@ -562,6 +698,7 @@ export function useHomeEditorRuntime() {
     clearKaleidoscopeMetadata,
     copyStyle: () => copyStyle(),
     deleteObjects,
+    detachSymbolInstances: (objects: FabricObject[]) => { detachSymbolInstances(objects) },
     duplicateSelection: () => duplicateSelection(),
     ensureEditorObjectId,
     findKaleidoscopeSourceById,
@@ -570,11 +707,13 @@ export function useHomeEditorRuntime() {
     groupObjects,
     isBooleanPreviewObject,
     isKaleidoscopeInstance,
+    isSymbolInstance: (obj: FabricObject | null | undefined) => !!readSymbolInstanceMetadata(obj),
     layerBottom,
     layerDown,
     layerTop,
     layerUp,
     layerVersion,
+    openCreateSymbolDialog,
     openCreateUserAssetDialog,
     pasteStyle: () => pasteStyle(),
     refreshActiveObject,
@@ -843,7 +982,15 @@ export function useHomeEditorRuntime() {
     applyDocumentStyleMeta,
     restoreDocumentStyleMetaFromSnapshot,
     getDocumentSnapshots: getDocumentCanvasSnapshots,
-    applyDocumentSnapshots: applyDocumentCanvasSnapshots
+    applyDocumentSnapshots: applyDocumentCanvasSnapshots,
+    getDocumentGuides,
+    applyDocumentGuides,
+    restoreDocumentGuidesFromSnapshot,
+    getDocumentSymbols,
+    applyDocumentSymbols,
+    restoreDocumentSymbolsFromSnapshot,
+    getDraftTabsSnapshot: captureDraftTabsSnapshot,
+    applyDraftTabs: applyDraftTabsFromDraft
   })
   const {
     artboards,
@@ -863,23 +1010,44 @@ export function useHomeEditorRuntime() {
     deleteArtboard,
     duplicateArtboard,
     handleArtboardRenameDialogShowChange,
-    jumpToHistory,
+    jumpToHistory: workspaceJumpToHistory,
     loadProjectFile,
     newDoc,
     onProjectFileChosen,
     openProject,
-    redo,
+    redo: workspaceRedo,
     renameArtboard,
     resetHistoryToCurrentCanvas,
     restoreHistoryState,
     saveProject,
     saveProjectAs,
     saveProjectToPath,
+    saveDraftNow,
     scheduleDraftSave,
     snapshot,
     switchArtboard,
-    undo
+    undo: workspaceUndo
   } = homeWorkspace.controller.commands
+
+  /** 历史操作前置守卫：撤销/重做/跳转会整体替换画布对象，先退出位图裁剪会话避免覆盖层残留。 */
+  function exitCropSessionForHistory() {
+    if (cropCommands.isCropSessionActive()) cropCommands.cancelCropSession()
+  }
+
+  function undo() {
+    exitCropSessionForHistory()
+    workspaceUndo()
+  }
+
+  function redo() {
+    exitCropSessionForHistory()
+    workspaceRedo()
+  }
+
+  function jumpToHistory(index: number) {
+    exitCropSessionForHistory()
+    workspaceJumpToHistory(index)
+  }
   const {
     captureCurrentArtboard,
     createProjectFile,
@@ -1734,6 +1902,24 @@ export function useHomeEditorRuntime() {
     return `${type} ${++objCounter}`
   }
 
+  /**
+   * 无序号优先的对象命名：读当前画布顶层对象 name 集合，没有同名对象时直接返回 type，
+   * 已重名时返回最小的 `type N`（N 从 1 递增并跳过已占用的名称）。
+   * 与 nextName 的固定递增序号不同，首次导入的对象可保持干净名称，仅真正冲突时才追加序号；
+   * 画布未就绪或为空时视为无冲突，同样直接返回 type。
+   */
+  function nextNameUnique(type: string) {
+    const existingNames = new Set(
+      (fabricCanvas?.getObjects() ?? [])
+        .map((obj) => String((obj as AnyFabricObject).name ?? '').trim())
+        .filter(Boolean)
+    )
+    if (!existingNames.has(type)) return type
+    let index = 1
+    while (existingNames.has(`${type} ${index}`)) index++
+    return `${type} ${index}`
+  }
+
   function createKaleidoscopeSourceId() {
     return `kaleidoscope-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
   }
@@ -2031,7 +2217,8 @@ export function useHomeEditorRuntime() {
     }
 
     const clones = await Promise.all(
-      Array.from({ length: getKaleidoscopeCount(source) - 1 }, () => source.clone())
+      // 带上序列化元数据：阴影/圆角/渐变模式等自定义元数据不会随 fabric 原生 clone 保留
+      Array.from({ length: getKaleidoscopeCount(source) - 1 }, () => source.clone(SERIALIZED_OBJECT_PROPS as unknown as string[]))
     )
 
     if (!fabricCanvas || kaleidoscopeSyncTokens.get(sourceId) !== token || !fabricCanvas.getObjects().includes(source) || !isKaleidoscopeSource(source)) {
@@ -2253,6 +2440,10 @@ export function useHomeEditorRuntime() {
     snapshot,
     newDoc,
     clearStoredDraft,
+    onTemplateAppliedAsDocument: () => {
+      // 模板应用清空了草稿；多标签时立即重写全部标签，单标签保持“应用后无草稿”的原语义
+      if (projectTabs.value.length > 1) saveDraftNow()
+    },
     resetHistoryToCurrentCanvas,
     createProjectFile,
     loadProjectFile,
@@ -2261,6 +2452,10 @@ export function useHomeEditorRuntime() {
     clearPointEditing,
     addShape,
     addText,
+    // 符号拖拽落点插入：转发到符号系统运行时实现（见 symbols.ts 说明）。
+    insertSymbolById: async (symbolId: string, scenePoint: { x: number; y: number } | null) => {
+      await insertSymbolInstance(symbolId, scenePoint)
+    },
     refreshLayers,
     syncActiveObjectPreservingPointMode,
     setSelectionMode,
@@ -2269,6 +2464,7 @@ export function useHomeEditorRuntime() {
     applyCanvasSize,
     ensureEditorObjectId,
     nextName,
+    nextNameUnique,
     prepareClonedObjectMetadata,
     normalizeEndpointAttachments,
     applyCanvasThemeToObject,
@@ -2344,7 +2540,11 @@ export function useHomeEditorRuntime() {
       canUndo,
       canUngroup,
       deleteObject,
-      activatePenTool: () => penCommands.activate(),
+      activatePenTool: () => {
+        if (paintBucketActive.value) paintBucketCommands.deactivate()
+        penCommands.activate()
+      },
+      activatePaintBucketTool: togglePaintBucketTool,
       saveProject: saveActiveProjectTab,
       fitCanvasInView,
       groupObjects,
@@ -2643,6 +2843,8 @@ export function useHomeEditorRuntime() {
       suppressProjectTabAutoSave = false
       switchingProjectTab = false
     }
+    // 标签结构变化后立即保存草稿（内部 newDoc 已清空旧草稿），让新标签进入崩溃恢复范围
+    saveDraftNow()
   }
 
   // 切换到目标项目标签；当前标签会先保存现场，目标标签再恢复自己的项目、历史与视图状态。
@@ -2652,6 +2854,8 @@ export function useHomeEditorRuntime() {
     if (!target) return
     persistActiveProjectTabState()
     await loadProjectTabState(target)
+    // 切换后立即保存草稿记录激活态，崩溃恢复时才能回到用户离开时所在的标签
+    saveDraftNow()
   }
 
   // 关闭项目标签；关闭含未保存提示的标签前做轻量确认，至少保留一个项目标签。
@@ -2667,6 +2871,95 @@ export function useHomeEditorRuntime() {
       : null
     projectTabs.value = projectTabs.value.filter((tab) => tab.id !== tabId)
     if (wasActive && nextTab) await loadProjectTabState(nextTab)
+    // 关闭后立即同步草稿，被关闭的标签不会再出现在崩溃恢复列表中
+    saveDraftNow()
+  }
+
+  // ── 多标签草稿 ──
+  // 为恢复出来的标签构建仅含初始状态的独立历史栈，保证每个标签恢复后的第一次编辑仍可撤销。
+  function createInitialHistoryForProject(project: IconCreatorProjectFile): HistoryState {
+    const payload: Record<string, unknown> = { ...project.fabric }
+    // 工程自带文档级样式元数据（色板/预设）时随初始快照还原（与撤销快照 editorMeta 通道一致）；
+    // 命名画布快照数据量大且不进撤销通道，不写入 editorMeta。
+    const meta = project.meta
+    if (meta && !isEmptyDocumentStyleMeta(meta)) {
+      payload.editorMeta = { swatches: meta.swatches ?? [], stylePresets: meta.stylePresets ?? [] }
+    }
+    // 对齐参考线随初始快照进入撤销通道（与 buildSnapshotPayload 的 editorGuides 字段一致），
+    // 撤销到初始状态时还原本标签自己的参考线而不是清空。
+    if (project.guides?.length) {
+      payload.editorGuides = project.guides.map((guide) => ({ ...guide }))
+    }
+    return {
+      undoStack: [{ json: JSON.stringify(payload), description: '初始状态', timestamp: Date.now() }],
+      redoStack: [],
+      historyIndex: 0
+    }
+  }
+
+  // 收集多标签草稿快照：激活标签直接使用刚序列化的工程对象（避免内存克隆滞后于画布编辑），
+  // 其余标签复用内存中的工程克隆（已是 JSON-ready），不为写草稿对隐藏画布做 toObject。
+  function captureDraftTabsSnapshot(currentProject: IconCreatorProjectFile): HomeDraftTabsSnapshot | null {
+    const tabs = projectTabs.value
+    // 标签未初始化（启动早期）或标签切换进行中时返回 null：草稿跳过本次写入，避免用过场状态覆盖已有草稿
+    if (!tabs.length || !fabricCanvas || switchingProjectTab) return null
+    const activeId = activeProjectTabId.value || tabs[0].id
+    return {
+      activeTabId: activeId,
+      tabs: tabs.map((tab) => ({
+        tabId: tab.id,
+        title: tab.name,
+        project: tab.id === activeId ? currentProject : tab.project,
+        dirty: tab.dirty,
+        ...(tab.savedFilePath ? { savedFilePath: tab.savedFilePath } : {}),
+        viewMode: tab.viewMode,
+        svgPreviewMode: tab.svgPreviewMode,
+        zoom: tab.zoom,
+        panX: tab.panX,
+        panY: tab.panY
+      }))
+    }
+  }
+
+  // 将多标签草稿写回项目标签运行时：激活标签载入画布，其余标签以内存工程克隆待命，切换时再恢复。
+  async function applyDraftTabsFromDraft(draft: DecodedProjectDraft) {
+    if (!fabricCanvas || !draft.tabs.length) return
+    const activeEntry = draft.tabs.find((tab) => tab.tabId === draft.activeTabId) ?? draft.tabs[0]
+    switchingProjectTab = true
+    suppressProjectTabAutoSave = true
+    try {
+      await loadProjectFile(activeEntry.project, { keepDraft: true, resetHistory: false })
+      // 激活标签历史重置为当前画布；其余标签使用各自工程的初始快照（见 createInitialHistoryForProject）。
+      resetHistoryToCurrentCanvas()
+      projectTabs.value = draft.tabs.map((entry) => {
+        const isActive = entry.tabId === activeEntry.tabId
+        return {
+          id: entry.tabId,
+          name: entry.title,
+          project: cloneProjectFile(entry.project),
+          selectedObjectIds: [],
+          zoom: entry.zoom ?? zoom.value,
+          panX: entry.panX ?? canvasPanX.value,
+          panY: entry.panY ?? canvasPanY.value,
+          viewMode: entry.viewMode ?? 'canvas',
+          svgPreviewMode: entry.svgPreviewMode ?? 'graphic',
+          history: isActive ? captureHistoryState() : createInitialHistoryForProject(entry.project),
+          dirty: entry.dirty === true,
+          savedFilePath: entry.savedFilePath ?? ''
+        }
+      })
+      activeProjectTabId.value = activeEntry.tabId
+      projectTabSnapshotReady = true
+      // 恢复激活标签离开时的视口与视图模式；降级草稿缺视口元数据时保持 fit 之后的默认视图
+      canvasViewMode.value = activeEntry.viewMode ?? 'canvas'
+      svgPreviewMode.value = activeEntry.svgPreviewMode ?? 'graphic'
+      setZoom(activeEntry.zoom ?? zoom.value)
+      canvasPanX.value = activeEntry.panX ?? canvasPanX.value
+      canvasPanY.value = activeEntry.panY ?? canvasPanY.value
+    } finally {
+      switchingProjectTab = false
+      suppressProjectTabAutoSave = false
+    }
   }
 
   watch(historyIndex, () => {
@@ -2697,6 +2990,9 @@ export function useHomeEditorRuntime() {
     tab.savedFilePath = ''
     captureCurrentProjectTabState(tab)
     tab.dirty = false
+    // 内部 newDoc 清空了草稿；多标签时立即重写草稿，避免丢失其他标签的未保存内容。
+    // 单标签保持“新建后无草稿”的原语义，不在恢复提示里出现空文档。
+    if (projectTabs.value.length > 1) saveDraftNow()
   }
 
   // 保存当前项目标签并清除未保存提示；首次保存弹出选择存储位置与文件名，之后自动覆盖同一文件。
@@ -2706,6 +3002,9 @@ export function useHomeEditorRuntime() {
       if (saveProjectToPath(tab.savedFilePath)) {
         captureCurrentProjectTabState(tab)
         tab.dirty = false
+        // 保存工程内部会清空草稿；多标签时立即重写以保留其他标签的未保存内容，
+        // 单标签保持“保存后无草稿、不再弹恢复提示”的原语义。
+        if (projectTabs.value.length > 1) saveDraftNow()
       }
       return
     }
@@ -2716,6 +3015,7 @@ export function useHomeEditorRuntime() {
       currentTab.savedFilePath = filePath
       captureCurrentProjectTabState(currentTab)
       currentTab.dirty = false
+      if (projectTabs.value.length > 1) saveDraftNow()
     })
   }
 
@@ -2736,6 +3036,8 @@ export function useHomeEditorRuntime() {
     tab.savedFilePath = chosenPath || ''
     captureCurrentProjectTabState(tab)
     tab.dirty = false
+    // 打开工程内部会清空草稿；多标签时立即重写以保留其他标签的未保存内容。
+    if (projectTabs.value.length > 1) saveDraftNow()
   }
 
   const iconCheckSummary = computed(() => {
@@ -3396,9 +3698,16 @@ export function useHomeEditorRuntime() {
   }
 
   // 根据用户选择把色板颜色应用到填充或描边；填充复用纯色逻辑，描边使用上面的宽度补齐策略。
+  // 油漆桶工具态下没有选中对象可改，色板/颜色选择器写入的是油漆桶前景颜料：
+  // 点击上色始终用前景色，改填充还是描边由工具栏 hover 弹窗的行为开关决定，与色板 channel 无关。
   function applyColorSwatch(channel: StyleTargetChannel, color: string) {
     const normalized = normalizeSavedColor(color)
     if (!normalized) return
+    if (paintBucketActive.value) {
+      paintBucketCommands.setForegroundColor(normalized)
+      showToast(`油漆桶前景色已设为 ${normalized}`, 'success')
+      return
+    }
     if (channel === 'stroke') {
       applyStrokeColorSwatch(normalized)
       return
@@ -3841,6 +4150,632 @@ export function useHomeEditorRuntime() {
   // 顶栏参考线按钮在无参考线和 Material Keyline 间快速切换，不参与导出。
   function toggleKeylineOverlay() {
     setKeylineTemplate(keylineTemplate.value === 'none' ? 'material' : 'none')
+  }
+
+  // ── 对齐参考线（用户参考线）──
+  // 撤销策略：参考线的增删改会写入撤销快照（editorGuides 字段），与画布对象保持一致的可
+  // 撤销体验；一次拖拽手势 / 一条 MCP 指令只产生一条撤销记录。视图开关 showGuides 仅是
+  // 会话级显示控制，不进撤销栈也不入工程文件。
+
+  /** 读取参考线列表的深拷贝，供撤销快照与工程 JSON 序列化使用。 */
+  function getDocumentGuides(): ProjectGuide[] {
+    return guides.value.map((guide) => ({ ...guide }))
+  }
+
+  /**
+   * 覆盖文档级参考线：工程加载传 guides 字段，新建文档 / 旧工程传 null 归一化为空列表。
+   * 内部先整体归一化（非法条目丢弃、缺 id 补生成），保证响应式状态始终可用。
+   */
+  function applyDocumentGuides(value: unknown) {
+    guides.value = normalizeDocumentGuides(value)
+    guideDragState.value = null
+  }
+
+  /** 从撤销快照 JSON 还原参考线；解析失败时静默忽略，避免历史回滚被参考线数据阻断。 */
+  function restoreDocumentGuidesFromSnapshot(snapshotJson: string) {
+    try {
+      const parsed = JSON.parse(snapshotJson) as { editorGuides?: unknown }
+      applyDocumentGuides(parsed?.editorGuides)
+    } catch {
+      // 快照 JSON 由本模块序列化生成，理论上不会解析失败；兜底忽略保持撤销流程可用。
+    }
+  }
+
+  /** 切换参考线显示；仅影响渲染，不改动参考线数据本身。 */
+  function setGuidesVisible(visible: boolean) {
+    showGuides.value = visible === true
+  }
+
+  /** 视图菜单 / 右键菜单共用的显隐开关。 */
+  function toggleGuides() {
+    setGuidesVisible(!showGuides.value)
+  }
+
+  /** 把画布外坐标换算为参考线允许的落点范围（水平线限画布高、垂直线限画布宽）。 */
+  function clampGuidePositionToCanvas(orientation: GuideOrientation, position: number) {
+    return clampGuidePosition(orientation, position, canvasWidth.value, canvasHeight.value)
+  }
+
+  /**
+   * 从标尺按下拖出新参考线：只更新拖拽预览状态，不写入 guides 列表；
+   * 落定（endGuideDrag）时才真正创建，取消则什么都不留。
+   */
+  function beginGuideCreate(orientation: GuideOrientation, position: number) {
+    guideDragState.value = {
+      orientation,
+      position: clampGuidePositionToCanvas(orientation, position),
+      guideId: null,
+      isNew: true
+    }
+  }
+
+  /**
+   * 开始拖动已有参考线：立即以实时位置更新 guides 列表（拖动过程可见跟随效果），
+   * 松手后按落点决定保留还是删除（拖回标尺区域删除）。
+   */
+  function beginGuideMove(guideId: string, position: number) {
+    const guide = guides.value.find((item) => item.id === guideId)
+    if (!guide) return
+    guideDragState.value = {
+      orientation: guide.orientation,
+      position: clampGuidePositionToCanvas(guide.orientation, position),
+      guideId,
+      isNew: false
+    }
+  }
+
+  /** 拖拽过程中更新参考线位置（画布坐标，夹取到当前画布范围内）。 */
+  function updateGuideDrag(position: number) {
+    const state = guideDragState.value
+    if (!state) return
+    const next = clampGuidePositionToCanvas(state.orientation, position)
+    state.position = next
+    if (state.guideId) {
+      guides.value = moveGuidePosition(guides.value, state.guideId, next)
+    }
+  }
+
+  /**
+   * 结束一次参考线拖拽手势：
+   * - 落点在标尺区域（dropOnRuler=true）→ 新建预览直接取消；已有参考线则删除（拖回标尺删除）；
+   * - 落点在画布 → 夹取后保留。整个手势提交一条撤销记录并触发草稿保存。
+   */
+  function endGuideDrag(dropOnRuler: boolean) {
+    const state = guideDragState.value
+    guideDragState.value = null
+    if (!state) return
+    if (dropOnRuler) {
+      if (state.isNew) return
+      guides.value = removeGuideById(guides.value, state.guideId ?? '')
+      snapshot({ description: '删除参考线' })
+      scheduleDraftSave()
+      return
+    }
+    if (state.isNew) {
+      // 新建：与同方向容差内已有参考线去重（重复落点不产生叠加参考线）
+      const duplicate = findGuideAt(guides.value, state.orientation, state.position, 0.5)
+      if (duplicate) return
+      guides.value = [...guides.value, {
+        id: createGuideId(),
+        orientation: state.orientation,
+        position: state.position
+      }]
+      snapshot({ description: `添加${state.orientation === 'horizontal' ? '水平' : '垂直'}参考线` })
+    } else {
+      snapshot({ description: '调整参考线' })
+    }
+    scheduleDraftSave()
+  }
+
+  /** 右键 / 菜单删除单条参考线，提交一条撤销记录。 */
+  function removeGuide(guideId: string) {
+    if (!guides.value.some((guide) => guide.id === guideId)) return
+    guides.value = removeGuideById(guides.value, guideId)
+    snapshot({ description: '删除参考线' })
+    scheduleDraftSave()
+  }
+
+  /** 清除全部参考线；列表已空时不产生撤销记录。 */
+  function clearGuides() {
+    if (!guides.value.length) return
+    guides.value = []
+    snapshot({ description: '清除全部参考线' })
+    scheduleDraftSave()
+  }
+
+  /**
+   * 整体替换参考线列表（MCP set_guides / clear_guides 的运行时实现）：
+   * 归一化 + 夹取到当前画布范围（越界位置夹取而非报错，保证每条参考线都可见可再编辑），
+   * 由调用方（MCP 网关）负责提交撤销快照。返回应用后的完整列表供回显。
+   */
+  function setDocumentGuides(entries: Array<{ orientation: GuideOrientation; position: number }>): ProjectGuide[] {
+    guides.value = normalizeDocumentGuides(entries.map((entry) => ({
+      id: createGuideId(),
+      orientation: entry.orientation,
+      position: clampGuidePositionToCanvas(entry.orientation, entry.position)
+    })))
+    scheduleDraftSave()
+    return getDocumentGuides()
+  }
+
+  // ── 文档级符号（Symbol）系统 ──
+  // 符号定义挂工程级 symbols 通道持久化（symbols.ts 有归属与实例语义说明）；
+  // 定义随撤销快照（editorSymbols 字段）还原，实例外观由画布 JSON 保持，
+  // 恢复后不自动按定义重建，内容联动只发生在显式「更新符号」时。
+
+  /** 符号定义响应式列表：随工程 / 草稿 / 撤销快照 round-trip。 */
+  const symbols = ref<ProjectSymbol[]>([])
+
+  /** 读取符号定义列表的深拷贝，供撤销快照与工程 JSON 序列化使用。 */
+  function getDocumentSymbols(): ProjectSymbol[] {
+    return JSON.parse(JSON.stringify(symbols.value)) as ProjectSymbol[]
+  }
+
+  /**
+   * 覆盖文档级符号定义：工程加载传 symbols 字段，新建文档 / 旧工程传 null 归一化为空列表。
+   * 内部先整体归一化（非法条目丢弃、重复 id 保留先出现者），保证响应式状态始终可用。
+   */
+  function applyDocumentSymbols(value: unknown) {
+    symbols.value = normalizeProjectSymbols(value)
+  }
+
+  /** 从撤销快照 JSON 还原符号定义；解析失败时静默忽略，避免历史回滚被符号数据阻断。 */
+  function restoreDocumentSymbolsFromSnapshot(snapshotJson: string) {
+    try {
+      const parsed = JSON.parse(snapshotJson) as { editorSymbols?: unknown }
+      applyDocumentSymbols(parsed?.editorSymbols)
+    } catch {
+      // 快照 JSON 由本模块序列化生成，理论上不会解析失败；兜底忽略保持撤销流程可用。
+    }
+  }
+
+  /** 收集画布上引用指定符号定义的全部实例（按 symbols.ts 元数据语义判定）。 */
+  function findSymbolInstancesBySymbolId(symbolId: string): FabricObject[] {
+    if (!fabricCanvas || !symbolId) return []
+    return fabricCanvas.getObjects().filter((obj) => readSymbolInstanceMetadata(obj)?.symbolId === symbolId)
+  }
+
+  /** 统计画布上引用指定符号定义的实例数量，供符号库与 MCP 摘要展示。 */
+  function getSymbolInstanceCount(symbolId: string): number {
+    return findSymbolInstancesBySymbolId(symbolId).length
+  }
+
+  /**
+   * 把序列化对象数组归一化为定义存储形态：先深拷贝校验，再按定义包围盒左上角平移到 (0,0)。
+   * bounds 为源对象在画布上的联合包围盒（getObjectsCombinedBounds 结果）。
+   */
+  function buildNormalizedSymbolObjects(serialized: Record<string, unknown>[], bounds: { left: number; top: number }) {
+    return normalizeSymbolObjectsToBounds(normalizeSymbolObjects(serialized), bounds)
+  }
+
+  /**
+   * 用画布对象序列化结果创建符号定义并入库（创建符号的公共底层）：
+   * 原对象保持不变（不自动转为实例，见 symbols.ts 语义说明）。
+   * 返回新定义；对象无效或超出定义数量上限时抛中文错误。
+   */
+  function createSymbolDefinition(name: string, objects: FabricObject[]): ProjectSymbol {
+    if (symbols.value.length >= MAX_PROJECT_SYMBOLS) {
+      throw new Error(`符号数量已达上限 ${MAX_PROJECT_SYMBOLS} 个，请先删除不需要的符号`)
+    }
+    const bounds = getObjectsCombinedBounds(objects)
+    if (!bounds) throw new Error('选中对象没有有效包围盒，无法创建符号')
+    const serialized = objects.map((obj) => cloneSerializedObjectData(
+      (obj as AnyFabricObject).toObject(SERIALIZED_OBJECT_PROPS as unknown as string[]) as Record<string, unknown>
+    ))
+    const symbol: ProjectSymbol = {
+      id: createSymbolId(),
+      name: normalizeSymbolName(name, `符号 ${symbols.value.length + 1}`),
+      createdAt: Date.now(),
+      objects: buildNormalizedSymbolObjects(serialized, bounds)
+    }
+    symbols.value = upsertProjectSymbol(symbols.value, symbol)
+    scheduleDraftSave()
+    return symbol
+  }
+
+  /**
+   * 用画布对象重写指定符号定义（更新符号的公共底层，不负责实例重建）：
+   * 重写定义 objects 并返回旧定义供调用方做实例几何映射。
+   * 符号不存在或对象无效时抛中文错误。
+   */
+  function rewriteSymbolDefinition(symbolId: string, name: string, objects: FabricObject[]): { previous: ProjectSymbol; next: ProjectSymbol } {
+    const previous = findProjectSymbolById(symbols.value, symbolId)
+    if (!previous) throw new Error(`未找到符号: ${symbolId}`)
+    const bounds = getObjectsCombinedBounds(objects)
+    if (!bounds) throw new Error('选中对象没有有效包围盒，无法更新符号')
+    const serialized = objects.map((obj) => cloneSerializedObjectData(
+      (obj as AnyFabricObject).toObject(SERIALIZED_OBJECT_PROPS as unknown as string[]) as Record<string, unknown>
+    ))
+    const next: ProjectSymbol = {
+      ...previous,
+      name: normalizeSymbolName(name, previous.name),
+      objects: buildNormalizedSymbolObjects(serialized, bounds)
+    }
+    symbols.value = upsertProjectSymbol(symbols.value, next)
+    scheduleDraftSave()
+    return { previous, next }
+  }
+
+  /**
+   * 从定义构建一个全新的实例 Group（插入与更新重建共用的底层）：
+   * enliven 定义对象 → 编组 → 挂实例元数据 → 换新内部 id 与默认元数据。
+   * 子对象沿用 prepareClonedObjectMetadata 重置 id，避免多个实例共享 editorObjectId。
+   */
+  async function buildSymbolInstanceGroup(symbol: ProjectSymbol): Promise<Group> {
+    const enlivened = await util.enlivenObjects(symbol.objects.map(cloneSerializedObjectData)) as FabricObject[]
+    if (!enlivened.length) throw new Error('符号定义内容为空，无法创建实例')
+    // 先补齐子对象元数据再编组：换新内部 id（避免多实例共享 editorObjectId）并重置
+    // 万花筒/端点贴附等画布级引用，随后编组不会引入过期缓存。
+    enlivened.forEach((child) => {
+      prepareClonedObjectMetadata(child)
+      applyDefaultKaleidoscopeMetadata(child)
+      applyDefaultEndpointSnapMargin(child)
+      normalizeEndpointAttachments(child)
+      applyCanvasThemeToObject(child)
+    })
+    const group = new Group(enlivened)
+    const metadata = createSymbolInstanceMetadata(symbol.id)
+    const target = group as AnyFabricObject
+    target.symbolId = metadata.symbolId
+    target.symbolInstanceId = metadata.symbolInstanceId
+    target.name = nextNameUnique(symbol.name)
+    ensureEditorObjectId(group)
+    applyDefaultSizeRatioLockMetadata(group)
+    group.setCoords()
+    return group
+  }
+
+  /**
+   * 把实例 Group 的包围盒中心移动到目标场景坐标，并保证实例完整落在画布内：
+   * 实例显示尺寸明显大于画布时先等比缩小到 82% 以内（与素材插入行为一致）。
+   */
+  function placeSymbolInstance(group: Group, scenePoint: { x: number; y: number } | null) {
+    group.setCoords()
+    const bounds = group.getBoundingRect()
+    const maxWidth = canvasWidth.value * 0.82
+    const maxHeight = canvasHeight.value * 0.82
+    const scaleRatio = Math.min(
+      1,
+      bounds.width > 0 ? maxWidth / bounds.width : 1,
+      bounds.height > 0 ? maxHeight / bounds.height : 1
+    )
+    if (Number.isFinite(scaleRatio) && scaleRatio > 0 && scaleRatio < 1) {
+      group.set({ scaleX: (group.scaleX || 1) * scaleRatio, scaleY: (group.scaleY || 1) * scaleRatio })
+      group.setCoords()
+    }
+    const target = scenePoint ?? { x: canvasWidth.value / 2, y: canvasHeight.value / 2 }
+    group.setPositionByOrigin(new Point(target.x, target.y), 'center', 'center')
+    group.setCoords()
+  }
+
+  /**
+   * 插入符号实例（insert_symbol / MCP insert_symbol_instance 的运行时实现）：
+   * 从定义构建实例 Group → 放到画布中心或落点 → 加入画布并选中。
+   * 一次插入提交一条撤销记录；symbolId 不存在时抛中文错误，返回实例 Group。
+   */
+  async function insertSymbolInstance(symbolId: string, scenePoint: { x: number; y: number } | null = null): Promise<Group> {
+    const fabric = fabricCanvas
+    if (!fabric) throw new Error('画布尚未初始化')
+    const symbol = findProjectSymbolById(symbols.value, symbolId)
+    if (!symbol) throw new Error(`未找到符号: ${symbolId}，可先执行 list_symbols 查询`)
+    clearBooleanPreview()
+    clearPointEditing()
+    const group = await buildSymbolInstanceGroup(symbol)
+    placeSymbolInstance(group, scenePoint)
+    const previousGate = skipSnapshot
+    skipSnapshot = true
+    try {
+      fabric.add(group as AnyFabricObject)
+    } finally {
+      skipSnapshot = previousGate
+    }
+    setSelectionMode('shape')
+    applyActiveObjectsSelection([group])
+    snapshot({ description: `插入符号实例: ${symbol.name}` })
+    scheduleDraftSave()
+    return group
+  }
+
+  /**
+   * 更新符号定义并用画布对象重建全部实例（update_symbol 的运行时实现）：
+   * 定义 objects 重写后，全部实例按新定义重建——重建策略保持实例的包围盒中心、
+   * 显示尺寸与旋转角不变（computeSymbolInstanceScale 把新定义内容映射进旧实例包围盒），
+   * symbolInstanceId 保持不变以维持外部引用稳定。整个操作提交一条撤销记录。
+   * 返回更新后的定义与重建的实例 id 列表。
+   */
+  async function updateSymbolInstances(symbolId: string, objects: FabricObject[]): Promise<{ symbol: ProjectSymbol; instanceIds: string[] }> {
+    const fabric = fabricCanvas
+    if (!fabric) throw new Error('画布尚未初始化')
+    const symbol = findProjectSymbolById(symbols.value, symbolId)
+    if (!symbol) throw new Error(`未找到符号: ${symbolId}，可先执行 list_symbols 查询`)
+    // 先记录旧实例几何（中心点 / 显示尺寸 / 角度），供重建后映射恢复。
+    const instances = findSymbolInstancesBySymbolId(symbolId)
+    const geometries = instances.map((instance) => {
+      instance.setCoords()
+      return {
+        instance,
+        center: instance.getCenterPoint(),
+        width: instance.getScaledWidth?.() ?? Number(instance.width ?? 0),
+        height: instance.getScaledHeight?.() ?? Number(instance.height ?? 0),
+        angle: Number(instance.angle ?? 0)
+      }
+    })
+    const { next } = rewriteSymbolDefinition(symbolId, symbol.name, objects)
+    const instanceIds: string[] = []
+    const previousGate = skipSnapshot
+    skipSnapshot = true
+    try {
+      for (const geometry of geometries) {
+        const group = await buildSymbolInstanceGroup(next)
+        // 保持实例 id 稳定：仅替换内容与几何，外部引用（symbolInstanceId）不变。
+        ;(group as AnyFabricObject).symbolInstanceId = readSymbolInstanceMetadata(geometry.instance)?.symbolInstanceId
+          ?? (group as AnyFabricObject).symbolInstanceId
+        const scale = computeSymbolInstanceScale(
+          { width: geometry.width, height: geometry.height },
+          { width: group.width || 1, height: group.height || 1 }
+        )
+        group.set({ angle: geometry.angle, scaleX: scale.scaleX, scaleY: scale.scaleY })
+        group.setPositionByOrigin(geometry.center, 'center', 'center')
+        group.setCoords()
+        const index = fabric.getObjects().indexOf(geometry.instance)
+        if (index >= 0) fabric.remove(geometry.instance as AnyFabricObject)
+        fabric.insertAt(index >= 0 ? index : fabric.getObjects().length, group as AnyFabricObject)
+        instanceIds.push(ensureEditorObjectId(group))
+      }
+    } finally {
+      skipSnapshot = previousGate
+    }
+    if (geometries.length) {
+      applyActiveObjectsSelection([])
+    }
+    refreshLayers()
+    syncObjProps()
+    fabric.requestRenderAll()
+    snapshot({ description: `更新符号: ${next.name}` })
+    scheduleDraftSave()
+    return { symbol: next, instanceIds }
+  }
+
+  /**
+   * 解除对象与符号定义的关联（detach 的运行时实现）：
+   * 移除 symbolId / symbolInstanceId 元数据转普通对象，定义不动，外观保持。
+   * 返回解除关联的对象列表；无命中时返回空列表且不提交撤销记录。
+   */
+  function detachSymbolInstances(objects: FabricObject[]): FabricObject[] {
+    const fabric = fabricCanvas
+    if (!fabric) return []
+    const targets = objects.filter((obj) => !!readSymbolInstanceMetadata(obj))
+    if (!targets.length) return []
+    withSnapshotSuppressed(() => {
+      targets.forEach((obj) => {
+        const target = obj as AnyFabricObject
+        delete target.symbolId
+        delete target.symbolInstanceId
+        target.setCoords()
+      })
+    })
+    fabric.requestRenderAll()
+    refreshLayers()
+    syncObjProps()
+    snapshot({ description: '解除符号关联' })
+    scheduleDraftSave()
+    return targets
+  }
+
+  /**
+   * 删除符号定义（符号库删除按钮 / MCP delete 的底层）：
+   * 定义从列表移除，画布上全部实例自动解除关联（保留外观转普通对象）。
+   * 返回被删除的定义与解除关联的实例数；定义不存在时抛中文错误。
+   */
+  function deleteSymbolDefinition(symbolId: string): { symbol: ProjectSymbol; detachedCount: number } {
+    const symbol = findProjectSymbolById(symbols.value, symbolId)
+    if (!symbol) throw new Error(`未找到符号: ${symbolId}`)
+    symbols.value = removeProjectSymbolById(symbols.value, symbolId)
+    const instances = findSymbolInstancesBySymbolId(symbolId)
+    withSnapshotSuppressed(() => {
+      instances.forEach((obj) => {
+        const target = obj as AnyFabricObject
+        delete target.symbolId
+        delete target.symbolInstanceId
+        target.setCoords()
+      })
+    })
+    fabricCanvas?.requestRenderAll()
+    refreshLayers()
+    snapshot({ description: `删除符号定义: ${symbol.name}` })
+    scheduleDraftSave()
+    return { symbol, detachedCount: instances.length }
+  }
+
+  /** 读取对象在图层面板显示用的符号徽标文本：实例返回「符号名」，普通对象返回空串。 */
+  function getSymbolBadgeText(obj: FabricObject | null | undefined): string {
+    const metadata = readSymbolInstanceMetadata(obj)
+    if (!metadata) return ''
+    return findProjectSymbolById(symbols.value, metadata.symbolId)?.name ?? '已删符号'
+  }
+
+  // ── 符号系统的界面命令（右键菜单与符号库面板入口） ──
+
+  /** 创建符号命名弹窗状态：与图层重命名弹窗同一交互模式。 */
+  const symbolNameDialog = reactive<{ show: boolean; value: string; error: string }>({
+    show: false,
+    value: '',
+    error: ''
+  })
+
+  /** 根据当前选区生成创建符号的默认名称：单选沿用图层显示名，多选用「符号 N」。 */
+  function getDefaultSymbolName() {
+    const targets = selectedObjects.value.filter((obj) => !isBooleanPreviewObject(obj))
+    if (targets.length === 1) return getObjectDisplayName(targets[0])
+    return `符号 ${symbols.value.length + 1}`
+  }
+
+  /** 打开「创建为符号」命名弹窗，默认名取当前选区。 */
+  function openCreateSymbolDialog() {
+    const targets = selectedObjects.value.filter((obj) => !isBooleanPreviewObject(obj))
+    if (!targets.length) return
+    symbolNameDialog.value = getDefaultSymbolName()
+    symbolNameDialog.error = ''
+    symbolNameDialog.show = true
+  }
+
+  /** 关闭创建符号弹窗时清空临时输入与错误信息。 */
+  function handleSymbolNameDialogShowChange(show: boolean) {
+    symbolNameDialog.show = show
+    if (show) return
+    symbolNameDialog.value = ''
+    symbolNameDialog.error = ''
+  }
+
+  /** 确认创建符号：定义入库、原对象保持不变并 toast 说明，一条撤销记录。 */
+  function confirmCreateSymbolDialog() {
+    const targets = selectedObjects.value.filter((obj) => !isBooleanPreviewObject(obj))
+    if (!targets.length) {
+      handleSymbolNameDialogShowChange(false)
+      return
+    }
+    try {
+      const symbol = createSymbolDefinition(symbolNameDialog.value, targets)
+      snapshot({ description: `创建符号: ${symbol.name}` })
+      showToast(`已创建符号「${symbol.name}」，画布原对象保持不变`, 'success')
+      handleSymbolNameDialogShowChange(false)
+    } catch (error) {
+      symbolNameDialog.error = error instanceof Error ? error.message : '创建符号失败'
+    }
+  }
+
+  /** 符号库点击插入：实例落在画布中心（一条撤销记录），失败时 toast 说明。 */
+  async function insertSymbolFromLibrary(symbol: ProjectSymbol) {
+    try {
+      await insertSymbolInstance(symbol.id, null)
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '插入符号实例失败', 'error')
+    }
+  }
+
+  /** 符号库「用选中对象更新」：重写定义并同步全部实例（一条撤销记录），失败时 toast 说明。 */
+  async function updateSymbolFromLibrary(symbol: ProjectSymbol) {
+    const targets = selectedObjects.value.filter((obj) => !isBooleanPreviewObject(obj))
+    if (!targets.length) {
+      showToast('请先在画布选中用于更新符号的对象', 'warning')
+      return
+    }
+    try {
+      const result = await updateSymbolInstances(symbol.id, targets)
+      showToast(`符号「${result.symbol.name}」已更新，${result.instanceIds.length} 个实例已同步`, 'success')
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '更新符号失败', 'error')
+    }
+  }
+
+  /** 符号库删除定义：二次确认后删除，全部实例自动解除关联并 toast 说明（一条撤销记录）。 */
+  function deleteSymbolFromLibrary(symbol: ProjectSymbol) {
+    if (!window.confirm(`确定删除符号「${symbol.name}」吗？画布上的实例将自动解除关联并保留外观。`)) return
+    try {
+      const result = deleteSymbolDefinition(symbol.id)
+      showToast(`已删除符号「${result.symbol.name}」，${result.detachedCount} 个实例已解除关联`, 'success')
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '删除符号失败', 'error')
+    }
+  }
+
+  /** 图层右键「解除符号关联」：对选中对象解除关联，无实例时 toast 提示。 */
+  function detachSymbolSelection() {
+    const targets = selectedObjects.value.filter((obj) => !isBooleanPreviewObject(obj))
+    const detached = detachSymbolInstances(targets)
+    if (!detached.length) {
+      showToast('选中对象中没有符号实例', 'warning')
+      return
+    }
+    showToast(`已解除 ${detached.length} 个实例的符号关联`, 'success')
+  }
+
+  // 对象拖拽吸附参考线的视口像素阈值（换算为画布单位需除以缩放）。
+  const GUIDE_SNAP_THRESHOLD_VIEWPORT_PX = 4
+
+  /**
+   * 对象拖拽 / 缩放时吸附对齐参考线（加分项能力）：
+   * 取包围盒的左/中/右（水平参考线按上/中/下）与同方向参考线比较，取最近的一条，
+   * 距离在 4px 视口阈值内时整体平移吸附。不吸附时静默返回，行为与无参考线一致。
+   */
+  function snapObjectPositionToGuides(obj: FabricObject | null | undefined) {
+    if (!obj || !showGuides.value || !guides.value.length) return false
+    const zoomValue = zoom.value > 0 ? zoom.value : 1
+    const threshold = GUIDE_SNAP_THRESHOLD_VIEWPORT_PX / zoomValue
+    const bounds = obj.getBoundingRect()
+    const centerX = bounds.left + bounds.width / 2
+    const centerY = bounds.top + bounds.height / 2
+    let deltaX = Number.POSITIVE_INFINITY
+    let deltaY = Number.POSITIVE_INFINITY
+    for (const guide of guides.value) {
+      if (guide.orientation === 'vertical') {
+        for (const edge of [bounds.left, centerX, bounds.left + bounds.width]) {
+          const distance = Math.abs(guide.position - edge)
+          if (distance < threshold && distance < Math.abs(deltaX)) deltaX = guide.position - edge
+        }
+        continue
+      }
+      for (const edge of [bounds.top, centerY, bounds.top + bounds.height]) {
+        const distance = Math.abs(guide.position - edge)
+        if (distance < threshold && distance < Math.abs(deltaY)) deltaY = guide.position - edge
+      }
+    }
+    if (!Number.isFinite(deltaX) && !Number.isFinite(deltaY)) return false
+    obj.set({
+      left: (obj.left ?? 0) + (Number.isFinite(deltaX) ? deltaX : 0),
+      top: (obj.top ?? 0) + (Number.isFinite(deltaY) ? deltaY : 0)
+    })
+    obj.setCoords()
+    return true
+  }
+
+  // ── 全局颜色替换 ──
+  const colorReplaceDialog = reactive({ show: false })
+  // 打开弹窗时一次性扫描的文档颜色快照；替换成功后由打开方重新扫描刷新。
+  const colorReplaceEntries = ref<ScannedColorEntry[]>([])
+
+  /** 打开颜色替换弹窗并扫描当前文档颜色（排除布尔预览对象，编组递归展开）。 */
+  function openColorReplaceDialog() {
+    colorReplaceEntries.value = scanDocumentColors(
+      fabricCanvas ? fabricCanvas.getObjects() : [],
+      { isExcluded: (obj) => isBooleanPreviewObject(obj as FabricObject | null | undefined) }
+    )
+    colorReplaceDialog.show = true
+  }
+
+  /** 关闭颜色替换弹窗。 */
+  function closeColorReplaceDialog() {
+    colorReplaceDialog.show = false
+  }
+
+  /**
+   * 执行全局颜色替换（一条撤销记录）：
+   * 全量对象走纯模块替换 fill/stroke/渐变色标/渐变元数据，完成后刷新画布与图层面板，
+   * toast 汇报替换对象数。源色非法或与目标色相同时返回 null，由调用方提示。
+   */
+  function replaceAllColor(from: string, to: string): { objectCount: number; slotCount: number } | null {
+    if (!fabricCanvas) return null
+    if (normalizeColorKey(from) === null || normalizeColorKey(from) === normalizeColorKey(to)) return null
+    const objects = fabricCanvas.getObjects()
+    const result = withSnapshotSuppressed(() => replaceDocumentColor(
+      objects,
+      from,
+      to,
+      { isExcluded: (obj) => isBooleanPreviewObject(obj as FabricObject | null | undefined) }
+    ))
+    if (!result.objectCount) return result
+    for (const obj of objects) {
+      const typed = obj as AnyFabricObject
+      typed.dirty = true
+      typed.setCoords()
+      triggerKaleidoscopeContentSync(obj)
+    }
+    fabricCanvas.requestRenderAll()
+    refreshLayers()
+    markSmallPreviewsDirty()
+    snapshot({ description: `颜色替换 ${from} → ${to}` })
+    scheduleDraftSave()
+    return result
   }
 
   // 获取对象在图层面板中的显示名，规范检查定位问题时复用同一套命名策略。
@@ -4344,26 +5279,87 @@ export function useHomeEditorRuntime() {
         const segmentRef = selectedEditableSegment.value
         const liveSegmentRef = getLiveEditableSegmentRef(segmentRef)
         if (!liveSegmentRef) return
-        const colors = getCanvasAssistColors()
         const anchorPoint = controlPoint === 'cp1' ? liveSegmentRef.fromPoint : liveSegmentRef.toPoint
         const anchorViewportPoint = getViewportPointForEditablePathPoint(editable, anchorPoint)
-        ctx.save()
-        ctx.beginPath()
-        ctx.moveTo(anchorViewportPoint.x, anchorViewportPoint.y)
-        ctx.lineTo(left, top)
-        ctx.strokeStyle = colors.primaryStrong
-        ctx.lineWidth = 1.5
-        ctx.stroke()
-        ctx.beginPath()
-        ctx.arc(left, top, 4, 0, Math.PI * 2)
-        ctx.fillStyle = colors.textOnPrimary
-        ctx.strokeStyle = colors.primary
-        ctx.lineWidth = 2
-        ctx.fill()
-        ctx.stroke()
-        ctx.restore()
+        renderCurveHandleControl(ctx, left, top, anchorViewportPoint)
       }
     } as Partial<Control> & { pointIndex: CurveControlPointKey })
+  }
+
+  // 曲线控制柄的统一绘制：锚点到柄的细连线 + 柄端小圆点（边模式 cp 柄与锚点柄共用）。
+  function renderCurveHandleControl(
+    ctx: CanvasRenderingContext2D,
+    left: number,
+    top: number,
+    anchorViewportPoint: Point
+  ) {
+    const colors = getCanvasAssistColors()
+    ctx.save()
+    ctx.beginPath()
+    ctx.moveTo(anchorViewportPoint.x, anchorViewportPoint.y)
+    ctx.lineTo(left, top)
+    ctx.strokeStyle = colors.primaryStrong
+    ctx.lineWidth = 1.5
+    ctx.stroke()
+    ctx.beginPath()
+    ctx.arc(left, top, 4, 0, Math.PI * 2)
+    ctx.fillStyle = colors.textOnPrimary
+    ctx.strokeStyle = colors.primary
+    ctx.lineWidth = 2
+    ctx.fill()
+    ctx.stroke()
+    ctx.restore()
+  }
+
+  /**
+   * 创建点位模式下选中锚点的贝塞尔控制柄控件（与钢笔工具选中锚点后的双柄展示一致）：
+   * - side = 'in'：入柄，绑定"入段"（终点为该锚点）的 cp2；
+   * - side = 'out'：出柄，绑定"出段"（起点为该锚点）的 cp1；
+   * 只要邻段存在就显示（cubic 段取真实 cp，直线段显示在 1/3、2/3 幻影位），
+   * 拖拽幻影柄会把直线段转为曲线（setEditableSegmentControlPoint 同边模式规则）；
+   * 开放轮廓端点缺少邻段的一侧不显示。
+   */
+  function createAnchorCurveHandleControl(editable: EditablePathObject, anchorIndex: number, side: 'in' | 'out') {
+    const controlPoint: CurveControlPointKey = side === 'in' ? 'cp2' : 'cp1'
+    const resolveHandleSegmentRef = () => {
+      const refs = getEditableAnchorHandleRefs(editable, anchorIndex)
+      return side === 'in' ? refs.inSegmentRef : refs.outSegmentRef
+    }
+    return new Control({
+      actionName: 'modifyEditableCurve',
+      cursorStyle: 'crosshair',
+      sizeX: 10,
+      sizeY: 10,
+      touchSizeX: 18,
+      touchSizeY: 18,
+      pointIndex: `${anchorIndex}:${side}`,
+      positionHandler: () => {
+        const segmentRef = resolveHandleSegmentRef()
+        if (!segmentRef) return new Point(0, 0)
+        return getViewportPointForEditablePathPoint(editable, getEditableSegmentControlPoint(segmentRef, controlPoint))
+      },
+      getVisibility: () => canEditPoints(editable)
+        && selectedPointIndices.value.includes(anchorIndex)
+        && !!resolveHandleSegmentRef(),
+      actionHandler: (_eventData, _transform, x, y) => {
+        if (!canEditPoints(editable)) return false
+        const segmentRef = resolveHandleSegmentRef()
+        if (!segmentRef) return false
+        setEditableSegmentControlPoint(editable, segmentRef, controlPoint, getLocalPointFromCanvas(editable, x, y))
+        triggerKaleidoscopeContentSync(editable)
+        syncObjProps()
+        fabricCanvas?.requestRenderAll()
+        return true
+      },
+      mouseUpHandler: () => {
+        snapshot()
+        return false
+      },
+      render: (ctx, left, top) => {
+        if (!resolveHandleSegmentRef()) return
+        renderCurveHandleControl(ctx, left, top, getViewportPointForEditablePoint(editable, anchorIndex))
+      }
+    } as Partial<Control> & { pointIndex: string })
   }
 
   function setSelectedDirectSegmentEditablePoints(obj: EditablePathObject, indices: number[]) {
@@ -4519,6 +5515,9 @@ export function useHomeEditorRuntime() {
           },
           render: renderPointControl
         } as Partial<Control> & { pointIndex: number })
+        // 与钢笔工具一致：锚点被选中时展示其入/出两个贝塞尔控制柄（可见性在控件内动态判定）
+        controls[`epIn${index}`] = createAnchorCurveHandleControl(editable, index, 'in')
+        controls[`epOut${index}`] = createAnchorCurveHandleControl(editable, index, 'out')
       })
     }
     controls.curveCp1 = createCurveHandleControl(editable, 'cp1')
@@ -4738,7 +5737,8 @@ export function useHomeEditorRuntime() {
     const target = getGradientTarget(obj)
     if (!target) return 'solid'
     applyDefaultFillGradientMetadata(target)
-    return target.fillMode === 'gradient' ? 'gradient' : 'solid'
+    // fillMode 归一化后取值 solid/gradient/pattern，直接透传供面板判断当前模式。
+    return target.fillMode
   }
 
   /**
@@ -4767,7 +5767,8 @@ export function useHomeEditorRuntime() {
     const target = getGradientTarget(obj)
     if (!target) return
     applyDefaultFillGradientMetadata(target)
-    objProps.fillMode = target.fillMode === 'gradient' ? 'gradient' : 'solid'
+    // fillMode 透传 solid/gradient/pattern 三态（pattern 时渐变参数保留但不参与展示）。
+    objProps.fillMode = target.fillMode
     objProps.fillGradientType = target.fillGradientType ?? DEFAULT_FILL_GRADIENT_TYPE
     objProps.fillGradientAngle = Number(target.fillGradientAngle ?? DEFAULT_FILL_GRADIENT_ANGLE) || DEFAULT_FILL_GRADIENT_ANGLE
     objProps.fillGradientAngleInput = formatNumericInputValue(objProps.fillGradientAngle)
@@ -4903,6 +5904,72 @@ export function useHomeEditorRuntime() {
     return true
   }
 
+  // ── 节点编辑：锚点插入 / 删除 ──
+
+  /**
+   * 节点编辑（点位）模式下双击线段插入锚点：
+   * - 直线段线性插值、曲线段按最近点参数做 de Casteljau 分割，曲线形状保持不变；
+   * - 插入后新锚点直接进入选中态，可直接拖拽；
+   * - 一次插入 = 一条撤销记录（snapshot 在全部状态刷新后统一调用）。
+   * 返回是否已处理该双击。
+   */
+  function handlePointModeDoubleClick(scenePoint: Point) {
+    const obj = activeEditablePathObject.value
+    if (!obj || !fabricCanvas || selectionMode.value !== 'point' || !hasEditablePoints.value) return false
+    const localPoint = getRawLocalPointFromCanvas(obj, scenePoint.x, scenePoint.y)
+    const segmentRef = getEditableSegmentByLocalPoint(obj, localPoint, getSegmentPickTolerance(obj))
+    if (!segmentRef) return false
+    // 空芯箭头依赖"两点开放轮廓"的专用渲染结构，不允许插点破坏
+    if (getArrowRenderMode(obj) === 'hollow-shaft' && !segmentRef.contour.closed && segmentRef.contour.points.length === 2) {
+      showToast('当前空芯箭头不支持插入锚点', 'warning')
+      return true
+    }
+    const param = getContourSegmentParameterAt(segmentRef.contour, segmentRef.segmentIndex, localPoint)
+    if (!param) return false
+    const insertedGlobalIndex = insertEditablePointOnObjectSegment(obj, segmentRef, param.t)
+    if (insertedGlobalIndex == null) return false
+    // 插点后点索引整体移位，端点吸附关系失效，统一清除避免残留旧索引
+    clearAllEndpointAttachments(obj)
+    setSelectedEditablePoints(obj, [insertedGlobalIndex])
+    updateCurveControls()
+    triggerKaleidoscopeContentSync(obj)
+    refreshEditablePathMetadata()
+    refreshLayers()
+    fabricCanvas.requestRenderAll()
+    snapshot()
+    syncObjProps()
+    return true
+  }
+
+  /**
+   * 节点编辑（点位）模式下删除已选锚点（支持多选）：
+   * - 闭合轮廓最少保留 3 点、开放轮廓最少保留 2 点，不足时 toast 提示并保持原状；
+   * - 被删锚点两侧段合并为一段（控制柄取舍策略见 removeEditablePointsFromContour）；
+   * - 一次删除（含多点）= 一条撤销记录。
+   * 返回 true 表示键盘事件已被消费（无论是否真的删除），用于拦截"删除整个对象"的全局快捷键。
+   */
+  function deleteSelectedEditablePoints() {
+    const obj = activeEditablePathObject.value
+    if (!obj || selectionMode.value !== 'point' || !hasSelectedPoint.value) return false
+    const indices = normalizeSelectedPointIndices(obj, selectedPointIndices.value)
+    if (!indices.length) return false
+    if (!removeEditablePointsFromObject(obj, indices)) {
+      showToast('锚点数量已达下限，无法继续删除', 'warning')
+      return true
+    }
+    // 删点后点索引整体移位，端点吸附关系失效，统一清除避免残留旧索引
+    clearAllEndpointAttachments(obj)
+    setSelectedEditablePoints(obj, [])
+    updateCurveControls()
+    triggerKaleidoscopeContentSync(obj)
+    refreshEditablePathMetadata()
+    refreshLayers()
+    fabricCanvas?.requestRenderAll()
+    snapshot()
+    syncObjProps()
+    return true
+  }
+
   function syncObjProps() {
     const obj = activeObject.value
     if (!obj) return
@@ -4922,6 +5989,10 @@ export function useHomeEditorRuntime() {
     objProps.rotateX = rotation3d?.rotateX ?? 0
     objProps.rotateY = rotation3d?.rotateY ?? 0
     objProps.angle = rotation3d?.rotateZ ?? 0  // 从 metadata 读取原始 Z 轴角度
+    // 翻转回显读意图元数据：原生 flipX/flipY 混入了 3D 旋转投影的镜像成分，
+    // 按钮激活态应只反映用户是否点过翻转
+    objProps.flipX = rotation3d?.rotation3dFlipX === true
+    objProps.flipY = rotation3d?.rotation3dFlipY === true
     objProps.rotateXInput = formatNumericInputValue(objProps.rotateX)
     objProps.rotateYInput = formatNumericInputValue(objProps.rotateY)
     objProps.angleInput = formatNumericInputValue(objProps.angle)
@@ -4953,6 +6024,11 @@ export function useHomeEditorRuntime() {
         ? (first as AnyFabricObject).lastFill
         : '#000000'
     syncGradientPropsFromObject(first)
+    // 同步图案填充回显状态：fill 为 fabric Pattern 时面板显示来源名/平铺方式/缩放（无缩略图）。
+    const patternState = readPatternFillState(first)
+    objProps.fillPatternRepeat = patternState.repeat
+    objProps.fillPatternScale = patternState.scale
+    objProps.fillPatternSourceName = patternState.name || (patternState.source ? '自定义图片' : '')
     objProps.stroke = first && typeof first.stroke === 'string'
       ? first.stroke
       : typeof (first as AnyFabricObject | undefined)?.lastStroke === 'string'
@@ -5028,10 +6104,95 @@ export function useHomeEditorRuntime() {
       resetCurveProps()
     }
 
-    // 同步阴影效果
+    // 同步阴影效果。属性面板的 ZInput 是受控组件：model-value 不回写时键入会被重置回原值，
+    // 因此为数值字段附带可写的输入缓冲字符串（offsetXInput 等），键入期间由面板更新缓冲，change 时才提交数值。
     applyDefaultShadowEffectsMetadata(obj)
     const shadowMetadata = getShadowEffectsMetadata(obj)
-    objProps.shadowEffects = shadowMetadata?.shadowEffects ? [...shadowMetadata.shadowEffects] : []
+    objProps.shadowEffects = shadowMetadata?.shadowEffects
+      ? shadowMetadata.shadowEffects.map(effect => ({
+          ...effect,
+          offsetXInput: formatNumericInputValue(effect.offsetX),
+          offsetYInput: formatNumericInputValue(effect.offsetY),
+          blurInput: formatNumericInputValue(effect.blur)
+        }))
+      : []
+
+    // 同步混合模式（所有对象通用；fabric 的 source-over 对外展示为 normal）。
+    objProps.blendMode = compositeOperationToBlendMode(obj.globalCompositeOperation)
+
+    // 同步位图滤镜状态：仅位图对象有滤镜列表，并附带面板渲染所需的文案与参数滑杆配置；
+    // 面板每行 = 一种滤镜（开关 + 可选参数滑杆），禁用条目也回显以便再次启用时保留参数。
+    objProps.bitmapFilters = obj instanceof FabricImage
+      ? decorateBitmapFilterSettings(readBitmapFilterSettings(obj))
+      : []
+
+    // 同步文本专属属性：目标是选中集合中的全部文本对象（单选文本或多选/编组中的文本子对象），
+    // 回显取第一个文本对象；无文本目标时重置默认值，面板据 objProps 是否有文本目标决定显隐。
+    const textTargets = getTextTargets(obj)
+    if (textTargets.length) {
+      const textTarget = textTargets[0]
+      objProps.fontFamily = typeof textTarget.fontFamily === 'string' && textTarget.fontFamily.trim()
+        ? textTarget.fontFamily
+        : DEFAULT_TEXT_FONT_FAMILY
+      objProps.fontSize = Number(textTarget.fontSize) || 24
+      objProps.fontSizeInput = formatNumericInputValue(objProps.fontSize)
+      objProps.fontBold = isBoldFontWeight(textTarget.fontWeight)
+      objProps.fontItalic = textTarget.fontStyle === 'italic'
+      objProps.fontUnderline = textTarget.underline === true
+      objProps.fontLinethrough = textTarget.linethrough === true
+      objProps.charSpacing = Number(textTarget.charSpacing) || 0
+      objProps.charSpacingInput = formatNumericInputValue(objProps.charSpacing)
+      objProps.lineHeight = Number(textTarget.lineHeight) || 1.16
+      objProps.lineHeightInput = formatNumericInputValue(objProps.lineHeight)
+      objProps.textAlign = typeof textTarget.textAlign === 'string' ? textTarget.textAlign : 'left'
+    } else {
+      resetTextProps()
+    }
+  }
+
+  /** 把文本属性面板回显重置为默认值（选中集合不含文本对象时调用）。 */
+  function resetTextProps() {
+    objProps.fontFamily = DEFAULT_TEXT_FONT_FAMILY
+    objProps.fontSize = 24
+    objProps.fontSizeInput = '24'
+    objProps.fontBold = false
+    objProps.fontItalic = false
+    objProps.fontUnderline = false
+    objProps.fontLinethrough = false
+    objProps.charSpacing = 0
+    objProps.charSpacingInput = '0'
+    objProps.lineHeight = 1.16
+    objProps.lineHeightInput = '1.16'
+    objProps.textAlign = 'left'
+  }
+
+  /** 解析当前对象内的全部文本目标：单选文本返回自身，多选/编组返回其中所有文本子对象。 */
+  function getTextTargets(obj: FabricObject): Textbox[] {
+    const candidates = obj instanceof Group ? obj.getObjects() : [obj]
+    return candidates.filter((candidate): candidate is Textbox => candidate instanceof Textbox)
+  }
+
+  /** 判断字重值是否为粗体：'bold' 或数值 ≥ 600（fabric 字重兼容字符串与数字两种形态）。 */
+  function isBoldFontWeight(weight: unknown) {
+    if (weight === 'bold') return true
+    const parsed = Number(weight)
+    return Number.isFinite(parsed) && parsed >= 600
+  }
+
+  /** 把滤镜设置装饰为面板行数据：按固定顺序补齐全部 7 种滤镜（缺失类型生成禁用态默认行）并附滑杆配置。 */
+  function decorateBitmapFilterSettings(settings: BitmapFilterSetting[]) {
+    return BITMAP_FILTER_TYPES.map((type) => {
+      const setting = settings.find((candidate) => candidate.type === type) ?? createDefaultBitmapFilterSetting(type, false)
+      const paramConfig = BITMAP_FILTER_PARAM_CONFIG[type]
+      return {
+        ...setting,
+        label: BITMAP_FILTER_LABELS[type],
+        paramKey: paramConfig?.key ?? null,
+        paramLabel: paramConfig ? BITMAP_FILTER_PARAM_LABELS[paramConfig.key] : '',
+        paramMin: paramConfig?.min ?? 0,
+        paramMax: paramConfig?.max ?? 1
+      }
+    })
   }
 
   // ── 属性设置 ──
@@ -5147,6 +6308,12 @@ export function useHomeEditorRuntime() {
       }
     } else {
       obj.set(prop as any, value)
+      // 文本布局属性（text/fontSize 等）：fabric Text.set 命中 textLayoutProperties 时已自动
+      // initDimensions + setCoords；这里显式补一次幂等刷新作为防御，覆盖未来可能绕过
+      // Text.set 的程序化赋值路径，保证包围盒与换行始终随内容更新。
+      if (obj instanceof Text && TEXT_LAYOUT_PROPS.includes(prop)) {
+        obj.initDimensions()
+      }
     }
     if (obj instanceof Group && (prop === 'fill' || prop === 'stroke' || prop === 'strokeWidth')) {
       obj.triggerLayout()
@@ -5582,6 +6749,7 @@ export function useHomeEditorRuntime() {
       applyDefaultFillGradientMetadata(t)
       if (enabled) {
         if (t.fillMode === 'gradient') applyGradientFillToTarget(target)
+        else if (t.fillMode === 'pattern' && !restorePatternFillSync(t)) void restorePatternFillAsync(t)
         else target.set('fill', t.lastFill || objProps.fill || '#000000')
       } else {
         if (typeof target.fill === 'string' && isFillEnabled(target.fill)) t.lastFill = target.fill
@@ -5625,9 +6793,268 @@ export function useHomeEditorRuntime() {
     setObjProp('fill', value)
   }
 
-  function setFillStyleMode(mode: 'solid' | FillGradientType) {
+  // ── 图案填充（fabric Pattern fill）──
+  /**
+   * 生成内置默认图案的 dataURL：8×8 棋盘格。
+   * 切换到"图案"模式但尚未上传图片时用它即时生效，避免面板空转；
+   * dataURL 随 Pattern 原生序列化持久化，撤销/保存后可完整还原。
+   */
+  function createDefaultPatternSourceDataURL(): string {
+    const size = 8
+    const cell = document.createElement('canvas')
+    cell.width = size
+    cell.height = size
+    const ctx = cell.getContext('2d')
+    if (!ctx) return ''
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, size, size)
+    ctx.fillStyle = '#9aa4b2'
+    ctx.fillRect(0, 0, size / 2, size / 2)
+    ctx.fillRect(size / 2, size / 2, size / 2, size / 2)
+    return cell.toDataURL('image/png')
+  }
+
+  /**
+   * 对当前对象的全部样式目标应用图案填充（来源/平铺/缩放可部分覆盖，缺省沿用对象元数据）：
+   * 来源优先级为入参 > 对象元数据 > 内置默认棋盘格；图片元素经缓存加载后构建 Pattern
+   * （字符串 source 无法序列化，必须以图片元素作为 Pattern.source），整体提交一条撤销记录。
+   */
+  async function applyPatternFillToTargets(overrides: { source?: string; name?: string; repeat?: PatternFillRepeat; scale?: number } = {}) {
+    const obj = activeObject.value
+    if (!obj || !fabricCanvas) return
+    const targets = getStyleTargets(obj)
+    const first = targets[0] as AnyFabricObject | undefined
+    if (!first) return
+    applyDefaultFillGradientMetadata(first)
+    applyDefaultPatternFillMetadata(first)
+    const source = overrides.source?.trim() || first.fillPatternSrc || createDefaultPatternSourceDataURL()
+    const repeat = overrides.repeat ?? first.fillPatternRepeat ?? DEFAULT_PATTERN_FILL_REPEAT
+    const scale = overrides.scale ?? first.fillPatternScale ?? DEFAULT_PATTERN_FILL_SCALE
+    const name = overrides.name ?? first.fillPatternName ?? (overrides.source ? '自定义图片' : '默认图案')
+    let pattern: Pattern
+    try {
+      pattern = await createPatternFromSource(source, repeat, scale)
+    } catch {
+      showToast('图案图片加载失败，请更换图片后重试', 'error')
+      return
+    }
+    const resolveLastFill = (typed: AnyFabricObject) =>
+      typeof typed.lastFill === 'string' && typed.lastFill.trim() && typed.lastFill.toLowerCase() !== 'transparent'
+        ? typed.lastFill
+        : null
+    const fallbackLastFill = resolveLastFill(first) ?? '#000000'
+    targets.forEach((target) => {
+      const typed = target as AnyFabricObject
+      applyDefaultFillGradientMetadata(typed)
+      applyDefaultPatternFillMetadata(typed)
+      typed.fillMode = 'pattern'
+      typed.fillPatternSrc = source
+      typed.fillPatternName = name
+      typed.fillPatternRepeat = repeat
+      typed.fillPatternScale = scale
+      // 保证后续"清除图案回纯色/切回纯色模式"有可用底色。
+      if (!resolveLastFill(typed)) typed.lastFill = fallbackLastFill
+      // 缓存 Pattern 实例（不序列化），填充开关重新打开时同步恢复，避免异步加载与撤销快照产生时序差。
+      typed.lastPattern = pattern
+      typed.set('fill', pattern)
+      typed.dirty = true
+      typed.setCoords()
+    })
+    objProps.fillEnabled = true
+    objProps.fillMode = 'pattern'
+    objProps.fillPatternRepeat = repeat
+    objProps.fillPatternScale = scale
+    objProps.fillPatternSourceName = name
+    triggerKaleidoscopeContentSync(obj)
+    fabricCanvas.requestRenderAll()
+    refreshLayers()
+    snapshot()
+    syncObjProps()
+  }
+
+  /**
+   * 从对象缓存的 Pattern 实例同步恢复图案填充（fill 开关重新打开等场景）：
+   * 命中缓存立即生效（随后的撤销快照能同步捕捉到图案状态），未命中返回 false 交由异步路径。
+   */
+  function restorePatternFillSync(target: FabricObject): boolean {
+    const cached = (target as AnyFabricObject).lastPattern
+    if (!(cached instanceof Pattern)) return false
+    target.set('fill', cached)
+    target.dirty = true
+    target.setCoords()
+    return true
+  }
+
+  /**
+   * 从对象元数据异步恢复图案填充（同步缓存未命中的兜底）：
+   * 加载失败时回退 lastFill 纯色，避免对象停留在透明状态。
+   */
+  async function restorePatternFillAsync(target: FabricObject) {
+    applyDefaultPatternFillMetadata(target)
+    const metadata = getPatternFillMetadata(target)
+    const source = metadata?.fillPatternSrc
+    if (!source || !fabricCanvas) {
+      target.set('fill', (target as AnyFabricObject).lastFill || '#000000')
+      target.dirty = true
+      target.setCoords()
+      fabricCanvas?.requestRenderAll()
+      return
+    }
+    try {
+      const repeat = metadata?.fillPatternRepeat ?? DEFAULT_PATTERN_FILL_REPEAT
+      const scale = metadata?.fillPatternScale ?? DEFAULT_PATTERN_FILL_SCALE
+      target.set('fill', await createPatternFromSource(source, repeat, scale))
+    } catch {
+      target.set('fill', (target as AnyFabricObject).lastFill || '#000000')
+    }
+    target.dirty = true
+    target.setCoords()
+    fabricCanvas.requestRenderAll()
+  }
+
+  /**
+   * 面板：上传本地图片作为图案来源（File → dataURL），应用后入撤销栈。
+   * 兼容直接传 File 与 input change 事件两种形态；处理后重置 input.value，同一文件可重复选择。
+   */
+  async function setPatternFillFromFile(input: Event | File | null | undefined) {
+    const file = input instanceof File
+      ? input
+      : ((input as Event | null | undefined)?.target as HTMLInputElement | null | undefined)?.files?.[0] ?? null
+    if (!(input instanceof File) && input?.target) {
+      ;(input.target as HTMLInputElement).value = ''
+    }
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      showToast('请选择图片文件（PNG/JPG/SVG 等）', 'warning')
+      return
+    }
+    try {
+      const source = await readFileAsDataURL(file)
+      await applyPatternFillToTargets({ source, name: file.name.replace(/\.[^.]+$/, '') })
+    } catch {
+      showToast('读取图片内容失败', 'error')
+    }
+  }
+
+  /** 面板：切换图案平铺方式（repeat/repeat-x/repeat-y/no-repeat），change 提交并入撤销栈。 */
+  function setPatternFillRepeat(value: string) {
+    const repeat = normalizePatternFillRepeat(value)
+    if (!repeat) return
+    void applyPatternFillToTargets({ repeat })
+  }
+
+  /** 面板：调整图案缩放倍数（滑杆 change 提交），入撤销栈。 */
+  function setPatternFillScale(value: number) {
+    const scale = normalizePatternFillScale(value)
+    if (scale === null) return
+    void applyPatternFillToTargets({ scale })
+  }
+
+  // ── 位图裁剪（面板入口，实际会话逻辑在 homeCrop 模块）──
+  /** 面板：对当前选中的单个位图进入裁剪模式；先回到图形模式，避免点/边模式的选区守卫干扰裁剪会话。 */
+  function beginBitmapCrop() {
+    if (selectionMode.value !== 'shape') setSelectionMode('shape')
+    cropCommands.beginCropSession()
+  }
+
+  /** 面板：确认裁剪（一条撤销记录），面板随 cropModeActive 复位。 */
+  function confirmBitmapCrop() {
+    cropCommands.confirmCropSession()
+  }
+
+  /** 面板：取消裁剪（图片完整恢复进入裁剪前状态，不留撤销记录）。 */
+  function cancelBitmapCrop() {
+    cropCommands.cancelCropSession()
+    syncObjProps()
+  }
+
+  /**
+   * MCP set_pattern_fill 的运行时实现：对指定对象应用或清除图案填充。
+   * source 为 null 时清除图案（fillMode 回 solid、fill 回 lastFill）；
+   * 其余参数语义与面板一致。调用方负责撤销快照的挂起与提交。
+   */
+  async function applyPatternFillRequestToObject(
+    target: FabricObject,
+    request: { source: string | null; repeat?: PatternFillRepeat; scale?: number }
+  ) {
+    if (!fabricCanvas) throw new Error('画布尚未初始化')
+    const targets = getStyleTargets(target)
+    if (!targets.length) throw new Error('目标对象没有可填充的子对象')
+    if (request.source === null) {
+      targets.forEach((item) => {
+        const typed = item as AnyFabricObject
+        applyDefaultFillGradientMetadata(typed)
+        applyDefaultPatternFillMetadata(typed)
+        typed.fillMode = 'solid'
+        typed.fillPatternSrc = ''
+        typed.fillPatternName = ''
+        typed.fillPatternRepeat = DEFAULT_PATTERN_FILL_REPEAT
+        typed.fillPatternScale = DEFAULT_PATTERN_FILL_SCALE
+        typed.set('fill', typeof typed.lastFill === 'string' && typed.lastFill.trim() && typed.lastFill.toLowerCase() !== 'transparent' ? typed.lastFill : '#000000')
+        typed.dirty = true
+        typed.setCoords()
+      })
+      if (target instanceof Group) target.triggerLayout?.()
+      target.dirty = true
+      target.setCoords()
+      fabricCanvas.requestRenderAll()
+      syncObjProps()
+      return
+    }
+    const repeat = request.repeat ?? DEFAULT_PATTERN_FILL_REPEAT
+    const scale = normalizePatternFillScale(request.scale ?? DEFAULT_PATTERN_FILL_SCALE) ?? DEFAULT_PATTERN_FILL_SCALE
+    let pattern: Pattern
+    try {
+      pattern = await createPatternFromSource(request.source, repeat, scale)
+    } catch {
+      throw new Error(`图案图片加载失败，请确认 source 是可访问的 dataURL 或 http(s) 图片 URL`)
+    }
+    targets.forEach((item) => {
+      const typed = item as AnyFabricObject
+      applyDefaultFillGradientMetadata(typed)
+      applyDefaultPatternFillMetadata(typed)
+      typed.fillMode = 'pattern'
+      typed.fillPatternSrc = request.source as string
+      typed.fillPatternName = 'MCP 图案'
+      typed.fillPatternRepeat = repeat
+      typed.fillPatternScale = scale
+      typed.set('fill', pattern)
+      typed.lastPattern = pattern
+      typed.dirty = true
+      typed.setCoords()
+    })
+    if (target instanceof Group) target.triggerLayout?.()
+    target.dirty = true
+    target.setCoords()
+    fabricCanvas.requestRenderAll()
+    syncObjProps()
+  }
+
+  /**
+   * MCP crop_image 的运行时实现：把"图片当前显示包围盒坐标系"中的裁剪矩形
+   * （angle=0 语义，与对象摘要 bboxLeft/bboxTop 同一坐标系）换算为源像素区域并应用裁剪。
+   * 参数越界/面积过小抛中文错误；调用方负责撤销快照的挂起与提交。
+   */
+  function cropImageToDisplayRect(target: FabricObject, rect: BitmapCropRect) {
+    if (!fabricCanvas) throw new Error('画布尚未初始化')
+    if (!(target instanceof FabricImage)) {
+      throw new Error('目标对象不是位图（FabricImage），裁剪仅对位图对象生效')
+    }
+    const sourceRect = computeBitmapCropFromDisplayRect(target, rect)
+    applyBitmapCropSourceRect(target, sourceRect)
+    target.setCoords()
+    triggerKaleidoscopeContentSync(target)
+    fabricCanvas.requestRenderAll()
+    syncObjProps()
+  }
+
+  function setFillStyleMode(mode: 'solid' | FillGradientType | 'pattern') {
     if (mode === 'solid') {
       setFillMode('solid')
+      return
+    }
+    if (mode === 'pattern') {
+      setFillMode('pattern')
       return
     }
     setFillGradientTypeValue(mode)
@@ -5636,6 +7063,11 @@ export function useHomeEditorRuntime() {
   function setFillMode(mode: FillModeOption) {
     const obj = activeObject.value
     if (!obj || !fabricCanvas) return
+    if (mode === 'pattern') {
+      // 切到图案模式：无来源时以内置默认棋盘格即时生效（可撤销），随后面板展示上传/平铺/缩放。
+      void applyPatternFillToTargets()
+      return
+    }
     getStyleTargets(obj).forEach((target) => {
       const typedTarget = target as AnyFabricObject
       applyDefaultFillGradientMetadata(typedTarget)
@@ -5892,20 +7324,232 @@ export function useHomeEditorRuntime() {
     snapshot()
   }
 
+  /**
+   * 设置选中对象的混合模式（所有对象类型通用）：
+   * mode 为对外约定的混合模式名（normal 表示正常），内部换算为 fabric 的
+   * globalCompositeOperation 后落值，提交一条撤销记录并同步面板状态。
+   */
+  function setObjectBlendMode(mode: string) {
+    const obj = activeObject.value
+    if (!obj || !fabricCanvas) return
+    const normalized = normalizeBlendMode(mode)
+    if (!normalized) return
+    obj.set('globalCompositeOperation', blendModeToCompositeOperation(normalized))
+    obj.dirty = true
+    obj.setCoords()
+    triggerKaleidoscopeContentSync(obj)
+    fabricCanvas.requestRenderAll()
+    refreshLayers()
+    snapshot()
+    syncObjProps()
+  }
+
+  // ── 文本属性 ──
+  /** 影响文本换行与宽高的属性集合：这些属性落值后必须调用 initDimensions() 重算布局。 */
+  const TEXT_LAYOUT_PROPS = ['text', 'fontSize', 'fontFamily', 'fontWeight', 'fontStyle', 'charSpacing', 'lineHeight', 'textAlign']
+
+  /** 文本数值属性的合法区间：字号 6-500、字间距 -200~800（千分之一 em）、行高 0.5-3。 */
+  const TEXT_NUMERIC_PROP_RANGES: Record<'fontSize' | 'charSpacing' | 'lineHeight', { min: number; max: number; integers: boolean }> = {
+    fontSize: { min: 6, max: 500, integers: true },
+    charSpacing: { min: -200, max: 800, integers: true },
+    lineHeight: { min: 0.5, max: 3, integers: false }
+  }
+
+  /** 把文本数值属性收敛到面板合法区间（字号/字间距取整，行高保留两位小数）。 */
+  function normalizeTextNumericProp(prop: 'fontSize' | 'charSpacing' | 'lineHeight', value: number) {
+    const range = TEXT_NUMERIC_PROP_RANGES[prop]
+    const clamped = Math.max(range.min, Math.min(range.max, value))
+    return range.integers ? Math.round(clamped) : Math.round(clamped * 100) / 100
+  }
+
+  /**
+   * 应用文本属性到选中集合内的全部文本目标（单选文本或多选/编组中的文本子对象，
+   * 与填充/描边的多目标应用策略一致）。文本布局属性命中 fabric Text.set 的
+   * textLayoutProperties 时会自动重算换行与宽高，这里再显式补一次幂等的
+   * initDimensions() + setCoords() 防御，随后走统一的渲染/图层/撤销/面板同步收尾
+   * （提交时机与 setObjProp 一致）。
+   */
+  function setTextProp(prop: string, value: unknown) {
+    const obj = activeObject.value
+    if (!obj || !fabricCanvas) return
+    const targets = getTextTargets(obj)
+    if (!targets.length) return
+    targets.forEach((target) => {
+      target.set(prop as any, value)
+      if (TEXT_LAYOUT_PROPS.includes(prop)) {
+        target.initDimensions()
+      }
+      target.dirty = true
+      target.setCoords()
+    })
+    fabricCanvas.requestRenderAll()
+    refreshLayers()
+    snapshot()
+    syncObjProps()
+  }
+
+  /**
+   * 提交文本数值输入（fontSize/charSpacing/lineHeight，change 时机）：
+   * 非法输入回退当前值，越界值收敛到面板合法区间；与现有数值输入提交模式一致，
+   * 键入期间输入缓冲由面板维护，这里先回显再应用。
+   */
+  function setTextPropFromInput(prop: 'fontSize' | 'charSpacing' | 'lineHeight', value: string | number) {
+    const fallback = prop === 'fontSize' ? objProps.fontSize : prop === 'charSpacing' ? objProps.charSpacing : objProps.lineHeight
+    commitNumericInput(
+      value,
+      fallback,
+      (next) => { setTextProp(prop, normalizeTextNumericProp(prop, next)) },
+      (next) => {
+        if (prop === 'fontSize') objProps.fontSizeInput = next
+        else if (prop === 'charSpacing') objProps.charSpacingInput = next
+        else objProps.lineHeightInput = next
+      }
+    )
+  }
+
+  /** 切换粗体：开时写入字重 700，关时回落 400（不覆盖对象原有的具体字重档位语义）。 */
+  function toggleTextBold() {
+    setTextProp('fontWeight', objProps.fontBold ? 400 : 700)
+  }
+
+  /** 切换斜体：italic 与 normal 互切。 */
+  function toggleTextItalic() {
+    setTextProp('fontStyle', objProps.fontItalic ? 'normal' : 'italic')
+  }
+
+  /** 切换下划线。 */
+  function toggleTextUnderline() {
+    setTextProp('underline', !objProps.fontUnderline)
+  }
+
+  /** 切换删除线。 */
+  function toggleTextLinethrough() {
+    setTextProp('linethrough', !objProps.fontLinethrough)
+  }
+
+  /** 设置段内对齐（面板三态按钮：left/center/right）。 */
+  function setTextAlign(align: 'left' | 'center' | 'right') {
+    setTextProp('textAlign', align)
+  }
+
+  /**
+   * 更新文本对象的内容与排版属性（MCP update_text 的运行时入口）：
+   * updates 的键为 text/fontSize/fontFamily/fontWeight/fontStyle/charSpacing/
+   * lineHeight/textAlign/underline/linethrough，逐键 set 落值（fabric Text.set 命中
+   * textLayoutProperties 时自动重算换行与宽高，这里再显式补一次幂等刷新防御），
+   * 目标非文本对象时抛中文错误，撤销快照由调用方挂起/提交。
+   */
+  function updateTextObject(target: FabricObject, updates: Record<string, unknown>) {
+    if (!fabricCanvas) throw new Error('画布尚未初始化')
+    if (!(target instanceof Text)) {
+      throw new Error(`仅文本对象支持更新文本属性，当前对象类型为: ${target.type ?? 'unknown'}`)
+    }
+    for (const [prop, value] of Object.entries(updates)) {
+      target.set(prop as any, value)
+    }
+    target.initDimensions()
+    target.dirty = true
+    target.setCoords()
+    fabricCanvas.requestRenderAll()
+    refreshLayers()
+  }
+
+  /**
+   * 开关当前位图的某一滤镜（离散动作）：启用未配置过的滤镜时取该类型默认参数，
+   * 禁用仅改标记（参数保留，再次启用不丢失）。每次开关单独提交一条撤销记录。
+   */
+  function toggleImageFilter(type: string, enabled: boolean) {
+    const obj = activeObject.value
+    if (!obj || !fabricCanvas || !(obj instanceof FabricImage)) return
+    const filterType = BITMAP_FILTER_TYPES.includes(type as BitmapFilterType) ? (type as BitmapFilterType) : null
+    if (!filterType) return
+    const current = readBitmapFilterSettings(obj)
+    const next = current.some((setting) => setting.type === filterType)
+      ? current.map((setting) => (setting.type === filterType ? { ...setting, enabled } : setting))
+      : [...current, createDefaultBitmapFilterSetting(filterType, enabled)]
+    applyBitmapFilterSettings(obj, next)
+    obj.setCoords()
+    fabricCanvas.requestRenderAll()
+    syncObjProps()
+    snapshot()
+  }
+
+  /**
+   * 调整当前位图某滤镜的参数（滑杆 change 提交）：与现有透明度/渐变角度等滑杆控件
+   * 的撤销时机保持一致——每次 change 应用一次并提交一条撤销记录；调参隐含启用该滤镜
+   * （面板中参数滑杆仅在启用态可见），未配置过的滤镜按默认参数创建后落值。
+   */
+  function setImageFilterParam(type: string, paramKey: BitmapFilterParamKey, value: number) {
+    const obj = activeObject.value
+    if (!obj || !fabricCanvas || !(obj instanceof FabricImage)) return
+    const filterType = BITMAP_FILTER_TYPES.includes(type as BitmapFilterType) ? (type as BitmapFilterType) : null
+    if (!filterType) return
+    const clamped = clampBitmapFilterParam(filterType, paramKey, value)
+    if (clamped === undefined) return
+    const current = readBitmapFilterSettings(obj)
+    const base = current.find((setting) => setting.type === filterType)
+      ?? createDefaultBitmapFilterSetting(filterType, true)
+    const next = [
+      ...current.filter((setting) => setting.type !== filterType),
+      { ...base, enabled: true, [paramKey]: clamped } as BitmapFilterSetting
+    ]
+    applyBitmapFilterSettings(obj, next)
+    obj.setCoords()
+    fabricCanvas.requestRenderAll()
+    syncObjProps()
+    snapshot()
+  }
+
+  /**
+   * 整体替换目标位图的滤镜设置列表（MCP apply_image_filter 的运行时实现）：
+   * settings 归一化后写入 bitmapFilters 元数据并重建原生滤镜（仅启用项渲染）；
+   * blendMode 提供时同时设置混合模式。调用方负责撤销快照的挂起与提交。
+   */
+  function applyImageFilterToObject(target: FabricObject, settings: unknown, blendMode?: string) {
+    if (!fabricCanvas) throw new Error('画布尚未初始化')
+    if (!(target instanceof FabricImage)) {
+      throw new Error('目标对象不是位图（FabricImage），滤镜仅对位图对象生效')
+    }
+    applyBitmapFilterSettings(target, normalizeBitmapFilterSettings(settings))
+    if (blendMode !== undefined) {
+      const normalized = normalizeBlendMode(blendMode)
+      if (!normalized) {
+        throw new Error(`blendMode 非法: ${blendMode}。必须是 normal/multiply/screen/overlay/darken/lighten/color-dodge/difference/exclusion/hue/saturation/color/luminosity 之一`)
+      }
+      target.set('globalCompositeOperation', blendModeToCompositeOperation(normalized))
+    }
+    target.dirty = true
+    target.setCoords()
+    fabricCanvas.requestRenderAll()
+    syncObjProps()
+  }
+
+  /**
+   * 翻转当前对象（axis 为 x 水平翻 / y 垂直翻）。
+   *
+   * 翻转意图写入 rotation3dFlipX/Y 元数据后统一走 applyRotation3DTransformToObject
+   * 重算物理变换（与 3D 旋转投影 XOR 叠加），而非只改原生 flipX/flipY——原生值
+   * 会在拖拽/缩放松手时的投影重算中被覆盖，导致翻转"失效变回去"。
+   */
   function flipObject(axis: 'x' | 'y') {
     const obj = activeObject.value
     if (!obj || !fabricCanvas) return
+    const target = getRotation3DMetadata(obj)
+    if (!target) return
+    applyDefaultRotation3DMetadata(target)
     if (axis === 'x') {
-      obj.set('flipX', !obj.flipX)
+      target.rotation3dFlipX = !(target.rotation3dFlipX === true)
     } else {
-      obj.set('flipY', !obj.flipY)
+      target.rotation3dFlipY = !(target.rotation3dFlipY === true)
     }
+    applyRotation3DTransformToObject(obj)
     obj.dirty = true
     obj.setCoords()
     if (obj instanceof Group) obj.triggerLayout()
     triggerKaleidoscopeContentSync(obj)
     fabricCanvas.requestRenderAll()
     refreshLayers()
+    syncObjProps()
     snapshot()
   }
 
@@ -6632,17 +8276,163 @@ export function useHomeEditorRuntime() {
     refreshLayers()
   }
 
+  // ── 油漆桶上色副作用 ──
+  // 模块层完成点击判定后，实际的样式写入/同步/撤销快照回到页面层：
+  // 填充与"纯色填充"面板逻辑同源（lastFill 元数据 + fillMode 归一），描边与"描边色板"同源（含宽度补齐）。
+  /**
+   * 把单个对象整体填充改为目标纯色（油漆桶区域命中时）：
+   * 编组递归应用到全部子对象；位图/文本等无填充语义对象返回 false 交由上层跳过。
+   * 目标未开启填充（fill 为 transparent/none/空，即面板关闭填充后的状态）时同样直接写入颜色，
+   * 等价于"自动开启填充后上色"——填充开关本身由 fill 值派生（isFillEnabled），写色即开启；
+   * 元数据口径与 toggleFill(true) 对齐：先补齐渐变元数据，再切回 solid 并记录 lastFill。
+   */
+  function applyPaintBucketFill(obj: FabricObject, color: string): boolean {
+    if (!fabricCanvas || !obj) return false
+    if (obj instanceof FabricImage) return false
+    const targets = getStyleTargets(obj)
+    if (!targets.length) return false
+    targets.forEach((target) => {
+      const typed = target as AnyFabricObject
+      applyDefaultFillGradientMetadata(typed)
+      typed.fillMode = 'solid'
+      typed.lastFill = color
+      target.set('fill', color)
+      target.dirty = true
+      target.setCoords()
+    })
+    if (obj instanceof Group) obj.triggerLayout()
+    obj.dirty = true
+    obj.setCoords()
+    triggerKaleidoscopeContentSync(obj)
+    fabricCanvas.requestRenderAll()
+    refreshLayers()
+    snapshot()
+    syncObjProps()
+    return true
+  }
+
+  /**
+   * 把单个对象描边色改为目标色（油漆桶边界命中时）：
+   * 复用描边色板语义——原描边未启用时按面板回退宽度补齐，保证效果可见。
+   */
+  function applyPaintBucketStroke(obj: FabricObject, color: string): boolean {
+    if (!fabricCanvas || !obj) return false
+    if (obj instanceof FabricImage) return false
+    const targets = getStyleTargets(obj)
+    if (!targets.length) return false
+    targets.forEach((target) => {
+      const typed = target as AnyFabricObject
+      typed.lastStroke = color
+      const patch: Record<string, unknown> = { stroke: color }
+      if (!isStrokeEnabled(color, target.strokeWidth)) {
+        const fallbackWidth = Number(typed.lastStrokeWidth ?? objProps.strokeWidth)
+        patch.strokeWidth = Number.isFinite(fallbackWidth) && fallbackWidth > 0 ? fallbackWidth : 2
+        typed.lastStrokeWidth = patch.strokeWidth
+      }
+      target.set(patch as any)
+      target.dirty = true
+      target.setCoords()
+    })
+    if (obj instanceof Group) obj.triggerLayout()
+    obj.dirty = true
+    obj.setCoords()
+    triggerKaleidoscopeContentSync(obj)
+    fabricCanvas.requestRenderAll()
+    refreshLayers()
+    snapshot()
+    syncObjProps()
+    return true
+  }
+
+  /** 切换油漆桶工具（工具栏按钮与 Alt+5 共用入口）；与钢笔工具互斥。 */
+  function togglePaintBucketTool() {
+    if (penToolActive.value) penCommands.deactivate(false)
+    paintBucketCommands.activate()
+  }
+
+  /**
+   * 归一化油漆桶颜料的存储格式：统一折算为小写 hex 键（#rrggbb[aa]），
+   * 兼容取色面板 HEX/RGBA/HSL 多格式输出；全不透明时省略 alpha 段保持 6 位简洁形式。
+   * 无法识别的取值原样返回（交由模块层的静默忽略逻辑兜底）。
+   */
+  function normalizePaintColor(color: string) {
+    const key = normalizeColorKey(color)
+    if (!key) return color
+    return key.length === 9 && key.endsWith('ff') ? key.slice(0, 7) : key
+  }
+
+  /**
+   * 设置油漆桶前景颜料（PS 语义：上色用色，工具栏上层色块）。
+   * 色板/颜色选择器在油漆桶工具态下写入前景颜料；非工具态调用也直接写颜料
+   *（颜料独立于激活状态持久，与 PS 一致）。
+   * 颜色先归一化为规范 hex（#rrggbb[aa]）：取色面板可切换 HEX/RGBA 等格式输出，
+   * 统一存储形式后 isSolidFillMatched 的"已同色跳过"字符串比较才不受格式影响。
+   */
+  function setPaintBucketColor(color: string) {
+    paintBucketCommands.setForegroundColor(normalizePaintColor(color))
+  }
+
+  /** 设置油漆桶背景颜料（PS 语义：备用色，工具栏下层色块）；同样归一化存储格式。 */
+  function setPaintBucketStrokeColor(color: string) {
+    paintBucketCommands.setBackgroundColor(normalizePaintColor(color))
+  }
+
+  /** 交换油漆桶前景/背景颜料（工具栏色块交换按钮）。 */
+  function swapPaintBucketColors() {
+    paintBucketCommands.swapColors()
+  }
+
+  /**
+   * 切换油漆桶上色行为：fill（改填充色）↔ stroke（改描边色）。
+   * 供工具栏油漆桶 hover 弹窗内的行为开关调用。
+   */
+  function togglePaintBucketBehavior() {
+    paintBucketCommands.toggleBehavior()
+  }
+
+  /** 设置油漆桶上色行为（弹窗内两个选项按钮共用）。 */
+  function setPaintBucketBehavior(behavior: 'fill' | 'stroke') {
+    paintBucketCommands.setBehavior(behavior)
+  }
+
   // ── 添加元素 ──
   /**
-   * 把钢笔描点的场景坐标生成为可编辑路径对象。
+   * 把钢笔描点的场景数据生成为可编辑路径对象（支持直线/贝塞尔曲线混合段）。
    * 直接以场景坐标作为路径点：rebuildEditablePathObject(obj, true) 会把对象中心定位到路径包围盒中心，
    * 使每个点正好渲染在其原始场景坐标处（Fabric Path 默认 originX/originY=center）。
+   * 锚点吸附像素网格时，各锚点携带的控制柄随锚点整体平移，保证曲线形状与描点预览一致。
    */
-  function addPenPathObject(rawScenePoints: { x: number; y: number }[], closed: boolean) {
+  function addPenPathObject(data: PenPathData) {
     if (!fabricCanvas) return
-    const snapped = rawScenePoints.map((p) => getPixelGridAdjustedScenePoint(new Point(p.x, p.y)))
-    if (snapped.length < 2) return
-    const obj = createEditablePathObject(polygonEditablePath(snapped, closed), 0)
+    if (data.points.length < 2) return
+    const points: EditablePoint[] = []
+    // 记录每个锚点吸附前后的位移，供控制柄随锚点同步平移
+    const snapDeltaByIndex = new Map<number, { x: number, y: number }>()
+    data.points.forEach((point) => {
+      const snapped = getPixelGridAdjustedScenePoint(new Point(point.x, point.y))
+      snapDeltaByIndex.set(points.length, { x: snapped.x - point.x, y: snapped.y - point.y })
+      points.push({ x: snapped.x, y: snapped.y })
+    })
+    const offsetByDelta = (index: number, handle: { x: number, y: number }) => {
+      const delta = snapDeltaByIndex.get(index) ?? { x: 0, y: 0 }
+      return { x: handle.x + delta.x, y: handle.y + delta.y }
+    }
+    // 段按链式顺序给出：cp1 存放在起点侧（随链游标推进）、cp2 存放在终点侧，分别跟随对应锚点的吸附位移
+    let fromIndex = 0
+    const segments: EditablePathSegment[] = data.segments.map((segment) => {
+      const currentFrom = fromIndex
+      fromIndex = segment.to
+      if (segment.type === 'cubic') {
+        return {
+          type: 'cubic',
+          cp1: offsetByDelta(currentFrom, segment.cp1),
+          cp2: offsetByDelta(segment.to, segment.cp2),
+          to: segment.to
+        }
+      }
+      return { type: 'line', to: segment.to }
+    })
+    const obj = createEditablePathObject(pathEditableModel(points, segments, data.closed), 0)
     obj.set({
       stroke: '#333333',
       strokeWidth: 2,
@@ -6683,6 +8473,7 @@ export function useHomeEditorRuntime() {
     size?: { width?: number; height?: number }
   ) {
     if (penToolActive.value) penCommands.deactivate(true)
+    if (paintBucketActive.value) paintBucketCommands.deactivate()
     if (!fabricCanvas) return
     const shape = createShape(item, size)
     markObjectSizeRatioLocked(shape)
@@ -6707,6 +8498,7 @@ export function useHomeEditorRuntime() {
    */
   function addText(preset: TextLibraryItem, scenePoint: { x: number; y: number } | null = null) {
     if (penToolActive.value) penCommands.deactivate(true)
+    if (paintBucketActive.value) paintBucketCommands.deactivate()
     if (!fabricCanvas) return
     const width = 200
     const left = scenePoint ? scenePoint.x - width / 2 : canvasWidth.value / 2 - width / 2
@@ -6716,6 +8508,8 @@ export function useHomeEditorRuntime() {
       top,
       fontSize: preset.fontSize,
       fontWeight: preset.fontWeight as any,
+      // 显式指定默认字体，避免 fabric 默认 Times New Roman 导致中文回退到随机衬线体。
+      fontFamily: DEFAULT_TEXT_FONT_FAMILY,
       fill: '#000000',
       name: nextName(preset.label),
       width
@@ -6844,6 +8638,7 @@ export function useHomeEditorRuntime() {
   }
 
   // 为导入对象补齐编辑器自定义元数据和可读图层名，确保后续图层、草稿和属性面板都能识别。
+  // 命名走 nextNameUnique（SVG 导入链路专用）：首次导入不带序号，仅与画布现有对象重名时追加最小可用序号。
   function prepareImportedSVGObjectMetadata(obj: FabricObject, displayName: string, isRoot = true) {
     const target = obj as AnyFabricObject
     applyDefaultFillGradientMetadata(obj)
@@ -6852,9 +8647,9 @@ export function useHomeEditorRuntime() {
     normalizeEndpointAttachments(obj)
     ensureEditorObjectId(obj)
     if (isRoot) {
-      target.name = nextName(displayName)
+      target.name = nextNameUnique(displayName)
     } else if (!String(target.name || '').trim()) {
-      target.name = nextName('SVG 元素')
+      target.name = nextNameUnique('SVG 元素')
     }
     if (isFillEnabled(obj.fill) && typeof obj.fill === 'string') {
       target.lastFill = obj.fill
@@ -7058,29 +8853,27 @@ export function useHomeEditorRuntime() {
   }
 
   // 把本地图片文件导入为 Fabric Image，并补齐编辑器元数据后放到画布中心附近。
+  // 先用 FileReader 读成 base64 dataURL 再建图，使对象 src 可随工程 JSON 持久化，刷新后仍能恢复；
+  // 读取或解码失败时异常向上抛出，由调用方统一 toast 提示。
   async function importImageFile(file: File) {
     if (!fabricCanvas) return
-    const url = URL.createObjectURL(file)
-    try {
-      const img = await FabricImage.fromURL(url)
-      applyDefaultKaleidoscopeMetadata(img)
-      applyDefaultEndpointSnapMargin(img)
-      img.set({
-        left: canvasWidth.value / 2 - (img.width || 60) / 2,
-        top: canvasHeight.value / 2 - (img.height || 60) / 2,
-        name: nextName(file.name)
-      })
-      ensureEditorObjectId(img)
-      img.setCoords()
-      fabricCanvas.add(img)
-      refreshLayers()
-      fabricCanvas.setActiveObject(img)
-      syncActiveObjectPreservingPointMode(img)
-      fabricCanvas.requestRenderAll()
-      snapshot()
-    } finally {
-      URL.revokeObjectURL(url)
-    }
+    const dataUrl = await readFileAsDataURL(file)
+    const img = await FabricImage.fromURL(dataUrl)
+    applyDefaultKaleidoscopeMetadata(img)
+    applyDefaultEndpointSnapMargin(img)
+    img.set({
+      left: canvasWidth.value / 2 - (img.width || 60) / 2,
+      top: canvasHeight.value / 2 - (img.height || 60) / 2,
+      name: nextName(file.name)
+    })
+    ensureEditorObjectId(img)
+    img.setCoords()
+    fabricCanvas.add(img)
+    refreshLayers()
+    fabricCanvas.setActiveObject(img)
+    syncActiveObjectPreservingPointMode(img)
+    fabricCanvas.requestRenderAll()
+    snapshot()
   }
 
   // 把本地图片文件导入为 Fabric Image，并补齐编辑器元数据后放到画布中心附近。
@@ -7949,8 +9742,9 @@ export function useHomeEditorRuntime() {
     leftPanelCollapsed.value = !leftPanelCollapsed.value
   }
 
-  // 切换钢笔描点工具：激活或退出（退出时按确认生成语义提交当前描点）。
+  // 切换钢笔描点工具：激活或退出（退出时按确认生成语义提交当前描点）；激活前退出油漆桶态。
   function togglePenTool() {
+    if (paintBucketActive.value) paintBucketCommands.deactivate()
     if (penToolActive.value) {
       penCommands.deactivate(true)
     } else {
@@ -7966,7 +9760,7 @@ export function useHomeEditorRuntime() {
 
   // 在画布对象上打开与图层面板复用的快捷菜单；兼容 Fabric 命中结果，空白区或预览对象不触发菜单。
   function openCanvasObjectContextMenu(event: MouseEvent) {
-    if (penToolActive.value) return
+    if (penToolActive.value || paintBucketActive.value) return
     if (!fabricCanvas) return
     const targetInfo = fabricCanvas.findTarget(event) as unknown
     const foundTarget = targetInfo && typeof targetInfo === 'object' && 'target' in targetInfo
@@ -8115,6 +9909,37 @@ export function useHomeEditorRuntime() {
       penCommands.deactivate(true)
       return
     }
+    // 钢笔工具下 Enter 闭合多边形并生成图形（>=3 点，与点击首点闭合等价）。
+    if (penToolActive.value && e.key === 'Enter') {
+      e.preventDefault()
+      penCommands.handlePenEnter()
+      return
+    }
+    // 油漆桶工具下 ESC 退出工具态（无中间态需要提交）。
+    if (paintBucketActive.value && e.key === 'Escape') {
+      e.preventDefault()
+      paintBucketCommands.deactivate()
+      return
+    }
+    // 油漆桶工具下 X 交换前景/背景颜料（PS 惯用键）。
+    if (paintBucketActive.value && (e.key === 'x' || e.key === 'X') && !e.altKey && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault()
+      paintBucketCommands.swapColors()
+      return
+    }
+    // 位图裁剪模式下 ESC 取消裁剪：图片完整恢复进入裁剪前的状态，不留撤销记录。
+    if (cropCommands.isCropSessionActive() && e.key === 'Escape') {
+      e.preventDefault()
+      cropCommands.cancelCropSession()
+      syncObjProps()
+      return
+    }
+    // 节点编辑模式下优先删除已选锚点：抢在全局"删除对象"快捷键之前分发，
+    // 事件被消费（含达到点数下限被拒绝）时不再下传，避免整对象被误删。
+    if ((e.key === 'Delete' || e.key === 'Backspace') && deleteSelectedEditablePoints()) {
+      e.preventDefault()
+      return
+    }
     const action = getShortcutActionByEvent(e)
     if (action) {
       e.preventDefault()
@@ -8144,11 +9969,164 @@ export function useHomeEditorRuntime() {
     rulerModifierKeys.alt = false
     rulerModifierKeys.meta = false
     endSpacePan()
+    // 窗口失焦时若 Alt 拖拽复制手势仍未收尾，立即收尾以恢复快照门闸，避免后续撤销记录被持续吞掉
+    if (altDragDuplicateGesture) void finishAltDragDuplicateGesture()
+  }
+
+  // ── Alt + 拖拽快速复制 ──
+  // 语义与主流设计工具一致：按住 Alt/Option 开始拖动对象时，落定留下的是副本，
+  // 原对象留在原地，副本落在新位置并成为选中对象。
+  // 实现采用「延迟克隆交换」：拖拽期间 Fabric 仍然拖动原对象（像素网格/参考线吸附照常生效），
+  // mouse:up 后再克隆一份放到落点并把原对象复位到起点；手势全程挂起自动快照，
+  // 结束只提交一条撤销记录，与 Ctrl+D 复制副本的撤销粒度一致。
+  type AltDragDuplicateGesture = {
+    /** Fabric 本次手势实际拖拽的目标：单对象或多选 ActiveSelection。 */
+    source: FabricObject
+    /** 手势起点 left/top（多选时为 ActiveSelection 自身坐标），用于换算画布位移。 */
+    startLeft: number
+    startTop: number
+    /** 手势开始前的快照门闸状态，手势结束后原样恢复。 */
+    previousGate: boolean
+  }
+
+  let altDragDuplicateGesture: AltDragDuplicateGesture | null = null
+  let altDragDuplicateFinalizing = false
+
+  /**
+   * 在 mouse:down 上尝试启动 Alt 拖拽复制手势：仅图形模式的左键 Alt 按下且命中可拖动对象时生效；
+   * 钢笔/位图裁剪/文本编辑等专用交互，以及 Alt + 控制点（fabric 中心缩放旋转语义）不抢占。
+   */
+  function tryBeginAltDragDuplicateGesture(
+    nativeEvent: MouseEvent,
+    target: FabricObject | null | undefined,
+    transformCorner: string | undefined
+  ) {
+    if (!fabricCanvas || altDragDuplicateFinalizing || altDragDuplicateGesture) return
+    if (!target || nativeEvent.button !== 0 || !nativeEvent.altKey) return
+    if (penToolActive.value || paintBucketActive.value || cropCommands.isCropSessionActive()) return
+    if (selectionMode.value !== 'shape') return
+    if (transformCorner) return
+    if (target instanceof Textbox && target.isEditing) return
+    if (isBooleanPreviewObject(target) || isKaleidoscopeInstance(target)) return
+    if (target.lockMovementX && target.lockMovementY) return
+    altDragDuplicateGesture = {
+      source: target,
+      startLeft: target.left ?? 0,
+      startTop: target.top ?? 0,
+      previousGate: snapshotGate.get()
+    }
+    // 拖拽期间挂起自动快照：手势中途的 object:modified 不入栈，由收尾统一提交一条记录
+    snapshotGate.set(true)
+  }
+
+  /**
+   * 按内部剪贴板链路克隆一个 Alt 拖拽副本：序列化/enliven 与复制粘贴同源，
+   * 保证渐变、滤镜、可编辑路径等元数据完整；副本命名、主题、万花筒元数据处理
+   * 与 duplicateSelection 相同。符号实例副本保持 symbolId 关联同一符号定义，
+   * 但生成新的 symbolInstanceId——副本作为独立实例参与「更新符号」重建与解除关联，
+   * 避免两个实例共享标识互相影响。dx/dy 为本次拖拽位移，副本落在原对象起点加位移处。
+   */
+  async function cloneObjectForAltDrag(member: FabricObject, dx: number, dy: number): Promise<FabricObject> {
+    const entry = createClipboardEntry(member)
+    const [clone] = await util.enlivenObjects([cloneSerializedObjectData(entry.object)]) as FabricObject[]
+    clone.set({ name: nextName(`${entry.sourceName} 副本`) })
+    prepareClonedObjectMetadata(clone)
+    applyCanvasThemeToObject(clone)
+    applyDefaultKaleidoscopeMetadata(clone)
+    applyGradientMetadataToCanvasObject(clone)
+    const metadata = getKaleidoscopeMetadata(clone)
+    if (entry.kaleidoscopeEnabled && !entry.sourceMissing && canUseKaleidoscopeAsSource(clone) && metadata) {
+      const center = getKaleidoscopeEffectiveCenter(clone)
+      metadata.kaleidoscopeEnabled = true
+      metadata.kaleidoscopeSourceId = createKaleidoscopeSourceId()
+      metadata.kaleidoscopeManaged = false
+      metadata.kaleidoscopeInstanceOf = ''
+      metadata.kaleidoscopeInstanceIndex = 0
+      metadata.kaleidoscopeCenterX = center.x + dx
+      metadata.kaleidoscopeCenterY = center.y + dy
+      metadata.kaleidoscopeCount = normalizeKaleidoscopeCount(metadata.kaleidoscopeCount)
+    } else {
+      clearKaleidoscopeMetadata(clone)
+    }
+    const symbolMeta = readSymbolInstanceMetadata(clone)
+    if (symbolMeta) {
+      const nextSymbolMeta = createSymbolInstanceMetadata(symbolMeta.symbolId)
+      ;(clone as AnyFabricObject).symbolId = nextSymbolMeta.symbolId
+      ;(clone as AnyFabricObject).symbolInstanceId = nextSymbolMeta.symbolInstanceId
+    }
+    clone.set({ left: (clone.left ?? 0) + dx, top: (clone.top ?? 0) + dy })
+    clone.setCoords()
+    return clone
+  }
+
+  /**
+   * Alt 拖拽收尾：原对象复位到起点、克隆副本放到落点、副本成为选中对象，
+   * 最后提交一条撤销记录并恢复快照门闸。多选时先放弃选区，让 Fabric 把
+   * ActiveSelection 的拖拽位移烘焙回成员的画布坐标，再做统一的复位/克隆。
+   */
+  async function finishAltDragDuplicateGesture() {
+    const gesture = altDragDuplicateGesture
+    if (!gesture || altDragDuplicateFinalizing) return
+    altDragDuplicateFinalizing = true
+    altDragDuplicateGesture = null
+    const fabric = fabricCanvas
+    try {
+      if (!fabric) return
+      const dx = (gesture.source.left ?? 0) - gesture.startLeft
+      const dy = (gesture.source.top ?? 0) - gesture.startTop
+      // 无位移（Alt 单击或拖回原位）不产生复制语义，也不留下撤销记录
+      if (!Number.isFinite(dx) || !Number.isFinite(dy) || (dx === 0 && dy === 0)) return
+      const members = gesture.source instanceof ActiveSelection
+        ? gesture.source.getObjects()
+        : [gesture.source]
+      // 多选拖拽时成员坐标原本挂在选区平面：先放弃选区让 Fabric 把拖拽位移烘焙回画布坐标，
+      // 之后成员的 left/top 即为画布平面上的落点，单选/多选统一按「落点 - 位移」复位
+      if (gesture.source instanceof ActiveSelection) fabric.discardActiveObject()
+      const restored = members
+        .filter((member) => fabric.getObjects().includes(member))
+        .map((member) => ({ member, drop: { left: member.left ?? 0, top: member.top ?? 0 } }))
+      restored.forEach(({ member, drop }) => {
+        // 原对象复位到拖拽起点：Alt 拖拽留下的是副本
+        member.set({ left: drop.left - dx, top: drop.top - dy })
+        member.setCoords()
+        clearOwnedEndpointAttachmentsForTransformedObject(member)
+        syncEndpointsForChangedObject(member)
+        triggerKaleidoscopeTransformSync(member)
+      })
+      const clones: FabricObject[] = []
+      try {
+        for (const { member } of restored) {
+          clones.push(await cloneObjectForAltDrag(member, dx, dy))
+        }
+      } catch (error) {
+        // 克隆失败时画布已回到手势前状态（原对象复位），不提交快照
+        console.warn('Alt 拖拽复制失败', error)
+        return
+      }
+      clones.forEach((clone) => {
+        fabric.add(clone as AnyFabricObject)
+        if (isKaleidoscopeSource(clone)) void rebuildKaleidoscopeInstances(clone)
+      })
+      applyActiveObjectsSelection(clones)
+      refreshLayers()
+      syncObjProps()
+      fabric.requestRenderAll()
+      snapshot({ description: 'Alt 拖拽复制' })
+    } finally {
+      snapshotGate.set(gesture.previousGate)
+      altDragDuplicateFinalizing = false
+    }
   }
 
   // ── Fabric 事件 ──
   function setupCanvasEvents() {
     if (!fabricCanvas) return
+
+    // 工具态进出时同步画布选择抑制标志（禁用框选并跳过命中），切回选择工具即恢复。
+    watch(toolSuppressSelection, () => {
+      syncCanvasInteractionMode()
+      fabricCanvas?.requestRenderAll()
+    })
 
     fabricCanvas.on('mouse:down:before', (event) => {
       const nativeEvent = event.e as MouseEvent
@@ -8162,6 +10140,25 @@ export function useHomeEditorRuntime() {
         if (nativeEvent.button === 0) {
           const scenePoint = event.scenePoint ?? fabricCanvas.getScenePoint(event.e)
           penCommands.handlePenLeftDown({ x: scenePoint.x, y: scenePoint.y })
+        }
+        return
+      }
+
+      // ── 油漆桶工具（区域上色；右键不触发，交给上下文菜单） ──
+      if (paintBucketActive.value) {
+        if (nativeEvent.button === 0) {
+          const scenePoint = event.scenePoint ?? fabricCanvas.getScenePoint(event.e)
+          const result = paintBucketCommands.handlePaintBucketClick(
+            { x: scenePoint.x, y: scenePoint.y },
+            event.target ?? null
+          )
+          if (result.applied) {
+            snapshot({ description: result.mode === 'fill' ? '油漆桶填充' : '油漆桶描边' })
+          } else if (result.skipped > 0) {
+            showToast('目标已是当前颜色，已跳过', 'info')
+          } else {
+            showToast('点击区域未命中可上色对象', 'info')
+          }
         }
         return
       }
@@ -8236,8 +10233,39 @@ export function useHomeEditorRuntime() {
       handlePointGestureCanvasMove(event)
     })
 
+    // Alt + 拖拽快速复制：mouse:down（命中对象且带 Alt）挂起快照并记录手势，
+    // mouse:up 收尾时落定副本、复位原对象并提交一条撤销记录
+    fabricCanvas.on('mouse:down', (event) => {
+      const nativeEvent = event.e as MouseEvent
+      tryBeginAltDragDuplicateGesture(nativeEvent, event.target ?? null, event.transform?.corner)
+    })
+
     fabricCanvas.on('mouse:up', () => {
+      if (altDragDuplicateGesture) void finishAltDragDuplicateGesture()
+    })
+
+    fabricCanvas.on('mouse:up', () => {
+      if (penToolActive.value) {
+        penCommands.handlePenPointerUp()
+        return
+      }
       finishPointGesture()
+    })
+
+    // 节点编辑模式下双击线段插入锚点；钢笔态的双击语义由钢笔模块自行处理，油漆桶态双击等价单击，均跳过
+    fabricCanvas.on('mouse:dblclick', (event) => {
+      if (penToolActive.value || paintBucketActive.value) return
+      if (!activeObject.value) return
+      const editable = activeEditablePathObject.value
+      if (!editable || selectionMode.value !== 'point') return
+      const nativeEvent = event.e as MouseEvent
+      const viewportPoint = event.viewportPoint ?? fabricCanvas.getViewportPoint(nativeEvent)
+      // 双击命中已有控件（锚点/控制柄）时不插入，保持控件自身交互
+      if (typeof editable.findControl === 'function' && editable.findControl(viewportPoint, util.isTouchEvent(event.e))) return
+      // 双击到其它对象时交给点击流程处理对象切换，不做插点
+      if (event.target && event.target !== activeObject.value) return
+      const scenePoint = event.scenePoint ?? fabricCanvas.getScenePoint(nativeEvent)
+      handlePointModeDoubleClick(scenePoint)
     })
 
     fabricCanvas.on('after:render', () => {
@@ -8346,6 +10374,8 @@ export function useHomeEditorRuntime() {
     fabricCanvas.on('object:moving', (event) => {
       clearBooleanPreview()
       snapObjectPositionToPixelGrid(event.target ?? null)
+      // 像素网格吸附之后叠加参考线吸附（4px 视口阈值），让对象拖拽可以对齐用户参考线。
+      snapObjectPositionToGuides(event.target ?? null)
       clearOwnedEndpointAttachmentsForTransformedObject(event.target ?? null)
       syncEndpointsForChangedObject(event.target ?? null)
       syncObjProps()
@@ -8475,11 +10505,40 @@ export function useHomeEditorRuntime() {
       getDocumentCanvasSnapshots,
       saveDocumentCanvasSnapshot,
       removeDocumentCanvasSnapshot,
+
+      // 对齐参考线（用户参考线）：随撤销快照与工程 JSON 持久化，撤销合并由网关层负责
+      getDocumentGuides,
+      setDocumentGuides,
+
+      // 符号系统（define_symbol / list_symbols / insert_symbol_instance / update_symbol /
+      // detach_symbol_instance 的运行时实现）：除 createSymbolDefinition 由网关提交快照外，
+      // 插入/更新/解除均已在运行时内部提交一条撤销记录（与 outline_text 同模式）。
+      getDocumentSymbols: () => symbols.value.map((item) => JSON.parse(JSON.stringify(item)) as ProjectSymbol),
+      getSymbolInstanceCount,
+      defineSymbolFromObjects: (name: string, objects: FabricObject[]) => createSymbolDefinition(name, objects),
+      insertSymbolInstanceById: (symbolId: string, scenePoint: { x: number; y: number } | null) => insertSymbolInstance(symbolId, scenePoint),
+      updateSymbolFromObjects: async (symbolId: string, objects: FabricObject[]) =>
+        (await updateSymbolInstances(symbolId, objects)).symbol,
+      detachSymbolInstancesFromObjects: (objects: FabricObject[]) => detachSymbolInstances(objects),
+
+      // 全局颜色替换（replace_color 的运行时实现，撤销合并由网关层负责）
+      replaceDocumentColorOnCanvas: replaceAllColor,
+
       serializeCanvasJson: serializeFabricCanvas,
       restoreCanvasContentFromJson,
       scheduleDraftSave,
 
       outlineText: outlineTextToPath,
+
+      // 文本编辑（update_text 的运行时实现，撤销合并由网关层负责）
+      updateTextObject,
+
+      // 位图滤镜与混合模式（apply_image_filter 的运行时实现，撤销合并由网关层负责）
+      applyImageFilterToObject,
+
+      // 位图裁剪与图案填充（crop_image / set_pattern_fill 的运行时实现，撤销合并由网关层负责）
+      cropImageToDisplayRect: (target: FabricObject, rect: BitmapCropRect) => cropImageToDisplayRect(target, rect),
+      applyPatternFillToObject: applyPatternFillRequestToObject,
 
       undo,
       redo,
@@ -8580,7 +10639,9 @@ export function useHomeEditorRuntime() {
     })
     runtime.register(createHomeCanvasLifecycleModule())
     runtime.register(homeDirectEdit.module)
+    runtime.register(homeCrop.module)
     runtime.register(homePenTool.module)
+    runtime.register(homePaintBucket.module)
     runtime.register(homeWorkspace.module)
     runtime.register(homeAssetsImport.module)
     runtime.register(homeExportDelivery.module)
@@ -8624,6 +10685,32 @@ export function useHomeEditorRuntime() {
     keylineTemplate,
     keylineMarginInput,
     keylineOpacity,
+    guides,
+    showGuides,
+    guideDragState,
+    setGuidesVisible,
+    toggleGuides,
+    beginGuideCreate,
+    beginGuideMove,
+    updateGuideDrag,
+    endGuideDrag,
+    removeGuide,
+    clearGuides,
+    symbols,
+    symbolNameDialog,
+    openCreateSymbolDialog,
+    handleSymbolNameDialogShowChange,
+    confirmCreateSymbolDialog,
+    insertSymbolFromLibrary,
+    updateSymbolFromLibrary,
+    deleteSymbolFromLibrary,
+    detachSymbolSelection,
+    getSymbolBadgeText,
+    colorReplaceDialog,
+    colorReplaceEntries,
+    openColorReplaceDialog,
+    closeColorReplaceDialog,
+    replaceAllColor,
     spacePanReady,
     isSpacePanning,
     rulerCoordinateHintActive,
@@ -8680,6 +10767,7 @@ export function useHomeEditorRuntime() {
     toggleLock,
     toggleVisible,
     toast,
+    showToast,
     projectTabs,
     activeProjectTabId,
     hasMultipleProjectTabs,
@@ -8802,6 +10890,13 @@ export function useHomeEditorRuntime() {
     toggleFill,
     setSolidFillColor,
     setFillStyleMode,
+    setPatternFillFromFile,
+    setPatternFillRepeat,
+    setPatternFillScale,
+    cropModeActive,
+    beginBitmapCrop,
+    confirmBitmapCrop,
+    cancelBitmapCrop,
     setFillGradientStopColor,
     reorderFillGradientStops,
     setFillGradientStopOffset,
@@ -8816,6 +10911,16 @@ export function useHomeEditorRuntime() {
     toggleShadowEffect,
     setShadowEffectProp,
     removeShadowEffect,
+    setObjectBlendMode,
+    setTextProp,
+    setTextPropFromInput,
+    toggleTextBold,
+    toggleTextItalic,
+    toggleTextUnderline,
+    toggleTextLinethrough,
+    setTextAlign,
+    toggleImageFilter,
+    setImageFilterParam,
     flipObject,
     resetTransform,
     setRotate3DFromInput,
@@ -8871,6 +10976,16 @@ export function useHomeEditorRuntime() {
     handleCanvasAreaPointerDown,
     handleCanvasAreaWheel,
     penToolActive,
-    togglePenTool
+    togglePenTool,
+    paintBucketActive,
+    paintBucketForegroundColor: paintBucketState.paintForegroundColor,
+    paintBucketBackgroundColor: paintBucketState.paintBackgroundColor,
+    paintBucketBehavior: paintBucketState.paintBehavior,
+    setPaintBucketColor,
+    setPaintBucketStrokeColor,
+    swapPaintBucketColors,
+    togglePaintBucketBehavior,
+    setPaintBucketBehavior,
+    togglePaintBucketTool
   }
 }

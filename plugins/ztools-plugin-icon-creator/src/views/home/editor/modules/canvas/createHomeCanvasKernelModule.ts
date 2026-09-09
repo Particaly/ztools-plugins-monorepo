@@ -36,6 +36,8 @@ export interface CreateHomeCanvasKernelModuleOptions {
   sizeRatioLocked: Ref<boolean>
   selectionMode: Ref<HomeCanvasSelectionMode>
   snapToPixelGrid: Ref<boolean>
+  /** 工具态选择抑制开关（钢笔/油漆桶激活时为 true）：禁用框选并跳过命中，避免点击对象被选中/拖拽。 */
+  suppressSelection: Ref<boolean>
   isTransparentCanvasBg: (value: unknown) => boolean
   getCanvasAssistColors: () => CanvasAssistColors
   getAligningObjectsByTarget: (target: FabricObject) => Iterable<FabricObject>
@@ -90,13 +92,18 @@ export function createHomeCanvasKernelModule(
 
   /**
    * 同步画布的交互模式，把选择模式、等比缩放和网格角度吸附统一映射到 Fabric 配置。
+   * 工具态选择抑制（钢笔/油漆桶）优先于选择模式：保留命中检测（skipTargetFind 不动，
+   * mouse:down:before 的 event.target 仍可用于边界上色判定），但禁用框选并取消全部对象的
+   * selectable，使 Fabric 内置的 setActiveObject/拖拽不抢占"点画布产生效果"的工具点击。
    */
   function syncInteractionMode() {
     const canvas = options.getCanvas()
     if (!canvas) return
-    canvas.selection = options.selectionMode.value === 'shape'
+    const toolSuppress = options.suppressSelection.value
+    canvas.selection = !toolSuppress && options.selectionMode.value === 'shape'
     canvas.uniformScaling = options.sizeRatioLocked.value
     canvas.getObjects().forEach((obj) => {
+      obj.selectable = !toolSuppress
       obj.snapAngle = options.snapToPixelGrid.value ? 15 : undefined
     })
   }

@@ -187,6 +187,43 @@
           </div>
         </div>
       </ZTabPane>
+      <ZTabPane name="symbols" tab="符号" display-directive="show">
+        <div class="left-content">
+          <div class="section-title">文档符号</div>
+          <div v-if="symbols.length" class="symbol-list">
+            <article
+              v-for="symbol in symbols"
+              :key="symbol.id"
+              class="symbol-card"
+              :title="`${symbol.name}（点击插入实例）`"
+            >
+              <button
+                type="button"
+                class="symbol-preview"
+                draggable="true"
+                @click="$emit('insert-symbol', symbol)"
+                @dragstart="handleInsertDragStart($event, { kind: 'symbol', itemId: symbol.id })"
+              >
+                <Icon icon="mdi:vector-square" class="symbol-preview-icon" />
+              </button>
+              <div class="symbol-info">
+                <div class="symbol-name">{{ symbol.name }}</div>
+                <div class="symbol-meta">{{ getSymbolObjectCountLabel(symbol) }}</div>
+                <div class="symbol-actions">
+                  <ZButton size="small" @click="$emit('insert-symbol', symbol)">插入</ZButton>
+                  <ZButton size="small" title="用当前画布选中对象重写此定义，并同步全部实例" @click="$emit('update-symbol', symbol)">更新</ZButton>
+                  <ZButton size="small" @click="$emit('delete-symbol', symbol)">删除</ZButton>
+                </div>
+              </div>
+            </article>
+          </div>
+          <div v-if="!symbols.length" class="symbol-empty">
+            <div class="symbol-empty-icon" aria-hidden="true">⧉</div>
+            <div class="symbol-empty-title">还没有符号</div>
+            <div class="symbol-empty-desc">选中画布对象后，通过图层右键菜单「创建为符号」把常用组合保存为可复用定义。</div>
+          </div>
+        </div>
+      </ZTabPane>
     </ZTabs>
   </div>
 </template>
@@ -198,6 +235,7 @@ import type { IconTemplateItem, ShapeId, ShapeLibraryItem, TextLibraryItem } fro
 import { getTemplatePreviewMarkup } from '../templatePreview'
 import { formatUserAssetDate, getUserAssetObjectCountLabel } from '../userAssets'
 import type { IconifySearchState, LeftPanelTab, UserAssetItem } from '../types'
+import type { ProjectSymbol } from '../symbols'
 import { writeInsertDragPayload } from '../editor/modules/assets-import/insertDragPayload'
 
 type SelectOption = {
@@ -212,6 +250,8 @@ const props = withDefaults(defineProps<{
   textPresets: TextLibraryItem[]
   iconTemplates: IconTemplateItem[]
   userAssets: UserAssetItem[]
+  /** 文档级符号定义列表（见 symbols.ts 说明）。 */
+  symbols: ProjectSymbol[]
   iconifySearch: IconifySearchState
   filteredIconifyResults: string[]
   iconifyCollectionOptions: SelectOption[]
@@ -229,12 +269,20 @@ const emit = defineEmits<{
   (event: 'insert-user-asset', asset: UserAssetItem): void
   (event: 'rename-user-asset', asset: UserAssetItem): void
   (event: 'delete-user-asset', asset: UserAssetItem): void
+  (event: 'insert-symbol', symbol: ProjectSymbol): void
+  (event: 'update-symbol', symbol: ProjectSymbol): void
+  (event: 'delete-symbol', symbol: ProjectSymbol): void
   (event: 'update:iconify-query', value: string): void
   (event: 'search-iconify-icons'): void
   (event: 'load-more-iconify-browse-results'): void
   (event: 'update:iconify-collection-filter', value: string): void
   (event: 'insert-iconify-icon', name: string): void
 }>()
+
+/** 生成符号卡片展示的对象数量文案，帮助区分单图形与多对象组合。 */
+function getSymbolObjectCountLabel(symbol: ProjectSymbol) {
+  return symbol.objects.length > 1 ? `${symbol.objects.length} 个对象` : '1 个对象'
+}
 
 /**
  * 将左侧资源卡片写入拖拽负载，供画布 drop 时按类型恢复对应插入命令与落点位置。
@@ -556,6 +604,104 @@ function handleIconifyBrowseScroll(event: Event) {
   margin-top: 6px;
 }
 
+.symbol-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.symbol-card {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid rgba(128, 128, 128, 0.15);
+  border-radius: 8px;
+  background: #fafafa;
+}
+
+.symbol-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 76px;
+  height: 76px;
+  border: 1px solid rgba(128, 128, 128, 0.12);
+  border-radius: 7px;
+  background:
+    linear-gradient(45deg, rgba(128, 128, 128, 0.08) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(128, 128, 128, 0.08) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(128, 128, 128, 0.08) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(128, 128, 128, 0.08) 75%);
+  background-color: #fff;
+  background-position: 0 0, 0 6px, 6px -6px, -6px 0;
+  background-size: 12px 12px;
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.15s;
+
+  &:hover {
+    border-color: #1e6fff;
+    transform: translateY(-1px);
+  }
+}
+
+.symbol-preview-icon {
+  width: 30px;
+  height: 30px;
+  color: #666;
+}
+
+.symbol-info {
+  min-width: 0;
+}
+
+.symbol-name {
+  overflow: hidden;
+  color: #333;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.symbol-meta {
+  margin-top: 2px;
+  color: #777;
+  font-size: 11px;
+}
+
+.symbol-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.symbol-empty {
+  padding: 24px 8px;
+  color: #777;
+  font-size: 12px;
+  line-height: 1.6;
+  text-align: center;
+}
+
+.symbol-empty-icon {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.symbol-empty-title {
+  margin-top: 10px;
+  color: #555;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.symbol-empty-desc {
+  margin-top: 6px;
+}
+
 .iconify-search-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -645,7 +791,8 @@ function handleIconifyBrowseScroll(event: Event) {
   }
 
   .template-list,
-  .user-asset-list {
+  .user-asset-list,
+  .symbol-list {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   }

@@ -43,6 +43,15 @@
           </button>
           <span class="layer-name">
             {{ item.name }}
+            <!-- 符号实例徽标：与锁定图标同一轻量风格，展示所属符号名（见 symbols.ts 说明） -->
+            <span
+              v-if="symbolBadgeOf(item.obj)"
+              class="layer-badge"
+              :title="`符号实例：${symbolBadgeOf(item.obj)}`"
+            >
+              <Icon icon="mdi:vector-square" />
+              <span class="layer-badge-text">{{ symbolBadgeOf(item.obj) }}</span>
+            </span>
           </span>
           <button class="layer-icon-btn" @click.stop="$emit('toggle-visible', item.obj)">
             <Icon :icon="item.obj.visible !== false ? 'mdi:eye-outline' : 'mdi:eye-off-outline'" />
@@ -87,6 +96,8 @@ const props = defineProps<{
   isLayerDragDisabled: boolean
   layerSearch: string
   isLayerActive: (obj: FabricObject) => boolean
+  /** 读取对象的符号徽标文本：实例返回符号名，普通对象返回空串（见 symbols.ts 说明）。 */
+  symbolBadgeOf: (obj: FabricObject) => string
 }>()
 
 const emit = defineEmits<{
@@ -275,9 +286,24 @@ function getLockModeTitle(obj: FabricObject): string {
     .layer-badge {
       display: inline-flex;
       align-items: center;
+      gap: 2px;
+      min-width: 0;
       font-size: 10px;
       color: var(--primary-color);
       flex-shrink: 0;
+
+      svg {
+        width: 11px;
+        height: 11px;
+        flex-shrink: 0;
+      }
+
+      .layer-badge-text {
+        overflow: hidden;
+        max-width: 72px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
     }
   }
 }

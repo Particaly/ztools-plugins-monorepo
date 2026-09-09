@@ -14,6 +14,8 @@
       :show-pixel-grid="editorSelectors.showPixelGrid"
       :snap-to-pixel-grid="editorSelectors.snapToPixelGrid"
       :keyline-active="editorSelectors.isKeylineActive"
+      :show-guides="showGuides"
+      :has-guides="guides.length > 0"
       :shortcut-drawer-open="editorSelectors.shortcutDrawerOpen"
       :selection-mode="editorSelectors.selectionMode"
       :has-editable-points="editorSelectors.hasEditablePoints"
@@ -25,6 +27,7 @@
       :text-presets="textPresets"
       :icon-templates="iconTemplates"
       :user-assets="importedUserAssets"
+      :symbols="symbols"
       :iconify-search="iconifyImportState"
       :filtered-iconify-results="importedFilteredIconifyResults"
       :iconify-collection-options="importedIconifyCollectionOptions"
@@ -44,6 +47,8 @@
       @toggle-pixel-grid="editorCommands.togglePixelGrid"
       @toggle-snap-to-pixel-grid="editorCommands.toggleSnapToPixelGrid"
       @toggle-keyline-overlay="editorCommands.toggleKeylineOverlay"
+      @toggle-guides="toggleGuides"
+      @clear-guides="clearGuides"
       @open-shortcut-drawer="editorCommands.openShortcutDrawer"
       @set-selection-mode="editorCommands.setSelectionMode"
       @set-zoom="editorCommands.setZoom"
@@ -55,6 +60,9 @@
       @insert-user-asset="assetsImportCommands.insertUserAsset"
       @rename-user-asset="assetsImportCommands.openRenameUserAssetDialog"
       @delete-user-asset="assetsImportCommands.deleteUserAsset"
+      @insert-symbol="insertSymbolFromLibrary"
+      @update-symbol="updateSymbolFromLibrary"
+      @delete-symbol="deleteSymbolFromLibrary"
       @update:iconify-query="iconifyImportState.query = $event"
       @search-iconify-icons="assetsImportCommands.searchIconifyIcons"
       @update:iconify-collection-filter="iconifyImportState.collectionFilter = $event"
@@ -71,6 +79,7 @@
         :text-presets="textPresets"
         :icon-templates="iconTemplates"
         :user-assets="importedUserAssets"
+        :symbols="symbols"
         :iconify-search="iconifyImportState"
         :filtered-iconify-results="importedFilteredIconifyResults"
         :iconify-collection-options="importedIconifyCollectionOptions"
@@ -82,6 +91,9 @@
         @insert-user-asset="assetsImportCommands.insertUserAsset"
         @rename-user-asset="assetsImportCommands.openRenameUserAssetDialog"
         @delete-user-asset="assetsImportCommands.deleteUserAsset"
+        @insert-symbol="insertSymbolFromLibrary"
+        @update-symbol="updateSymbolFromLibrary"
+        @delete-symbol="deleteSymbolFromLibrary"
         @update:iconify-query="iconifyImportState.query = $event"
         @search-iconify-icons="assetsImportCommands.searchIconifyIcons"
         @load-more-iconify-browse-results="assetsImportCommands.loadMoreIconifyBrowseResults"
@@ -96,6 +108,10 @@
         :selection-mode="editorSelectors.selectionMode"
         :has-editable-points="editorSelectors.hasEditablePoints"
         :pen-tool-active="penToolActive"
+        :paint-bucket-active="paintBucketActive"
+        :paint-bucket-foreground-color="paintBucketForegroundColor"
+        :paint-bucket-background-color="paintBucketBackgroundColor"
+        :paint-bucket-behavior="paintBucketBehavior"
         :show-artboard-list="editorSelectors.showArtboardList"
         :show-ruler="editorSelectors.showRuler"
         :show-pixel-grid="editorSelectors.showPixelGrid"
@@ -112,6 +128,12 @@
         @redo="editorCommands.redo"
         @set-selection-mode="editorCommands.setSelectionMode"
         @toggle-pen-tool="togglePenTool"
+        @toggle-paint-bucket="togglePaintBucketTool"
+        @set-paint-bucket-color="setPaintBucketColor"
+        @set-paint-bucket-stroke-color="setPaintBucketStrokeColor"
+        @swap-paint-bucket-colors="swapPaintBucketColors"
+        @toggle-paint-bucket-behavior="togglePaintBucketBehavior"
+        @set-paint-bucket-behavior="setPaintBucketBehavior"
         @toggle-artboard-list="editorCommands.toggleArtboardList"
         @toggle-ruler="editorCommands.toggleRuler"
         @toggle-pixel-grid="editorCommands.togglePixelGrid"
@@ -173,6 +195,7 @@
         </div>
         <main
           class="canvas-area"
+          :class="{ 'paint-bucket-active': paintBucketActive }"
           ref="canvasAreaRef"
           @pointerdown.capture="handleCanvasAreaPointerDown"
           @wheel="handleCanvasAreaWheel"
@@ -215,6 +238,19 @@
                 <line class="keyline-axis" x1="0" :y1="canvasHeight / 2" :x2="canvasWidth" :y2="canvasHeight / 2" />
               </template>
             </svg>
+            <!-- 对齐参考线覆盖层：纯 DOM SVG 渲染，不属于画布对象，绝不进入 toObject 序列化 -->
+            <GuidesOverlay
+              :guides="guides"
+              :show="showGuides"
+              :width="canvasWidth"
+              :height="canvasHeight"
+              :zoom="editorSelectors.zoom"
+              :drag-preview="guideDragPreview"
+              @guide-drag-start="handleOverlayGuideDragStart"
+              @guide-drag-move="updateGuideDrag"
+              @guide-drag-commit="handleOverlayGuideDragCommit"
+              @guide-remove="removeGuide"
+            />
             <canvas ref="canvasElRef"></canvas>
           </div>
           <section v-if="canvasViewMode === 'svg'" class="svg-preview-panel" :class="`svg-preview-${svgPreviewMode}`" aria-label="SVG 只读预览">
@@ -252,6 +288,11 @@
           :wrapper-el="canvasWrapperRef"
           :zoom="editorSelectors.zoom"
           :coordinate-hint-active="rulerCoordinateHintActive"
+          @guide-drag-start="handleRulerGuideDragStart"
+          @guide-drag-move="updateGuideDrag"
+          @guide-drag-commit="handleRulerGuideDragCommit"
+          @guide-drag-cancel="endGuideDrag(true)"
+          @guide-context-menu="openGuidesContextMenu"
         />
         <div
           class="canvas-mode-switcher"
@@ -407,6 +448,7 @@
             :keyline-template-options="keylineTemplateOptions"
             :keyline-margin-input="keylineMarginInput"
             :keyline-opacity="keylineOpacity"
+            :open-color-replace="openColorReplaceDialog"
             :color-palette-groups="visibleColorPaletteGroups"
             :gradient-presets="visibleGradientPresets"
             :color-palette-columns="stylePresetColorColumns"
@@ -478,6 +520,23 @@
             :toggle-shadow-effect="toggleShadowEffect"
             :set-shadow-effect-prop="setShadowEffectProp"
             :remove-shadow-effect="removeShadowEffect"
+            :set-object-blend-mode="setObjectBlendMode"
+            :set-text-prop="setTextProp"
+            :set-text-prop-from-input="setTextPropFromInput"
+            :toggle-text-bold="toggleTextBold"
+            :toggle-text-italic="toggleTextItalic"
+            :toggle-text-underline="toggleTextUnderline"
+            :toggle-text-linethrough="toggleTextLinethrough"
+            :set-text-align="setTextAlign"
+            :toggle-image-filter="toggleImageFilter"
+            :set-image-filter-param="setImageFilterParam"
+            :crop-mode-active="cropModeActive"
+            :begin-bitmap-crop="beginBitmapCrop"
+            :confirm-bitmap-crop="confirmBitmapCrop"
+            :cancel-bitmap-crop="cancelBitmapCrop"
+            :set-pattern-fill-from-file="setPatternFillFromFile"
+            :set-pattern-fill-repeat="setPatternFillRepeat"
+            :set-pattern-fill-scale="setPatternFillScale"
             :flip-object="flipObject"
             :reset-transform="resetTransform"
             :set-rotate3-d-from-input="setRotate3DFromInput"
@@ -499,6 +558,7 @@
             :is-layer-drag-disabled="isLayerDragDisabled"
             :layer-search="layerSearch"
             :is-layer-active="isLayerActive"
+            :symbol-badge-of="getSymbolBadgeText"
             @update:layer-drag-items="layerDragItems = $event"
             @update:layer-search="layerSearch = $event"
             @layer-up="layerUp"
@@ -533,6 +593,15 @@
         :menu-items="layerContextMenuItems"
         @update:show="layerContextMenu.show = $event"
         @select="handleLayerContextMenuSelect"
+      />
+      <!-- 对齐参考线右键菜单（标尺 / 画布入口共用）：显隐开关与清除全部 -->
+      <LayerContextMenu
+        :show="guidesContextMenu.show"
+        :x="guidesContextMenu.x"
+        :y="guidesContextMenu.y"
+        :menu-items="guidesContextMenuItems"
+        @update:show="guidesContextMenu.show = $event"
+        @select="handleGuidesContextMenuSelect"
       />
     </div>
 
@@ -587,6 +656,15 @@
       @confirm="confirmLayerRename"
     />
 
+    <!-- 创建符号命名弹窗：把当前选中对象保存为可复用符号定义（见 symbols.ts 说明） -->
+    <SymbolNameModal
+      :show="symbolNameDialog.show"
+      v-model:value="symbolNameDialog.value"
+      :error="symbolNameDialog.error"
+      @update:show="handleSymbolNameDialogShowChange"
+      @confirm="confirmCreateSymbolDialog"
+    />
+
     <ArtboardRenameModal
       :show="artboardRenameDialog.show"
       :value="artboardRenameDialog.value"
@@ -622,6 +700,14 @@
       @confirm="applyStylePresetSettings"
     />
 
+    <!-- 全局颜色替换弹窗：替换结果由运行时提交一条撤销记录并 toast 汇报 -->
+    <ColorReplaceModal
+      :show="colorReplaceDialog.show"
+      :entries="colorReplaceEntries"
+      @update:show="handleColorReplaceDialogShowChange"
+      @replace="handleColorReplace"
+    />
+
         <!-- 隐藏的文件输入 -->
     <input ref="projectInputRef" type="file" accept=".iconcreator.json,application/json" style="display:none" @change="onProjectFileChosen" />
     <input ref="svgInputRef" type="file" accept=".svg,image/svg+xml" style="display:none" @change="assetsImportCommands.onSVGFileChosen" />
@@ -633,7 +719,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { Icon } from '@iconify/vue'
 import { ZPopover } from 'ztools-ui'
 import HomeTopBar from './components/HomeTopBar.vue'
@@ -642,6 +728,7 @@ import HomeToolBar from './components/HomeToolBar.vue'
 import LeftPanel from './components/LeftPanel.vue'
 import ArtboardList from './components/ArtboardList.vue'
 import Ruler from './components/Ruler.vue'
+import GuidesOverlay from './components/GuidesOverlay.vue'
 import RightPanel from './components/panels/RightPanel.vue'
 import PropertiesPanel from './components/panels/PropertiesPanel.vue'
 import PreviewPanel from './components/panels/PreviewPanel.vue'
@@ -652,14 +739,18 @@ import ShortcutDrawer from './components/ShortcutDrawer.vue'
 import PasteSvgModal from './components/modals/PasteSvgModal.vue'
 import ExportModal from './components/modals/ExportModal.vue'
 import LayerRenameModal from './components/modals/LayerRenameModal.vue'
+import SymbolNameModal from './components/modals/SymbolNameModal.vue'
 import ArtboardRenameModal from './components/modals/ArtboardRenameModal.vue'
 import UserAssetModal from './components/modals/UserAssetModal.vue'
 import StylePresetManagerModal from './components/modals/StylePresetManagerModal.vue'
+import ColorReplaceModal from './components/modals/ColorReplaceModal.vue'
 import Toast from './components/Toast.vue'
 import { basicShapes, textPresets, shapePreviewPaths, iconTemplates } from './editorCatalog'
 import { EXPORT_PNG_SIZE_OPTIONS } from './constants'
 import { useHomeEditorRuntime } from './useHomeEditorRuntime'
-import type { GradientPresetItem, StyleTargetChannel } from './types'
+import { reactive } from 'vue'
+import type { GradientPresetItem, LayerContextMenuItem, StyleTargetChannel } from './types'
+import type { GuideOrientation } from './documentGuides'
 
 const {
   canvasElRef,
@@ -676,6 +767,32 @@ const {
   keylineTemplate,
   keylineMarginInput,
   keylineOpacity,
+  guides,
+  showGuides,
+  guideDragState,
+  setGuidesVisible,
+  toggleGuides,
+  beginGuideCreate,
+  beginGuideMove,
+  updateGuideDrag,
+  endGuideDrag,
+  removeGuide,
+  clearGuides,
+  symbols,
+  symbolNameDialog,
+  openCreateSymbolDialog,
+  handleSymbolNameDialogShowChange,
+  confirmCreateSymbolDialog,
+  insertSymbolFromLibrary,
+  updateSymbolFromLibrary,
+  deleteSymbolFromLibrary,
+  detachSymbolSelection,
+  getSymbolBadgeText,
+  colorReplaceDialog,
+  colorReplaceEntries,
+  openColorReplaceDialog,
+  closeColorReplaceDialog,
+  replaceAllColor,
   spacePanReady,
   isSpacePanning,
   rulerCoordinateHintActive,
@@ -726,6 +843,7 @@ const {
   toggleLock,
   toggleVisible,
   toast,
+  showToast,
   projectTabs,
   activeProjectTabId,
   hasMultipleProjectTabs,
@@ -861,6 +979,23 @@ const {
   toggleShadowEffect,
   setShadowEffectProp,
   removeShadowEffect,
+  setObjectBlendMode,
+  setTextProp,
+  setTextPropFromInput,
+  toggleTextBold,
+  toggleTextItalic,
+  toggleTextUnderline,
+  toggleTextLinethrough,
+  setTextAlign,
+  toggleImageFilter,
+  setImageFilterParam,
+  cropModeActive,
+  beginBitmapCrop,
+  confirmBitmapCrop,
+  cancelBitmapCrop,
+  setPatternFillFromFile,
+  setPatternFillRepeat,
+  setPatternFillScale,
   flipObject,
   resetTransform,
   setRotate3DFromInput,
@@ -910,10 +1045,115 @@ const {
   handleCanvasAreaPointerDown,
   handleCanvasAreaWheel,
   penToolActive,
-  togglePenTool
+  togglePenTool,
+  paintBucketActive,
+  paintBucketForegroundColor,
+  paintBucketBackgroundColor,
+  paintBucketBehavior,
+  setPaintBucketColor,
+  setPaintBucketStrokeColor,
+  swapPaintBucketColors,
+  togglePaintBucketBehavior,
+  setPaintBucketBehavior,
+  togglePaintBucketTool
 } = useHomeEditorRuntime()
 
 const canvasModeSwitcherCollapsed = ref(false)
+
+// ── 对齐参考线交互接线 ──
+// 与标尺宽度保持一致的判定带宽：拖回标尺条带（顶部 / 左侧 24px）松手即删除参考线。
+const GUIDE_RULER_BAND = 24
+
+// 标尺按下开始拖出新参考线：运行时只记录预览状态，落定才写入参考线列表。
+function handleRulerGuideDragStart(payload: { orientation: GuideOrientation; position: number }) {
+  beginGuideCreate(payload.orientation, payload.position)
+}
+
+// 标尺拖拽落定在画布：先同步最终位置，再结束手势并保留参考线（一条撤销记录）。
+function handleRulerGuideDragCommit(payload: { orientation: GuideOrientation; position: number }) {
+  updateGuideDrag(payload.position)
+  endGuideDrag(false)
+}
+
+// 从覆盖层热区开始拖动已有参考线：以参考线当前位置作为拖拽起点。
+function handleOverlayGuideDragStart(guideId: string) {
+  const guide = guides.value.find((item) => item.id === guideId)
+  if (!guide) return
+  beginGuideMove(guideId, guide.position)
+}
+
+// 覆盖层拖拽落定：落点回到标尺条带内视为删除，否则保留（一条撤销记录）。
+function handleOverlayGuideDragCommit(payload: {
+  guideId: string
+  orientation: GuideOrientation
+  position: number
+  clientX: number
+  clientY: number
+}) {
+  const area = canvasAreaRef.value
+  const dropOnRuler = !!area && (payload.orientation === 'horizontal'
+    ? payload.clientY - area.getBoundingClientRect().top <= GUIDE_RULER_BAND
+    : payload.clientX - area.getBoundingClientRect().left <= GUIDE_RULER_BAND)
+  if (dropOnRuler) {
+    endGuideDrag(true)
+    return
+  }
+  updateGuideDrag(payload.position)
+  endGuideDrag(false)
+}
+
+// 新建参考线的拖拽预览（isNew 阶段尚未进入列表，由覆盖层以虚线渲染）。
+const guideDragPreview = computed(() => {
+  const state = guideDragState.value
+  return state && state.isNew ? { orientation: state.orientation, position: state.position } : null
+})
+
+// 对齐参考线右键菜单：显隐开关与清除全部（复用图层面板菜单组件渲染）。
+const guidesContextMenu = reactive({ show: false, x: 0, y: 0 })
+const guidesContextMenuItems = computed<LayerContextMenuItem[]>(() => [
+  {
+    type: 'item',
+    key: 'toggle-guides',
+    label: showGuides.value ? '隐藏对齐参考线' : '显示对齐参考线',
+    icon: showGuides.value ? 'mdi:eye-off-outline' : 'mdi:eye-outline'
+  },
+  { type: 'separator' },
+  {
+    type: 'item',
+    key: 'clear-guides',
+    label: '清除全部参考线',
+    icon: 'mdi:notification-clear-all',
+    danger: true,
+    disabled: guides.value.length === 0
+  }
+])
+
+// 右键标尺 / 参考线区域时在光标处打开参考线菜单。
+function openGuidesContextMenu(payload: { x: number; y: number }) {
+  guidesContextMenu.x = payload.x
+  guidesContextMenu.y = payload.y
+  guidesContextMenu.show = true
+}
+
+function handleGuidesContextMenuSelect(key: 'toggle-guides' | 'clear-guides') {
+  if (key === 'toggle-guides') toggleGuides()
+  if (key === 'clear-guides') clearGuides()
+}
+
+// ── 全局颜色替换接线 ──
+// 弹窗关闭交回运行时同步状态；确认替换后 toast 汇报替换对象数（整批一条撤销记录）。
+function handleColorReplaceDialogShowChange(show: boolean) {
+  if (!show) closeColorReplaceDialog()
+}
+
+function handleColorReplace(from: string, to: string) {
+  const result = replaceAllColor(from, to)
+  if (!result || !result.objectCount) {
+    // 源色非法 / 与目标色相同 / 没有命中颜色：静默返回，不做无意义的提示
+    return
+  }
+  showToast(`已替换 ${result.objectCount} 个对象的颜色`, 'success')
+}
 
 // 切换底部画布模式切换器的收纳状态；收起时同步关闭受控预览浮层，避免隐藏控件后残留预览面板。
 function toggleCanvasModeSwitcherCollapsed() {
@@ -985,6 +1225,11 @@ $panel-bg: #fff;
 .space-panning canvas {
   cursor: grabbing !important;
   user-select: none;
+}
+/* 油漆桶工具态：画布光标提示当前为区域上色模式（空格平移仍以其 grab 优先） */
+.paint-bucket-active .canvas-wrapper,
+.paint-bucket-active canvas {
+  cursor: crosshair;
 }
 
 /* ── 主体 ── */

@@ -1,6 +1,7 @@
 import type { Canvas, FabricObject } from 'fabric'
 import type { Ref } from 'vue'
 import type { DocumentCanvasSnapshot } from '../documentSnapshots'
+import type { DecodedProjectDraft, ProjectDraftTab } from '../projectDraft'
 import type {
   IconCreatorProjectArtboard,
   IconCreatorProjectFile,
@@ -46,6 +47,12 @@ export interface HomeArtboardStateRefs {
   artboards: Ref<IconCreatorProjectArtboard[]>
   activeArtboardId: Ref<string>
   showArtboardList: Ref<boolean>
+}
+
+/** 页面层收集的多标签草稿快照：激活标签工程由调用方传入最新序列化结果，其余标签复用内存工程克隆。 */
+export interface HomeDraftTabsSnapshot {
+  activeTabId: string
+  tabs: ProjectDraftTab[]
 }
 
 export interface HomeCanvasRestoreCallbacks {
@@ -124,6 +131,34 @@ export interface UseHomeDocumentOptions extends HomeCanvasRestoreCallbacks {
   getDocumentSnapshots?: () => DocumentCanvasSnapshot[]
   /** 把工程 JSON 的命名画布快照写入运行时状态（loadProjectFile 时调用，传空值表示清空）。 */
   applyDocumentSnapshots?: (value: unknown) => void
+  /**
+   * 读取文档级对齐参考线列表（project.guides 通道）。
+   * 同时随撤销快照（editorGuides 字段）与工程 JSON（guides 字段）持久化，
+   * 参考线增删改与画布对象一样可以撤销 / 重做。
+   */
+  getDocumentGuides?: () => unknown
+  /** 把工程 JSON 的 guides 写入运行时状态（loadProjectFile 时调用，传空值表示清空）。 */
+  applyDocumentGuides?: (value: unknown) => void
+  /** 从撤销快照 JSON 中还原文档级对齐参考线（undo/redo/jumpToHistory 时调用）。 */
+  restoreDocumentGuidesFromSnapshot?: (snapshotJson: string) => void
+  /**
+   * 读取文档级符号定义列表（project.symbols 通道，见 symbols.ts 说明）。
+   * 同时随撤销快照（editorSymbols 字段）与工程 JSON（symbols 字段）持久化，
+   * 定义的新建 / 更新 / 删除与画布对象一样可以撤销 / 重做。
+   */
+  getDocumentSymbols?: () => unknown
+  /** 把工程 JSON 的 symbols 写入运行时状态（loadProjectFile 时调用，传空值表示清空）。 */
+  applyDocumentSymbols?: (value: unknown) => void
+  /** 从撤销快照 JSON 中还原文档级符号定义（undo/redo/jumpToHistory 时调用）。 */
+  restoreDocumentSymbolsFromSnapshot?: (snapshotJson: string) => void
+  /**
+   * 收集多标签草稿快照（提供后草稿按多标签结构写入，覆盖全部标签与激活态）。
+   * 参数为激活标签刚序列化的工程对象；返回 null 表示标签结构暂不可写
+   *（未初始化 / 切换中），本次草稿写入跳过，避免用过场状态覆盖已有草稿。
+   */
+  getDraftTabsSnapshot?: (currentProject: IconCreatorProjectFile) => HomeDraftTabsSnapshot | null
+  /** 多标签草稿恢复回调：由页面层重建全部项目标签并把激活标签载入画布。 */
+  applyDraftTabs?: (draft: DecodedProjectDraft) => Promise<void>
 }
 
 export interface UseHomeDocumentReturn {
@@ -138,6 +173,8 @@ export interface UseHomeDocumentReturn {
   resetHistoryToCurrentCanvas: () => void
   loadProjectFile: (project: IconCreatorProjectFile, options?: ProjectLoadOptions) => Promise<void>
   scheduleDraftSave: () => void
+  /** 立即同步写入一次草稿（不走防抖），供标签新建 / 关闭 / 切换等结构变化节点调用。 */
+  saveDraftNow: () => void
   clearStoredDraft: () => void
   promptRestoreDraft: () => Promise<void>
   flushDraftBeforeDispose: () => void

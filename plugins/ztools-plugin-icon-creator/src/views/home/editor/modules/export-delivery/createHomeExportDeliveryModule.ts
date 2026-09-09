@@ -1,6 +1,6 @@
 import { computed, reactive, ref } from 'vue'
 import JSZip from 'jszip'
-import { Canvas, util, type FabricObject } from 'fabric'
+import { Canvas, Shadow, util, type FabricObject } from 'fabric'
 import {
   SHORTCUT_ACTIONS,
   SHORTCUT_DISPLAY_GROUPS,
@@ -17,6 +17,7 @@ import {
 } from '../../../shortcuts'
 import type { EditorModule } from '../../runtime/editorTypes'
 import type { AnyFabricObject } from '../../../fabric/objectMetadata'
+import { SERIALIZED_OBJECT_PROPS } from '../../../fabric/objectMetadata'
 import { buildIcoFile, buildIcnsFile, ICO_MAX_SIZE, ICNS_MAX_SIZE, type IconContainerFrame } from '../../../fabric/iconContainer'
 import { ensureOptimizedSVGRoot, stripFabricSVGNoise, svgEscapeText, trimSVGWhitespace } from '../../../exportUtils'
 import { fabricStrokeToPathKitWithApi, type FabricBooleanStyleSnapshot } from '../../../geometry/fabricToPathKit'
@@ -210,7 +211,7 @@ export function createHomeExportDeliveryModule(
     })
     const sourceObjects = sourceCanvas.getObjects()
       .filter((obj) => !(obj as AnyFabricObject).excludeFromExport)
-    const clones = await Promise.all(sourceObjects.map((obj) => obj.clone())) as FabricObject[]
+    const clones = await Promise.all(sourceObjects.map((obj) => obj.clone(SERIALIZED_OBJECT_PROPS as unknown as string[]))) as FabricObject[]
     clones.forEach((clone) => tempCanvas.add(clone as AnyFabricObject))
     return tempCanvas
   }
@@ -237,6 +238,17 @@ export function createHomeExportDeliveryModule(
         obj.setCoords()
         canvas.insertAt(Math.min(sourceIndex + 1, canvas.getObjects().length), outline as AnyFabricObject)
       } else {
+        // 描边型对象被轮廓路径整体替换时，阴影必须跟随迁移：
+        // shadowEffects 元数据供 multiShadow 多阴影渲染/SVG 导出读取，原生 shadow 供单投影场景使用，
+        // 否则描边型图标的阴影会在 SVG 导出中丢失
+        const sourceAny = obj as AnyFabricObject
+        const outlineAny = outline as AnyFabricObject
+        if (Array.isArray(sourceAny.shadowEffects)) {
+          outlineAny.shadowEffects = sourceAny.shadowEffects.map(effect => ({ ...effect }))
+        }
+        outlineAny.shadow = sourceAny.shadow
+          ? new Shadow({ ...(sourceAny.shadow as Shadow).toObject() })
+          : null
         canvas.remove(obj as AnyFabricObject)
         canvas.insertAt(Math.min(sourceIndex, canvas.getObjects().length), outline as AnyFabricObject)
       }
@@ -696,7 +708,8 @@ export function createHomeExportDeliveryModule(
       backgroundColor: ''
     })
     for (const obj of objects) {
-      const clone = await obj.clone()
+      // 带上序列化元数据：多阴影等自绘效果依赖 shadowEffects 元数据在临时画布上继续生效
+      const clone = await obj.clone(SERIALIZED_OBJECT_PROPS as unknown as string[])
       clone.set({
         left: (clone.left ?? 0) - bounds.left,
         top: (clone.top ?? 0) - bounds.top
@@ -1115,6 +1128,9 @@ export function createHomeExportDeliveryModule(
         break
       case 'mode.pen':
         options.shortcut.activatePenTool()
+        break
+      case 'mode.paintBucket':
+        options.shortcut.activatePaintBucketTool()
         break
       case 'select.all':
         options.shortcut.selectAllByMode()

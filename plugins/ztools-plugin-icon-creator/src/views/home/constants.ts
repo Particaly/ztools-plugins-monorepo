@@ -8,6 +8,10 @@ export const USER_STYLE_PRESET_STORAGE_KEY = 'icon-creator:user-style-presets:v1
 export const USER_ASSET_THUMBNAIL_SIZE = 96
 export const USER_ASSET_MAX_THUMBNAIL_SOURCE_SIZE = 1600
 export const DRAFT_SAVE_DELAY = 800
+// 草稿结构版本：1 = 旧版单 project 结构；2 = 多标签结构（tabs + activeTabId）。
+export const DRAFT_SCHEMA_VERSION = 2
+// 草稿写入因存储配额连续失败时的 toast 提示节流间隔（毫秒），避免频繁编辑下提示刷屏。
+export const DRAFT_QUOTA_TOAST_THROTTLE = 5000
 export const EXPORT_PNG_SIZE_OPTIONS = [16, 24, 32, 48, 64, 128, 256, 512]
 export const SMALL_PREVIEW_SIZE_OPTIONS = [16, 24, 32, 48]
 export const DEFAULT_PIXEL_GRID_SIZE = 8

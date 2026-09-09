@@ -1,7 +1,8 @@
-import { Gradient, type FabricObject } from 'fabric'
+import { Gradient, Pattern, Shadow, type FabricObject } from 'fabric'
 
 export type AnyFabricObject = FabricObject & Record<string, any>
-export type FillMode = 'solid' | 'gradient'
+// fillMode 取值：solid 纯色 / gradient 渐变 / pattern 图案（fabric Pattern fill）。
+export type FillMode = 'solid' | 'gradient' | 'pattern'
 export type FillGradientType = 'linear' | 'radial'
 export type FillGradientStop = {
   color: string
@@ -76,6 +77,11 @@ export type Rotation3DMetadata = {
   // 立体旋转前对象自身的缩放，用于让立体旋转与普通缩放可以叠加而互不破坏。
   rotation3dBaseScaleX?: number
   rotation3dBaseScaleY?: number
+  // 用户通过面板翻转按钮设置的手动翻转意图。原生 flipX/flipY 会被立体旋转投影
+  // 重算整体覆盖（见 applyRotation3DTransformToObject），把翻转意图单独存这里，
+  // 重算时 XOR 叠加回去，保证拖拽/缩放等任何触发重算的交互都不会丢失翻转。
+  rotation3dFlipX?: boolean
+  rotation3dFlipY?: boolean
 }
 
 export const DEFAULT_KALEIDOSCOPE_COUNT = 6
@@ -128,10 +134,24 @@ export const SERIALIZED_OBJECT_PROPS = [
   'kaleidoscopeInstanceIndex',
   'sizeRatioLocked',
   'shadowEffects',
+  'bitmapFilters',
+  // 图案填充回显元数据（fill 本体由 fabric 原生序列化，这里补面板/MCP 需要的来源与参数）
+  'fillPatternSrc',
+  'fillPatternName',
+  'fillPatternRepeat',
+  'fillPatternScale',
   'rotateX',
   'rotateY',
+  'rotateZ',
   'rotation3dBaseScaleX',
-  'rotation3dBaseScaleY'
+  'rotation3dBaseScaleY',
+  // 手动翻转意图随对象一起序列化（撤销/重做/工程保存的 round-trip 不丢翻转）
+  'rotation3dFlipX',
+  'rotation3dFlipY',
+  // 符号实例元数据：挂在实例 Group 上（见 symbols.ts 说明），随 toObject / 工程 JSON round-trip，
+  // 撤销 / 重做（loadFromJSON 全量重建）后实例凭 symbolId 保持与定义的关联。
+  'symbolId',
+  'symbolInstanceId'
 ] as const
 
 function cloneGradientStops(stops: FillGradientStop[]) {
@@ -209,8 +229,9 @@ function normalizeGradientStops(value: unknown, fallbackColor = '#000000') {
   }))
 }
 
+// fillMode 归一化：接受 solid/gradient/pattern 三种取值，其余回退 fallback。
 function normalizeFillMode(value: unknown, fallback: FillMode = DEFAULT_FILL_MODE): FillMode {
-  return value === 'gradient' || value === 'solid' ? value : fallback
+  return value === 'gradient' || value === 'solid' || value === 'pattern' ? value : fallback
 }
 
 function normalizeFillGradientType(value: unknown, fallback: FillGradientType = DEFAULT_FILL_GRADIENT_TYPE): FillGradientType {
@@ -334,7 +355,12 @@ export function applyDefaultFillGradientMetadata(obj: FabricObject | null | unde
     ? target.lastFill
     : '#000000'
   const fillType = extractGradientType(target.fill)
-  const fillModeFallback: FillMode = fillType ? 'gradient' : DEFAULT_FILL_MODE
+  // 图案填充（fill 为 fabric Pattern）时 fillMode 保持 pattern，避免被元数据补默认值覆盖回纯色。
+  const fillModeFallback: FillMode = fillType
+    ? 'gradient'
+    : target.fill instanceof Pattern
+      ? 'pattern'
+      : DEFAULT_FILL_MODE
   target.fillMode = normalizeFillMode(target.fillMode, fillModeFallback)
   target.fillGradientType = normalizeFillGradientType(target.fillGradientType, fillType ?? DEFAULT_FILL_GRADIENT_TYPE)
   target.fillGradientStops = normalizeGradientStops(target.fillGradientStops ?? extractGradientStops(target.fill), fallbackColor)
@@ -634,21 +660,27 @@ export function applyShadowEffectsToFabricObject(obj: FabricObject | null | unde
 
   applyDefaultShadowEffectsMetadata(target)
 
-  const enabledEffects = (target.shadowEffects ?? []).filter(effect => effect.enabled && effect.type === 'drop')
+  const anyObj = obj as any
+  const enabledEffects = (target.shadowEffects ?? []).filter(effect => effect.enabled)
 
-  if (enabledEffects.length > 0) {
+  if (enabledEffects.length === 1 && enabledEffects[0].type === 'drop') {
     const firstEffect = enabledEffects[0]
-    const anyObj = obj as any
-    anyObj.shadow = {
+    // 必须包装为 fabric.Shadow 实例：直接赋值普通对象会绕过 set() 的类型包装，
+    // 后续 toObject 序列化（快照/保存/克隆）调用 shadow.toObject() 时抛错，
+    // 并在拖拽松手的 object:modified 链路中中断 fabric 的拖拽清理，导致元素持续跟随鼠标。
+    anyObj.shadow = new Shadow({
       color: firstEffect.color,
       blur: firstEffect.blur,
       offsetX: firstEffect.offsetX,
       offsetY: firstEffect.offsetY
-    }
+    })
   } else {
-    const anyObj = obj as any
+    // 0 个启用效果 → 无阴影；多个效果或含内阴影 → 原生 shadow 只支持单个投影，
+    // 置空后交给 multiShadow 模块按 shadowEffects 元数据自绘（渲染与 SVG 导出全量生效）。
     anyObj.shadow = null
   }
+  // 阴影状态变化必须触发缓存重绘；缓存尺寸因阴影外扩变化时由 _updateCacheCanvas 自动重建
+  obj.dirty = true
 }
 
 export function createDefaultShadowEffect(): ShadowEffectItem {
@@ -679,6 +711,24 @@ export function applyDefaultRotation3DMetadata(obj: FabricObject | null | undefi
   target.rotateZ = normalizeRotation3DAngle(target.rotateZ)
   target.rotation3dBaseScaleX = normalizeFiniteNumber(target.rotation3dBaseScaleX, 1)
   target.rotation3dBaseScaleY = normalizeFiniteNumber(target.rotation3dBaseScaleY, 1)
+  // rotation3dFlipX 尚未初始化（undefined）说明该对象的翻转意图从未被面板写入或
+  // 序列化恢复——此时原生 flipX/flipY 减去投影镜像成分后就是用户意图（旧工程载入、
+  // 导入自带翻转的 SVG 等）。收编进意图位，避免下一次投影重算把它们当作投影残留冲掉。
+  if (target.rotation3dFlipX === undefined) {
+    const projection = computeRotation3DTransform(
+      target.rotateX ?? 0,
+      target.rotateY ?? 0,
+      0,
+      1,
+      1
+    )
+    target.rotation3dFlipX = projection.flipX !== (target.flipX === true)
+    target.rotation3dFlipY = projection.flipY !== (target.flipY === true)
+  } else {
+    // 翻转意图只认 true，避免 falsy 歧义
+    target.rotation3dFlipX = target.rotation3dFlipX === true
+    target.rotation3dFlipY = target.rotation3dFlipY === true
+  }
 }
 
 export function clearRotation3DMetadata(obj: FabricObject | null | undefined) {
@@ -689,6 +739,8 @@ export function clearRotation3DMetadata(obj: FabricObject | null | undefined) {
   target.rotateZ = 0
   target.rotation3dBaseScaleX = 1
   target.rotation3dBaseScaleY = 1
+  target.rotation3dFlipX = false
+  target.rotation3dFlipY = false
 }
 
 // 旋转角统一归一化到 [0, 360)，与平面旋转滑杆保持一致的取值范围。
@@ -799,6 +851,10 @@ export function computeRotation3DTransform(
 
 /**
  * 把三轴旋转元数据应用到 Fabric 对象上，将其物理变换设为对应的投影结果。
+ *
+ * 投影分解出的 flipX/flipY 只表达立体旋转自身的镜像（无 3D 旋转时恒为 false），
+ * 用户通过翻转按钮设置的意图存于 rotation3dFlipX/Y，这里 XOR 叠加到投影结果上，
+ * 避免任何触发重算的交互（拖拽、缩放、改 3D 角度等）冲掉手动翻转。
  */
 export function applyRotation3DTransformToObject(obj: FabricObject | null | undefined) {
   const target = getRotation3DMetadata(obj)
@@ -819,8 +875,8 @@ export function applyRotation3DTransformToObject(obj: FabricObject | null | unde
     skewX: transform.skewX,
     skewY: transform.skewY,
     angle: transform.angle,
-    flipX: transform.flipX,
-    flipY: transform.flipY
+    flipX: transform.flipX !== (target.rotation3dFlipX === true),
+    flipY: transform.flipY !== (target.rotation3dFlipY === true)
   })
 }
 
@@ -829,6 +885,11 @@ export function applyRotation3DTransformToObject(obj: FabricObject | null | unde
  *
  * 用于在用户拖拽缩放手柄后，把新的 scaleX/scaleY 写回 rotation3dBaseScaleX/Y，
  * 再重新应用立体旋转，这样缩放与立体旋转保持独立可叠加。
+ *
+ * 同时把两样手势产物回写元数据，防止随后的 applyRotation3DTransformToObject 覆盖丢失：
+ * - 原生 angle 中的平面旋转角 → rotateZ（鼠标旋转手势只改 angle，不经过 rotateZ）；
+ * - 原生 flipX/flipY 与已存翻转意图的差异 → rotation3dFlipX/Y（fabric 部分交互
+ *   （如缩放越过零点）会直接翻转原生 flip，这里把物理翻转收编为用户意图）。
  */
 export function extractRotation3DBaseScalesFromObject(obj: FabricObject | null | undefined) {
   const target = getRotation3DMetadata(obj)
@@ -849,5 +910,11 @@ export function extractRotation3DBaseScalesFromObject(obj: FabricObject | null |
 
   target.rotation3dBaseScaleX = baseScaleX
   target.rotation3dBaseScaleY = baseScaleY
+  // 鼠标旋转手势只改原生 angle；投影自带的偏角会被随后的重算清除，
+  // 先把纯平面角收进 rotateZ（unitTransform 以 rotateZ=0 计算，其 angle 即投影偏角）。
+  target.rotateZ = normalizeRotation3DAngle((obj.angle ?? 0) - (unitTransform.angle ?? 0))
+  // 物理翻转 ⊕ 投影翻转 = 用户意图，把手势期间产生的原生翻转差异收编进意图位。
+  target.rotation3dFlipX = unitTransform.flipX !== (obj.flipX === true)
+  target.rotation3dFlipY = unitTransform.flipY !== (obj.flipY === true)
 }
 
