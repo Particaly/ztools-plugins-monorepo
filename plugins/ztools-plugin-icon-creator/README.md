@@ -29,7 +29,7 @@ _钢笔与路径编辑 · 布尔运算 · 组件符号 · 渐变/图案填充 ·
 
 ## 📸 界面预览
 
-![界面预览]("https://raw.githubusercontent.com/Particaly/ztools-plugin-icon-creator/main/.github/assets/preview.png)
+![界面预览](https://raw.githubusercontent.com/Particaly/ztools-plugin-icon-creator/main/.github/assets/preview.png)
 
 ## 🤖 作为 MCP 工具接入
 
@@ -133,7 +133,7 @@ icon-creator/
 - [Fabric.js](https://fabricjs.com/) — 强大的 Canvas 对象模型
 - [Skia PathKit](https://skia.org/docs/user/modules/pathkit/) — 浏览器端矢量布尔运算
 - [Iconify](https://iconify.design/) — 开放统一的图标生态
-- [ZTools](https://github.com/) — 插件化效率工具平台
+- [ZTools](https://github.com/ZToolsCenter/ZTools) — 插件化效率工具平台
 
 ## 📄 许可证
 
