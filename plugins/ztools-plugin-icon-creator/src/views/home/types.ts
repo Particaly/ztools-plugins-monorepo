@@ -109,6 +109,7 @@ export type IconCreatorProjectCanvas = {
   gridSize?: number
   showPixelGrid?: boolean
   snapToPixelGrid?: boolean
+  brushSize?: number
   keylineTemplate?: KeylineTemplate
   keylineMargin?: number
   keylineOpacity?: number
@@ -302,6 +303,16 @@ export type IconifySearchState = {
   collectionFilter: string
   mode: 'browse' | 'search'
   hasMore: boolean
+  /** 全量图标集列表（来自 Iconify /collections 接口，带本地缓存）。 */
+  collections: IconifyCollectionInfo[]
+  /** 全量图标集列表是否正在加载。 */
+  collectionsLoading: boolean
+}
+
+export type IconifyCollectionInfo = {
+  prefix: string
+  name: string
+  totalIcons: number
 }
 
 export type IconifySearchResponse = {

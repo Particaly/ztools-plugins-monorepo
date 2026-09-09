@@ -1,5 +1,5 @@
-import { DEFAULT_KEYLINE_MARGIN, DEFAULT_KEYLINE_OPACITY, DEFAULT_PIXEL_GRID_SIZE, PROJECT_SCHEMA_VERSION } from './constants'
-import { normalizeCanvasBg, normalizeKeylineMargin, normalizeKeylineOpacity, normalizeKeylineTemplate, normalizePixelGridSize } from './canvasSettings'
+import { DEFAULT_KEYLINE_MARGIN, DEFAULT_KEYLINE_OPACITY, DEFAULT_PIXEL_GRID_SIZE, DEFAULT_PIXEL_PAINT_BRUSH_SIZE, PROJECT_SCHEMA_VERSION } from './constants'
+import { normalizeCanvasBg, normalizeKeylineMargin, normalizeKeylineOpacity, normalizeKeylineTemplate, normalizePixelGridSize, normalizePixelPaintBrushSize } from './canvasSettings'
 import { isEmptyDocumentStyleMeta, normalizeDocumentStyleMeta } from './documentStyleMeta'
 import { normalizeDocumentCanvasSnapshots } from './documentSnapshots'
 import { normalizeDocumentGuides } from './documentGuides'
@@ -18,6 +18,7 @@ export function normalizeProjectCanvasSettings(value: unknown): IconCreatorProje
     gridSize: normalizePixelGridSize(source.gridSize ?? DEFAULT_PIXEL_GRID_SIZE),
     showPixelGrid: source.showPixelGrid === true,
     snapToPixelGrid: source.snapToPixelGrid === true,
+    brushSize: normalizePixelPaintBrushSize(source.brushSize ?? DEFAULT_PIXEL_PAINT_BRUSH_SIZE),
     keylineTemplate: normalizeKeylineTemplate(source.keylineTemplate),
     keylineMargin: normalizeKeylineMargin(source.keylineMargin ?? DEFAULT_KEYLINE_MARGIN),
     keylineOpacity: normalizeKeylineOpacity(source.keylineOpacity ?? DEFAULT_KEYLINE_OPACITY)

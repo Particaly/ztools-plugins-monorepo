@@ -10,32 +10,21 @@ const DEFAULT_LAST_FILL = '#000000'
 const DEFAULT_STROKE = '#333333'
 const DEFAULT_STROKE_WIDTH = 2
 
-/**
- * 纯描边形状：开放路径或透明填充，没有描边就完全不可见，
- * 插入时保留默认描边；其余形状默认无描边，颜色由用户或 AI 按需设置。
- */
-const STROKE_ONLY_SHAPE_IDS = new Set([
-  'base-line',
-  'base-arrow-right',
-  'base-solid-shaft-arrow',
-  'base-double-solid-shaft-arrow'
-])
-
 function getDefaultStrokeDashArray(strokeWidth: number): [number, number] {
   return [Math.max(1, strokeWidth * 3), Math.max(1, strokeWidth * 2)]
 }
 
 /**
  * 为基础形状补齐默认样式与编辑器元数据。
- * 填充型形状默认不带描边；纯描边形状（见 STROKE_ONLY_SHAPE_IDS）保留默认描边否则不可见。
+ * 插入时统一自带默认描边（与左侧面板预览外观一致），填充保持透明，颜色由用户或 AI 按需调整；
+ * 线条、箭头等开放路径没有描边则完全不可见，统一描边后同样覆盖。
  * strokeUniform 恒为 true，保证对象被缩放时描边视觉宽度保持恒定。
  */
 function withDefaultStyles<T extends FabricObject>(obj: T, item: ShapeLibraryItem): T {
   const target = obj as AnyFabricObject
-  const strokeOnly = STROKE_ONLY_SHAPE_IDS.has(item.id)
   obj.set({
-    stroke: strokeOnly ? DEFAULT_STROKE : null,
-    strokeWidth: strokeOnly ? DEFAULT_STROKE_WIDTH : 0,
+    stroke: DEFAULT_STROKE,
+    strokeWidth: DEFAULT_STROKE_WIDTH,
     strokeUniform: true,
     fill: DEFAULT_FILL,
     strokeLineCap: 'round' as CanvasLineCap,

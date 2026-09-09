@@ -90,6 +90,13 @@
       <ZTabPane name="iconify" tab="图标库" display-directive="show">
         <div class="left-content" @scroll.passive="handleIconifyBrowseScroll">
           <div class="section-title">Iconify 图标库</div>
+          <IconifyCollectionSelect
+            class="iconify-collection-filter"
+            :model-value="iconifySearch.collectionFilter"
+            :options="iconifyCollectionOptions"
+            :loading="iconifySearch.collectionsLoading"
+            @update:model-value="$emit('update:iconify-collection-filter', $event)"
+          />
           <div class="iconify-search-row">
             <ZInput
               :model-value="iconifySearch.query"
@@ -99,7 +106,7 @@
               @update:model-value="$emit('update:iconify-query', String($event))"
               @keydown.enter="$emit('search-iconify-icons')"
             />
-            <ZButton size="small" :disabled="iconifySearch.loading || !iconifySearch.query.trim()" @click="$emit('search-iconify-icons')">
+            <ZButton size="small" :disabled="iconifySearch.loading" @click="$emit('search-iconify-icons')">
               {{ iconifySearch.loading ? '搜索中' : '搜索' }}
             </ZButton>
           </div>
@@ -108,27 +115,12 @@
             <div class="iconify-summary">
               找到 {{ iconifySearch.total }} 个结果，显示 {{ filteredIconifyResults.length }} 个
             </div>
-            <ZSelect
-              v-if="iconifyCollectionOptions.length > 1"
-              size="small"
-              class="iconify-collection-filter"
-              :model-value="iconifySearch.collectionFilter"
-              :options="iconifyCollectionOptions"
-              @change="$emit('update:iconify-collection-filter', String($event))"
-            />
           </template>
           <template v-else-if="iconifySearch.mode === 'browse'">
             <div class="iconify-summary">
-              默认展示常用图标 {{ filteredIconifyResults.length }} / {{ iconifySearch.total }}
+              <template v-if="iconifySearch.collectionFilter">图标集 {{ iconifySearch.collectionFilter }}：显示 {{ filteredIconifyResults.length }} / {{ iconifySearch.total }} 个</template>
+              <template v-else>默认展示常用图标 {{ filteredIconifyResults.length }} / {{ iconifySearch.total }}</template>
             </div>
-            <ZSelect
-              v-if="iconifyCollectionOptions.length > 1"
-              size="small"
-              class="iconify-collection-filter"
-              :model-value="iconifySearch.collectionFilter"
-              :options="iconifyCollectionOptions"
-              @change="$emit('update:iconify-collection-filter', String($event))"
-            />
           </template>
           <div v-if="filteredIconifyResults.length" class="iconify-grid">
             <button
@@ -152,7 +144,7 @@
             </ZButton>
           </div>
           <div v-else-if="iconifySearch.mode === 'search' && iconifySearch.lastQuery && !iconifySearch.loading && !iconifySearch.error" class="iconify-empty">未找到匹配图标</div>
-          <div v-else class="iconify-hint">默认按顺序展示常用 Iconify 图标；输入关键词可进一步搜索并筛选结果。</div>
+          <div v-else class="iconify-hint">默认按顺序展示常用 Iconify 图标；输入关键词可进一步搜索并筛选结果，空条件搜索会重置回默认列表。</div>
         </div>
       </ZTabPane>
       <ZTabPane name="templates" tab="模板" display-directive="show">
@@ -230,7 +222,8 @@
 
 <script setup lang="ts">
 import { Icon } from '@iconify/vue'
-import { ZButton, ZInput, ZSelect, ZTabPane, ZTabs } from 'ztools-ui'
+import { ZButton, ZInput, ZTabPane, ZTabs } from 'ztools-ui'
+import IconifyCollectionSelect from './IconifyCollectionSelect.vue'
 import type { IconTemplateItem, ShapeId, ShapeLibraryItem, TextLibraryItem } from '../editorCatalog'
 import { getTemplatePreviewMarkup } from '../templatePreview'
 import { formatUserAssetDate, getUserAssetObjectCountLabel } from '../userAssets'
@@ -241,6 +234,8 @@ import { writeInsertDragPayload } from '../editor/modules/assets-import/insertDr
 type SelectOption = {
   label: string
   value: string
+  /** 可选的引用式标签文案（如图标集前缀），随名称渲染成小标签。 */
+  tag?: string
 }
 
 const props = withDefaults(defineProps<{
@@ -316,8 +311,8 @@ function handleIconifyBrowseScroll(event: Event) {
 }
 
 .insert-panel.is-popover {
-  width: min(72vw, 720px);
-  height: min(70vh, 560px);
+  height: 100%;
+  overflow: auto;
 }
 
 .side-tabs {
@@ -783,6 +778,12 @@ function handleIconifyBrowseScroll(event: Event) {
   .asset-grid {
     grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: 6px;
+  }
+
+  .asset-item {
+    // 弹层宽度下六列格子会被撑得过大，限制形状预览格上限并在单元格内居中。
+    width: min(100%, 64px);
+    justify-self: center;
   }
 
   .text-list {

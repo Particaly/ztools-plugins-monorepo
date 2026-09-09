@@ -2,12 +2,15 @@ import {
   DEFAULT_KEYLINE_MARGIN,
   DEFAULT_KEYLINE_OPACITY,
   DEFAULT_PIXEL_GRID_SIZE,
+  DEFAULT_PIXEL_PAINT_BRUSH_SIZE,
   MAX_KEYLINE_MARGIN,
   MAX_KEYLINE_OPACITY,
   MAX_PIXEL_GRID_SIZE,
+  MAX_PIXEL_PAINT_BRUSH_SIZE,
   MIN_KEYLINE_MARGIN,
   MIN_KEYLINE_OPACITY,
-  MIN_PIXEL_GRID_SIZE
+  MIN_PIXEL_GRID_SIZE,
+  MIN_PIXEL_PAINT_BRUSH_SIZE
 } from './constants'
 import type { KeylineTemplate } from './types'
 
@@ -16,6 +19,13 @@ export function normalizePixelGridSize(value: unknown) {
   const parsed = Math.round(Number(value))
   if (!Number.isFinite(parsed)) return DEFAULT_PIXEL_GRID_SIZE
   return Math.min(MAX_PIXEL_GRID_SIZE, Math.max(MIN_PIXEL_GRID_SIZE, parsed))
+}
+
+// 将网格上色画笔大小（N × N 格）限制在可用范围内，兼容旧工程缺省与手写非法值。
+export function normalizePixelPaintBrushSize(value: unknown) {
+  const parsed = Math.round(Number(value))
+  if (!Number.isFinite(parsed)) return DEFAULT_PIXEL_PAINT_BRUSH_SIZE
+  return Math.min(MAX_PIXEL_PAINT_BRUSH_SIZE, Math.max(MIN_PIXEL_PAINT_BRUSH_SIZE, parsed))
 }
 
 // 规范参考线模板值，避免旧工程或手写工程文件中的未知值让界面处于不可控状态。

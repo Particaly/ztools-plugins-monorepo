@@ -24,7 +24,7 @@
           >渐变预设</button>
         </div>
       </div>
-      <div class="style-preset-manager-content">
+      <div ref="managerContentRef" class="style-preset-manager-content">
         <template v-if="activeTab === 'colors'">
           <div class="manager-toolbar">
             <label class="manager-inline-field">
@@ -57,6 +57,7 @@
               v-for="group in localColorGroups"
               :key="group.id"
               class="color-group-card"
+              :data-group-id="group.id"
             >
               <div class="color-group-head">
                 <button class="drag-handle group-drag-handle" type="button" title="拖动分类排序">
@@ -291,7 +292,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { VueDraggable } from 'vue-draggable-plus'
 import { Icon } from '@iconify/vue'
 import {
@@ -351,6 +352,8 @@ const colorColumnsInput = ref(String(DEFAULT_COLOR_PALETTE_COLUMNS))
 const gradientRowsInput = ref(String(MIN_GRADIENT_PRESET_ROWS))
 const localColorGroups = ref<ColorPaletteGroup[]>([])
 const localGradientPresets = ref<EditableGradientPreset[]>([])
+// 滚动容器引用：新增分类后用于把新卡片滚动到可视区域。
+const managerContentRef = ref<HTMLElement | null>(null)
 
 // 为弹窗内新增的分类、颜色和渐变生成临时 id，保证拖拽和局部编辑时 key 稳定。
 function createLocalId(prefix: string) {
@@ -461,13 +464,18 @@ function addEmptyColorToGroup(groupId: string) {
   })
 }
 
-// 新增分类时自动给出默认标题，减少第一次管理色板时的命名成本。
-function addColorGroup() {
-  localColorGroups.value.push({
+// 新增分类时自动给出默认标题，减少第一次管理色板时的命名成本；
+// 渲染完成后滚动到新卡片位置，分类较多时新分类不再藏在滚动区域外。
+async function addColorGroup() {
+  const newGroup = {
     id: createLocalId('palette-group'),
     name: `分类 ${localColorGroups.value.length + 1}`,
     colors: []
-  })
+  }
+  localColorGroups.value.push(newGroup)
+  await nextTick()
+  const target = managerContentRef.value?.querySelector(`[data-group-id="${newGroup.id}"]`)
+  target?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
 }
 
 // 删除分类仅影响弹窗内草稿；用户点击取消即可恢复，不需要额外改动已保存状态。

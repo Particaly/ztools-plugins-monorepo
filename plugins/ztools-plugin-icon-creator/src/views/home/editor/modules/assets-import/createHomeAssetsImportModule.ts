@@ -10,6 +10,8 @@ import {
 } from 'fabric'
 import {
   ICONIFY_BROWSE_BATCH_SIZE,
+  ICONIFY_COLLECTIONS_CACHE_TTL,
+  ICONIFY_COLLECTIONS_STORAGE_KEY,
   ICONIFY_SEARCH_LIMIT,
   USER_ASSET_MAX_THUMBNAIL_SOURCE_SIZE,
   USER_ASSET_STORAGE_KEY,
@@ -41,6 +43,7 @@ import type { HomeShowToast, HomeSnapshotGate } from '../../../composables/contr
 import type { EditorModule } from '../../runtime/editorTypes'
 import type {
   IconCreatorProjectFile,
+  IconifyCollectionInfo,
   IconifySearchResponse,
   IconifySearchState,
   PasteSVGDialogState,
@@ -133,8 +136,12 @@ export function createHomeAssetsImportModule(
     inserting: '',
     collectionFilter: '',
     mode: 'browse',
-    hasMore: false
+    hasMore: false,
+    collections: [],
+    collectionsLoading: false
   })
+  // 已拉取的「浏览模式 + 指定图标集」图标名缓存：供首次展示与「加载更多」分页复用。
+  let collectionBrowseCache: { prefix: string; names: string[]; total: number } | null = null
   const pasteSVGDialog = reactive<PasteSVGDialogState>({
     show: false,
     value: '',
@@ -998,26 +1005,33 @@ export function createHomeAssetsImportModule(
 
   /**
    * 调用 Iconify 在线搜索接口并展示前若干个图标名；失败时保留上一次输入，方便用户换关键词重试。
+   * 已选图标集时通过 prefixes 参数把结果限制在该集合内；空条件搜索视为重置搜索条件：
+   * 清空关键词与图标集筛选，回到默认浏览模式。
    */
   async function searchIconifyIcons() {
     const query = iconifySearch.query.trim()
-    if (!query || iconifySearch.loading) return
+    if (iconifySearch.loading) return
+    if (!query) {
+      iconifySearch.query = ''
+      initializeIconifyBrowseResults()
+      return
+    }
     iconifySearch.loading = true
     iconifySearch.error = ''
     iconifySearch.lastQuery = query
     iconifySearch.mode = 'search'
+    const collection = iconifySearch.collectionFilter
+    const prefixes = collection ? `&prefixes=${encodeURIComponent(collection)}` : ''
     try {
-      const response = await fetch(`https://api.iconify.design/search?query=${encodeURIComponent(query)}&limit=${ICONIFY_SEARCH_LIMIT}`)
+      const response = await fetch(`https://api.iconify.design/search?query=${encodeURIComponent(query)}&limit=${ICONIFY_SEARCH_LIMIT}${prefixes}`)
       if (!response.ok) throw new Error(`Iconify 搜索失败：${response.status}`)
       const data = await response.json() as IconifySearchResponse
       const icons = Array.isArray(data.icons) ? data.icons.filter((item): item is string => typeof item === 'string') : []
       iconifySearch.results = icons
-      iconifySearch.collectionFilter = ''
       iconifySearch.total = Number.isFinite(Number(data.total)) ? Number(data.total) : icons.length
       iconifySearch.hasMore = false
     } catch (error) {
       iconifySearch.results = []
-      iconifySearch.collectionFilter = ''
       iconifySearch.total = 0
       iconifySearch.hasMore = false
       iconifySearch.error = error instanceof Error ? error.message : 'Iconify 搜索失败'
@@ -1041,10 +1055,86 @@ export function createHomeAssetsImportModule(
   }
 
   /**
-   * 为默认浏览模式追加下一批常用图标；到达当前内置列表末尾后自动关闭“加载更多”。
+   * 拉取指定图标集的图标名列表并展示首批；canonical 名称取 uncategorized + categories，
+   * 剔除 hidden 列表与 alias 条目，保证展示的是该集合真实可用的主名称。
+   */
+  async function browseCollectionIcons(collection: string) {
+    if (!collectionBrowseCache || collectionBrowseCache.prefix !== collection) {
+      iconifySearch.loading = true
+      iconifySearch.error = ''
+      try {
+        const response = await fetch(`https://api.iconify.design/collection?prefix=${encodeURIComponent(collection)}`)
+        if (!response.ok) throw new Error(`获取图标集失败：${response.status}`)
+        const data = await response.json() as {
+          total?: unknown
+          uncategorized?: unknown
+          categories?: unknown
+          hidden?: unknown
+        }
+        const hidden = new Set(Array.isArray(data.hidden) ? data.hidden.filter((n): n is string => typeof n === 'string') : [])
+        const names = [
+          ...(Array.isArray(data.uncategorized) ? data.uncategorized : []),
+          ...(data.categories && typeof data.categories === 'object'
+            ? Object.values(data.categories).flat()
+            : [])
+        ].filter((n): n is string => typeof n === 'string' && !hidden.has(n))
+        collectionBrowseCache = {
+          prefix: collection,
+          names,
+          total: Number.isFinite(Number(data.total)) ? Number(data.total) : names.length
+        }
+      } catch (error) {
+        collectionBrowseCache = null
+        iconifySearch.results = []
+        iconifySearch.total = 0
+        iconifySearch.hasMore = false
+        iconifySearch.error = error instanceof Error ? error.message : '获取图标集失败'
+        return
+      } finally {
+        iconifySearch.loading = false
+      }
+    }
+    const cache = collectionBrowseCache!
+    const batch = cache.names.slice(0, ICONIFY_BROWSE_BATCH_SIZE).map((name) => `${cache.prefix}:${name}`)
+    iconifySearch.mode = 'browse'
+    iconifySearch.error = ''
+    iconifySearch.results = batch
+    iconifySearch.total = cache.total
+    iconifySearch.hasMore = batch.length < cache.names.length
+  }
+
+  /**
+   * 响应图标集筛选变化：有关键词时带着 prefixes 重新搜索；
+   * 浏览模式下选「全部」回到内置常用列表，选具体图标集则拉取该集合的图标。
+   */
+  async function setIconifyCollectionFilter(collection: string) {
+    if (iconifySearch.collectionFilter === collection) return
+    iconifySearch.collectionFilter = collection
+    if (iconifySearch.query.trim()) {
+      await searchIconifyIcons()
+      return
+    }
+    if (!collection) {
+      initializeIconifyBrowseResults()
+      return
+    }
+    await browseCollectionIcons(collection)
+  }
+
+  /**
+   * 为「浏览模式 + 指定图标集」追加下一批图标；数据来自已拉取的集合缓存，超出后关闭“加载更多”。
    */
   function loadMoreIconifyBrowseResults() {
     if (iconifySearch.mode !== 'browse' || iconifySearch.loadingMore || !iconifySearch.hasMore) return
+    const cache = collectionBrowseCache
+    if (cache && iconifySearch.collectionFilter === cache.prefix) {
+      const nextSize = iconifySearch.results.length + ICONIFY_BROWSE_BATCH_SIZE
+      const nextBatch = cache.names.slice(0, nextSize).map((name) => `${cache.prefix}:${name}`)
+      iconifySearch.results = nextBatch
+      iconifySearch.total = cache.total
+      iconifySearch.hasMore = nextBatch.length < cache.names.length
+      return
+    }
     iconifySearch.loadingMore = true
     try {
       const nextSize = iconifySearch.results.length + ICONIFY_BROWSE_BATCH_SIZE
@@ -1054,6 +1144,73 @@ export function createHomeAssetsImportModule(
       iconifySearch.hasMore = nextBatch.length < iconifySearch.total
     } finally {
       iconifySearch.loadingMore = false
+    }
+  }
+
+  // 从本地存储读取图标集列表缓存；缺失、过期或脏数据按无缓存处理。
+  function readCollectionsCache(): IconifyCollectionInfo[] | null {
+    try {
+      const raw = window.localStorage.getItem(ICONIFY_COLLECTIONS_STORAGE_KEY)
+      if (!raw) return null
+      const parsed = JSON.parse(raw) as { cachedAt?: unknown; collections?: unknown }
+      if (!Array.isArray(parsed.collections)) return null
+      if (typeof parsed.cachedAt !== 'number' || Date.now() - parsed.cachedAt > ICONIFY_COLLECTIONS_CACHE_TTL) return null
+      const collections = parsed.collections.filter((item): item is IconifyCollectionInfo =>
+        !!item && typeof item === 'object'
+        && typeof (item as IconifyCollectionInfo).prefix === 'string'
+        && typeof (item as IconifyCollectionInfo).name === 'string'
+      )
+      return collections.length ? collections : null
+    } catch {
+      return null
+    }
+  }
+
+  // 图标集列表写入本地缓存；写入失败只忽略，下次启动重新拉取即可。
+  function writeCollectionsCache(collections: IconifyCollectionInfo[]) {
+    try {
+      window.localStorage.setItem(ICONIFY_COLLECTIONS_STORAGE_KEY, JSON.stringify({
+        cachedAt: Date.now(),
+        collections
+      }))
+    } catch {
+      // 存储配额等异常不影响主流程
+    }
+  }
+
+  /**
+   * 拉取 Iconify 全量图标集列表（接口返回顶层以前缀为 key 的扁平对象，条目带 hidden 标记），
+   * 跳过 hidden 集合后按前缀排序；优先使用 7 天内的本地缓存，失败只记录警告，下拉框仍可用「全部图标集」。
+   * 请求追加 time 参数做缓存穿透，避免宿主 webview 缓存导致拿到旧数据。
+   */
+  async function loadIconifyCollections() {
+    if (iconifySearch.collectionsLoading || iconifySearch.collections.length) return
+    iconifySearch.collectionsLoading = true
+    try {
+      let collections = readCollectionsCache()
+      if (!collections) {
+        const response = await fetch(`https://api.iconify.design/collections?time=${Date.now()}`)
+        if (!response.ok) throw new Error(`获取图标集列表失败：${response.status}`)
+        const data = await response.json() as Record<string, {
+          name?: unknown
+          total?: unknown
+          hidden?: unknown
+        } | undefined>
+        collections = Object.entries(data ?? {})
+          .filter(([, info]) => !!info && typeof info === 'object' && (info as { hidden?: unknown }).hidden !== true)
+          .map(([prefix, info]) => ({
+            prefix,
+            name: typeof info!.name === 'string' && info!.name ? info!.name : prefix,
+            totalIcons: Number.isFinite(Number(info!.total)) ? Number(info!.total) : 0
+          }))
+          .sort((a, b) => a.prefix.localeCompare(b.prefix))
+        if (collections.length) writeCollectionsCache(collections)
+      }
+      iconifySearch.collections = collections ?? []
+    } catch (error) {
+      console.warn('加载图标集列表失败', error)
+    } finally {
+      iconifySearch.collectionsLoading = false
     }
   }
 
@@ -1118,13 +1275,16 @@ export function createHomeAssetsImportModule(
     }
   }
 
-  const iconifyCollectionOptions = computed(() => {
-    const collections = Array.from(new Set(iconifySearch.results.map((name) => name.split(':')[0]).filter(Boolean))).sort()
-    return [
-      { label: '全部图标集', value: '' },
-      ...collections.map((collection) => ({ label: collection, value: collection }))
-    ]
-  })
+  // 全量图标集下拉选项：首项「全部」+ 已加载的完整集合列表，label 同时包含前缀与名称便于输入过滤。
+  // 全量图标集下拉选项：首项「全部」，其余项 label 为集合名称、tag 为前缀（下拉里渲染成名称后的小标签）。
+  const iconifyCollectionOptions = computed(() => [
+    { label: '全部图标集', value: '' },
+    ...iconifySearch.collections.map((collection) => ({
+      label: collection.name,
+      value: collection.prefix,
+      tag: collection.prefix
+    }))
+  ])
 
   const filteredIconifyResults = computed(() => {
     const collection = iconifySearch.collectionFilter
@@ -1163,7 +1323,8 @@ export function createHomeAssetsImportModule(
       openRenameUserAssetDialog,
       readClipboardIntoPasteSVGDialog,
       loadMoreIconifyBrowseResults,
-      searchIconifyIcons
+      searchIconifyIcons,
+      setIconifyCollectionFilter
     }
   }
 
@@ -1172,6 +1333,7 @@ export function createHomeAssetsImportModule(
     onMount() {
       loadUserAssets()
       initializeIconifyBrowseResults()
+      void loadIconifyCollections()
     }
   }
 

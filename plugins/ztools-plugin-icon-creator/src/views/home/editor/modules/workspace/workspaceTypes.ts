@@ -4,6 +4,7 @@ import type { HistorySnapshot, HistoryState, HomeArtboardStateRefs } from '../..
 
 export interface HomeWorkspaceState extends HomeArtboardStateRefs {
   artboardRenameDialog: Ref<{ show: boolean; value: string; targetId: string }>
+  draftRestoreDialog: Ref<{ show: boolean; tabCount: number }>
   undoStack: HistorySnapshot[]
   historyIndex: Ref<number>
   canUndo: Ref<boolean>
@@ -23,6 +24,8 @@ export interface HomeWorkspaceCommands {
   onProjectFileChosen: (event: Event) => Promise<void>
   openProject: () => void
   promptRestoreDraft: () => Promise<void>
+  confirmDraftRestore: () => Promise<void>
+  handleDraftRestoreDialogShowChange: (show: boolean) => void
   redo: () => void
   renameArtboard: (artboardId: string) => void
   confirmArtboardRename: () => void

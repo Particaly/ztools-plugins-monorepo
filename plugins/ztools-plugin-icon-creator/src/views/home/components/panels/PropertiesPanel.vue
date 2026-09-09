@@ -1008,11 +1008,11 @@
           <ZSwitch size="small" :model-value="showPixelGrid" @change="setPixelGridVisible" />
         </div>
         <div class="prop-group style-toggle-row">
-          <label>吸附</label>
+          <label>网格吸附</label>
           <ZSwitch size="small" :model-value="snapToPixelGrid" @change="setSnapToPixelGrid" />
         </div>
         <div class="prop-group style-color-row">
-          <label>间距</label>
+          <label>网格间距</label>
           <ZInput
             size="small"
             type="text"
@@ -1020,6 +1020,17 @@
             @update:model-value="pixelGridSizeInput = String($event)"
             @change="setPixelGridSizeFromInput"
           ><template #suffix>px</template></ZInput>
+        </div>
+        <div class="prop-group style-color-row">
+          <label>画笔大小</label>
+          <ZInput
+            size="small"
+            type="text"
+            :model-value="pixelPaintBrushSizeInput"
+            @update:model-value="pixelPaintBrushSizeInput = String($event)"
+            @change="setPixelPaintBrushSizeFromInput"
+            title="油漆桶网格上色时的画笔边长（N × N 个网格单元格）"
+          ><template #suffix>格</template></ZInput>
         </div>
         <div class="prop-group style-color-row">
           <label>参考线</label>
@@ -1117,6 +1128,7 @@ const props = defineProps<{
   showPixelGrid: boolean
   snapToPixelGrid: boolean
   pixelGridSizeInput: string
+  pixelPaintBrushSizeInput: string
   keylineTemplate: KeylineTemplate
   keylineTemplateOptions: SelectOption[]
   keylineMarginInput: string
@@ -1186,6 +1198,7 @@ const props = defineProps<{
   setPixelGridVisible: AnyFn
   setSnapToPixelGrid: AnyFn
   setPixelGridSizeFromInput: AnyFn
+  setPixelPaintBrushSizeFromInput: AnyFn
   setKeylineTemplate: AnyFn
   setKeylineMarginFromInput: AnyFn
   setKeylineOpacity: AnyFn
@@ -1225,6 +1238,7 @@ const emit = defineEmits<{
   (event: 'update:canvas-width-input', value: string): void
   (event: 'update:canvas-height-input', value: string): void
   (event: 'update:pixel-grid-size-input', value: string): void
+  (event: 'update:pixel-paint-brush-size-input', value: string): void
   (event: 'update:keyline-margin-input', value: string): void
 }>()
 
@@ -1325,6 +1339,10 @@ const canvasHeightInput = computed({
 const pixelGridSizeInput = computed({
   get: () => props.pixelGridSizeInput,
   set: (value: string) => emit('update:pixel-grid-size-input', value)
+})
+const pixelPaintBrushSizeInput = computed({
+  get: () => props.pixelPaintBrushSizeInput,
+  set: (value: string) => emit('update:pixel-paint-brush-size-input', value)
 })
 const keylineMarginInput = computed({
   get: () => props.keylineMarginInput,
@@ -1669,18 +1687,11 @@ const keylineMarginInput = computed({
 /* 画布设置区：label 最小宽度统一为 36px，覆盖共享行样式里更宽的网格列 / 固定宽度 */
 .canvas-settings {
   .prop-group {
-    label {
-      min-width: 36px;
-    }
     &.rotation-row {
       label {
         width: auto;
         min-width: 36px;
       }
-    }
-    &.style-toggle-row,
-    &.style-color-row {
-      grid-template-columns: 36px 1fr;
     }
   }
 }

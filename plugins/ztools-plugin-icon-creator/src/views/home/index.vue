@@ -65,7 +65,8 @@
       @delete-symbol="deleteSymbolFromLibrary"
       @update:iconify-query="iconifyImportState.query = $event"
       @search-iconify-icons="assetsImportCommands.searchIconifyIcons"
-      @update:iconify-collection-filter="iconifyImportState.collectionFilter = $event"
+      @load-more-iconify-browse-results="assetsImportCommands.loadMoreIconifyBrowseResults"
+      @update:iconify-collection-filter="assetsImportCommands.setIconifyCollectionFilter($event)"
       @insert-iconify-icon="assetsImportCommands.insertIconifyIcon"
     />
 
@@ -97,7 +98,7 @@
         @update:iconify-query="iconifyImportState.query = $event"
         @search-iconify-icons="assetsImportCommands.searchIconifyIcons"
         @load-more-iconify-browse-results="assetsImportCommands.loadMoreIconifyBrowseResults"
-        @update:iconify-collection-filter="iconifyImportState.collectionFilter = $event"
+        @update:iconify-collection-filter="assetsImportCommands.setIconifyCollectionFilter($event)"
         @insert-iconify-icon="assetsImportCommands.insertIconifyIcon"
       />
 
@@ -195,7 +196,7 @@
         </div>
         <main
           class="canvas-area"
-          :class="{ 'paint-bucket-active': paintBucketActive }"
+          :class="{ 'paint-bucket-active': paintBucketActive, 'grid-paint-active': gridPaintMode }"
           ref="canvasAreaRef"
           @pointerdown.capture="handleCanvasAreaPointerDown"
           @wheel="handleCanvasAreaWheel"
@@ -213,6 +214,13 @@
               v-if="editorSelectors.showPixelGrid"
               class="pixel-grid-overlay"
               :style="pixelGridOverlayStyle"
+              aria-hidden="true"
+            ></div>
+            <!-- 网格上色画笔光标：正方形边框锚定网格线，随鼠标吸附移动（网格上色模式专用） -->
+            <div
+              v-if="gridPaintMode && gridPaintCursorStyle"
+              class="grid-paint-cursor"
+              :style="gridPaintCursorStyle"
               aria-hidden="true"
             ></div>
             <svg
@@ -444,6 +452,7 @@
             :show-pixel-grid="showPixelGrid"
             :snap-to-pixel-grid="snapToPixelGrid"
             :pixel-grid-size-input="pixelGridSizeInput"
+            :pixel-paint-brush-size-input="pixelPaintBrushSizeInput"
             :keyline-template="keylineTemplate"
             :keyline-template-options="keylineTemplateOptions"
             :keyline-margin-input="keylineMarginInput"
@@ -513,6 +522,7 @@
             :set-pixel-grid-visible="setPixelGridVisible"
             :set-snap-to-pixel-grid="setSnapToPixelGrid"
             :set-pixel-grid-size-from-input="setPixelGridSizeFromInput"
+            :set-pixel-paint-brush-size-from-input="setPixelPaintBrushSizeFromInput"
             :set-keyline-template="setKeylineTemplate"
             :set-keyline-margin-from-input="setKeylineMarginFromInput"
             :set-keyline-opacity="setKeylineOpacity"
@@ -548,6 +558,7 @@
             @update:canvas-width-input="canvasWidthInput = $event"
             @update:canvas-height-input="canvasHeightInput = $event"
             @update:pixel-grid-size-input="pixelGridSizeInput = $event"
+            @update:pixel-paint-brush-size-input="pixelPaintBrushSizeInput = $event"
             @update:keyline-margin-input="keylineMarginInput = $event"
           />
         </template>
@@ -673,6 +684,14 @@
       @confirm="confirmArtboardRename"
     />
 
+    <!-- 启动草稿恢复确认弹窗：替代原生 window.confirm，取消 / 关闭即丢弃草稿 -->
+    <DraftRestoreModal
+      :show="draftRestoreDialog.show"
+      :tab-count="draftRestoreDialog.tabCount"
+      @update:show="handleDraftRestoreDialogShowChange"
+      @confirm="confirmDraftRestore"
+    />
+
     <UserAssetModal
       :show="importedUserAssetDialog.show"
       v-model:name="importedUserAssetDialog.name"
@@ -741,6 +760,7 @@ import ExportModal from './components/modals/ExportModal.vue'
 import LayerRenameModal from './components/modals/LayerRenameModal.vue'
 import SymbolNameModal from './components/modals/SymbolNameModal.vue'
 import ArtboardRenameModal from './components/modals/ArtboardRenameModal.vue'
+import DraftRestoreModal from './components/modals/DraftRestoreModal.vue'
 import UserAssetModal from './components/modals/UserAssetModal.vue'
 import StylePresetManagerModal from './components/modals/StylePresetManagerModal.vue'
 import ColorReplaceModal from './components/modals/ColorReplaceModal.vue'
@@ -764,6 +784,9 @@ const {
   showPixelGrid,
   snapToPixelGrid,
   pixelGridSizeInput,
+  pixelPaintBrushSizeInput,
+  gridPaintMode,
+  gridPaintCursorStyle,
   keylineTemplate,
   keylineMarginInput,
   keylineOpacity,
@@ -853,6 +876,7 @@ const {
   artboards,
   activeArtboardId,
   artboardRenameDialog,
+  draftRestoreDialog,
   undoStack,
   historyIndex,
   addArtboard,
@@ -863,6 +887,8 @@ const {
   renameArtboard,
   confirmArtboardRename,
   handleArtboardRenameDialogShowChange,
+  confirmDraftRestore,
+  handleDraftRestoreDialogShowChange,
   switchArtboard,
   keylineTemplateOptions,
   previewBackgroundOptions,
@@ -930,6 +956,7 @@ const {
   setPixelGridVisible,
   setSnapToPixelGrid,
   setPixelGridSizeFromInput,
+  setPixelPaintBrushSizeFromInput,
   setKeylineTemplate,
   setKeylineMarginFromInput,
   setKeylineOpacity,
@@ -1231,6 +1258,11 @@ $panel-bg: #fff;
 .paint-bucket-active canvas {
   cursor: crosshair;
 }
+/* 网格上色模式：原生光标隐藏，由锚定网格线的方形边框充当画笔光标 */
+.paint-bucket-active.grid-paint-active .canvas-wrapper,
+.paint-bucket-active.grid-paint-active canvas {
+  cursor: none;
+}
 
 /* ── 主体 ── */
 .editor-body {
@@ -1386,6 +1418,15 @@ $panel-bg: #fff;
       linear-gradient(to right, rgba(30, 111, 255, 0.22) 1px, transparent 1px),
       linear-gradient(to bottom, rgba(30, 111, 255, 0.22) 1px, transparent 1px);
     background-position: 0 0;
+  }
+  .grid-paint-cursor {
+    position: absolute;
+    z-index: 10;
+    box-sizing: border-box;
+    border: 1.5px solid rgba(30, 111, 255, 0.95);
+    background: rgba(30, 111, 255, 0.14);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.55);
+    pointer-events: none;
   }
   .keyline-overlay {
     position: absolute;

@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 import { DRAFT_QUOTA_TOAST_THROTTLE, DRAFT_SAVE_DELAY, DRAFT_STORAGE_KEY, PROJECT_FILE_EXTENSION, PROJECT_SCHEMA_VERSION } from '../constants'
-import { normalizeKeylineMargin, normalizeKeylineOpacity, normalizeKeylineTemplate, normalizePixelGridSize } from '../canvasSettings'
+import { normalizeKeylineMargin, normalizeKeylineOpacity, normalizeKeylineTemplate, normalizePixelGridSize, normalizePixelPaintBrushSize } from '../canvasSettings'
 import { isEmptyDocumentStyleMeta, normalizeDocumentStyleMeta } from '../documentStyleMeta'
 import type { DocumentStyleMeta } from '../documentStyleMeta'
 import { normalizeProjectCanvasSettings, stringifyProjectFile } from '../projectFile'
@@ -23,6 +23,7 @@ export function useHomeDocument(options: UseHomeDocumentOptions): UseHomeDocumen
     clearBooleanPreview,
     clearPointEditing,
     syncPixelGridSizeInput,
+    syncPixelPaintBrushSizeInput,
     syncKeylineMarginInput,
     syncCanvasSizeInputs,
     syncCanvasInteractionMode,
@@ -56,7 +57,7 @@ export function useHomeDocument(options: UseHomeDocumentOptions): UseHomeDocumen
     applyDraftTabs
   } = options
 
-  const { canvasWidth, canvasHeight, canvasBg, lastOpaqueCanvasBg, showPixelGrid, snapToPixelGrid, pixelGridSize, keylineTemplate, keylineMargin, keylineOpacity } = canvasState
+  const { canvasWidth, canvasHeight, canvasBg, lastOpaqueCanvasBg, showPixelGrid, snapToPixelGrid, pixelGridSize, pixelPaintBrushSize, keylineTemplate, keylineMargin, keylineOpacity } = canvasState
   const { artboards, activeArtboardId, showArtboardList } = artboardState
 
   const undoStack: HistorySnapshot[] = []
@@ -68,6 +69,10 @@ export function useHomeDocument(options: UseHomeDocumentOptions): UseHomeDocumen
   let draftSaveTimer: ReturnType<typeof window.setTimeout> | null = null
   let draftDirty = false
   let restoringDraftPromptShown = false
+  // 草稿恢复确认弹窗状态：show 控制显隐，tabCount 供弹窗文案体现恢复范围。
+  const draftRestoreDialog = ref({ show: false, tabCount: 0 })
+  // 弹窗展示期间暂存的待恢复草稿；确认恢复时消费，取消 / 关闭时丢弃并清理存储。
+  let pendingRestoreDraft: DecodedProjectDraft | null = null
   // 上次草稿写入失败提示的时间戳：按节流间隔 toast，避免连续编辑失败时提示刷屏。
   let lastDraftQuotaToastAt = 0
 
@@ -129,6 +134,7 @@ export function useHomeDocument(options: UseHomeDocumentOptions): UseHomeDocumen
         gridSize: pixelGridSize.value,
         showPixelGrid: showPixelGrid.value,
         snapToPixelGrid: snapToPixelGrid.value,
+        brushSize: pixelPaintBrushSize.value,
         keylineTemplate: keylineTemplate.value,
         keylineMargin: keylineMargin.value,
         keylineOpacity: keylineOpacity.value
@@ -216,10 +222,12 @@ export function useHomeDocument(options: UseHomeDocumentOptions): UseHomeDocumen
     pixelGridSize.value = normalizePixelGridSize(settings.gridSize)
     showPixelGrid.value = settings.showPixelGrid === true
     snapToPixelGrid.value = settings.snapToPixelGrid === true
+    pixelPaintBrushSize.value = normalizePixelPaintBrushSize(settings.brushSize)
     keylineTemplate.value = normalizeKeylineTemplate(settings.keylineTemplate)
     keylineMargin.value = normalizeKeylineMargin(settings.keylineMargin)
     keylineOpacity.value = normalizeKeylineOpacity(settings.keylineOpacity)
     syncPixelGridSizeInput()
+    syncPixelPaintBrushSizeInput()
     syncKeylineMarginInput()
     syncCanvasInteractionMode()
     if (!isTransparentCanvasBg(settings.background)) lastOpaqueCanvasBg.value = settings.background
@@ -410,26 +418,41 @@ export function useHomeDocument(options: UseHomeDocumentOptions): UseHomeDocumen
     }
   }
 
+  // 打开草稿恢复确认弹窗（替代原生 window.confirm）：读到草稿就暂存并弹窗，实际恢复延迟到用户确认。
   async function promptRestoreDraft() {
     if (restoringDraftPromptShown) return
     restoringDraftPromptShown = true
     const draft = readStoredDraft()
     if (!draft) return
-    // 沿用启动确认交互：多标签草稿在文案中体现标签数，一次确认恢复全部标签与激活态。
-    const shouldRestore = draft.tabs.length > 1
-      ? window.confirm(`检测到上次未保存的自动草稿，包含 ${draft.tabs.length} 个项目标签，是否全部恢复？`)
-      : window.confirm('检测到上次未保存的自动草稿，是否恢复？')
-    if (shouldRestore) {
-      if (applyDraftTabs) {
-        await applyDraftTabs(draft)
-      } else {
-        // 无多标签通道的宿主退化为仅恢复第一个标签
-        await loadProjectFile(draft.tabs[0].project, { keepDraft: true })
-      }
-      saveDraftNow()
-    } else {
-      clearStoredDraft()
+    pendingRestoreDraft = draft
+    draftRestoreDialog.value = { show: true, tabCount: draft.tabs.length }
+  }
+
+  // 关闭弹窗并丢弃暂存草稿；show 为 true（编程式打开）时不做清理。
+  function handleDraftRestoreDialogShowChange(show: boolean) {
+    if (show) return
+    draftRestoreDialog.value = { show: false, tabCount: 0 }
+    pendingRestoreDraft = null
+    // 与原 window.confirm 取消路径一致：放弃恢复的同时清掉存储的草稿。
+    clearStoredDraft()
+  }
+
+  // 确认恢复草稿：多标签通道可用时恢复全部项目标签与激活态，否则退化为仅恢复第一个标签。
+  async function confirmDraftRestore() {
+    const draft = pendingRestoreDraft
+    if (!draft) {
+      draftRestoreDialog.value = { show: false, tabCount: 0 }
+      return
     }
+    pendingRestoreDraft = null
+    draftRestoreDialog.value = { show: false, tabCount: 0 }
+    if (applyDraftTabs) {
+      await applyDraftTabs(draft)
+    } else {
+      await loadProjectFile(draft.tabs[0].project, { keepDraft: true })
+    }
+    // 恢复完成后立即写回草稿，保证崩溃恢复链路里激活态与标签结构是最新的。
+    saveDraftNow()
   }
 
   async function restoreHistorySnapshot(json: string) {
@@ -576,6 +599,7 @@ export function useHomeDocument(options: UseHomeDocumentOptions): UseHomeDocumen
     historyIndex,
     canUndo,
     canRedo,
+    draftRestoreDialog,
     snapshot,
     createProjectFile,
     captureHistoryState,
@@ -586,6 +610,8 @@ export function useHomeDocument(options: UseHomeDocumentOptions): UseHomeDocumen
     saveDraftNow,
     clearStoredDraft,
     promptRestoreDraft,
+    confirmDraftRestore,
+    handleDraftRestoreDialogShowChange,
     flushDraftBeforeDispose,
     saveProject,
     saveProjectAs,

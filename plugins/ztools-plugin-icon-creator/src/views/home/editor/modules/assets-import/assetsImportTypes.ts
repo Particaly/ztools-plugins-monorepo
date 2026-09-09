@@ -14,7 +14,7 @@ export type InsertScenePoint = {
 
 export interface HomeAssetsImportState {
   filteredIconifyResults: ComputedRef<string[]>
-  iconifyCollectionOptions: ComputedRef<Array<{ label: string; value: string }>>
+  iconifyCollectionOptions: ComputedRef<Array<{ label: string; value: string; tag?: string }>>
   iconifySearch: IconifySearchState
   pasteSVGDialog: PasteSVGDialogState
   userAssetDialog: UserAssetDialogState
@@ -44,6 +44,7 @@ export interface HomeAssetsImportCommands {
   readClipboardIntoPasteSVGDialog: () => Promise<void>
   loadMoreIconifyBrowseResults: () => void
   searchIconifyIcons: () => Promise<void>
+  setIconifyCollectionFilter: (collection: string) => Promise<void>
 }
 
 export interface HomeAssetsImportController {

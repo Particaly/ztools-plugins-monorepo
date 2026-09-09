@@ -38,6 +38,7 @@ export interface HomeCanvasStateRefs {
   showPixelGrid: Ref<boolean>
   snapToPixelGrid: Ref<boolean>
   pixelGridSize: Ref<number>
+  pixelPaintBrushSize: Ref<number>
   keylineTemplate: Ref<KeylineTemplate>
   keylineMargin: Ref<number>
   keylineOpacity: Ref<number>
@@ -59,6 +60,7 @@ export interface HomeCanvasRestoreCallbacks {
   clearBooleanPreview: () => void
   clearPointEditing: () => void
   syncPixelGridSizeInput: () => void
+  syncPixelPaintBrushSizeInput: () => void
   syncKeylineMarginInput: () => void
   syncCanvasSizeInputs: () => void
   syncCanvasInteractionMode: () => void
@@ -177,6 +179,12 @@ export interface UseHomeDocumentReturn {
   saveDraftNow: () => void
   clearStoredDraft: () => void
   promptRestoreDraft: () => Promise<void>
+  /** 草稿恢复确认弹窗状态（替代原生 window.confirm）：show 控制显隐，tabCount 供文案使用。 */
+  draftRestoreDialog: Ref<{ show: boolean; tabCount: number }>
+  /** 确认恢复暂存草稿：恢复全部项目标签（无多标签通道时退化为第一个标签）并立即写回草稿。 */
+  confirmDraftRestore: () => Promise<void>
+  /** 弹窗显隐变化：关闭（取消 / 蒙层 / ESC）时丢弃暂存草稿并清掉存储的草稿。 */
+  handleDraftRestoreDialogShowChange: (show: boolean) => void
   flushDraftBeforeDispose: () => void
   saveProject: () => void
   saveProjectAs: (onSaved?: (filePath: string) => void) => void

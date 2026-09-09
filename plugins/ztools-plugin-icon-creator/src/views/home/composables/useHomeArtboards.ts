@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 import { createEmptyArtboard, generateArtboardId, generateArtboardThumbnail } from '../artboardManager'
-import { normalizeKeylineMargin, normalizeKeylineOpacity, normalizeKeylineTemplate, normalizePixelGridSize } from '../canvasSettings'
+import { normalizeKeylineMargin, normalizeKeylineOpacity, normalizeKeylineTemplate, normalizePixelGridSize, normalizePixelPaintBrushSize } from '../canvasSettings'
 import { normalizeProjectCanvasSettings } from '../projectFile'
 import type { IconCreatorProjectArtboard } from '../types'
 import type { UseHomeArtboardsOptions, UseHomeArtboardsReturn } from './contracts'
@@ -20,6 +20,7 @@ export function useHomeArtboards(options: UseHomeArtboardsOptions): UseHomeArtbo
     clearBooleanPreview,
     clearPointEditing,
     syncPixelGridSizeInput,
+    syncPixelPaintBrushSizeInput,
     syncKeylineMarginInput,
     syncCanvasSizeInputs,
     syncCanvasInteractionMode,
@@ -36,7 +37,7 @@ export function useHomeArtboards(options: UseHomeArtboardsOptions): UseHomeArtbo
     markSmallPreviewsDirty
   } = options
 
-  const { canvasWidth, canvasHeight, canvasBg, lastOpaqueCanvasBg, showPixelGrid, snapToPixelGrid, pixelGridSize, keylineTemplate, keylineMargin, keylineOpacity } = canvasState
+  const { canvasWidth, canvasHeight, canvasBg, lastOpaqueCanvasBg, showPixelGrid, snapToPixelGrid, pixelGridSize, pixelPaintBrushSize, keylineTemplate, keylineMargin, keylineOpacity } = canvasState
 
   const artboards = ref<IconCreatorProjectArtboard[]>([])
   const activeArtboardId = ref('')
@@ -68,6 +69,7 @@ export function useHomeArtboards(options: UseHomeArtboardsOptions): UseHomeArtbo
         gridSize: pixelGridSize.value,
         showPixelGrid: showPixelGrid.value,
         snapToPixelGrid: snapToPixelGrid.value,
+        brushSize: pixelPaintBrushSize.value,
         keylineTemplate: keylineTemplate.value,
         keylineMargin: keylineMargin.value,
         keylineOpacity: keylineOpacity.value
@@ -92,11 +94,13 @@ export function useHomeArtboards(options: UseHomeArtboardsOptions): UseHomeArtbo
     pixelGridSize.value = normalizePixelGridSize(settings.gridSize)
     showPixelGrid.value = settings.showPixelGrid === true
     snapToPixelGrid.value = settings.snapToPixelGrid === true
+    pixelPaintBrushSize.value = normalizePixelPaintBrushSize(settings.brushSize)
     keylineTemplate.value = normalizeKeylineTemplate(settings.keylineTemplate)
     keylineMargin.value = normalizeKeylineMargin(settings.keylineMargin)
     keylineOpacity.value = normalizeKeylineOpacity(settings.keylineOpacity)
 
     syncPixelGridSizeInput()
+    syncPixelPaintBrushSizeInput()
     syncKeylineMarginInput()
     syncCanvasInteractionMode()
     if (!isTransparentCanvasBg(settings.background)) lastOpaqueCanvasBg.value = settings.background

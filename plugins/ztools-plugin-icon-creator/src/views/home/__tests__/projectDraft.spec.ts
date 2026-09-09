@@ -27,6 +27,7 @@ function createProject(overrides: Partial<IconCreatorProjectFile> = {}): IconCre
       gridSize: 8,
       showPixelGrid: false,
       snapToPixelGrid: false,
+      brushSize: 1,
       keylineTemplate: 'none',
       keylineMargin: 48,
       keylineOpacity: 1

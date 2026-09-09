@@ -143,6 +143,8 @@ type TopMenu = {
 type SelectOption = {
   label: string
   value: string
+  /** 可选的引用式标签文案（如图标集前缀），随名称渲染成小标签。 */
+  tag?: string
 }
 
 const props = defineProps<{
@@ -430,8 +432,12 @@ function runTopMenuItem(entry: TopMenuItem): void {
 }
 .insert-menu-popover {
   :deep(.zt-popover__content) {
-    min-width: min(72vw, 720px);
-    width: min(72vw, 720px);
+    max-height: 500px;
+    overflow: hidden;
+  }
+
+  :deep(.zt-popover__body) {
+    height: 100%;
   }
 
   :deep(.zt-popover__body--card) {

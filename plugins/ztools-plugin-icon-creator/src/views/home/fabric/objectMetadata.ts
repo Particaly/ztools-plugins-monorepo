@@ -151,7 +151,9 @@ export const SERIALIZED_OBJECT_PROPS = [
   // 符号实例元数据：挂在实例 Group 上（见 symbols.ts 说明），随 toObject / 工程 JSON round-trip，
   // 撤销 / 重做（loadFromJSON 全量重建）后实例凭 symbolId 保持与定义的关联。
   'symbolId',
-  'symbolInstanceId'
+  'symbolInstanceId',
+  // 网格上色标记：油漆桶网格模式下生成的色块矩形（页面层据此做挖切/合并的增量维护）
+  'gridPaintCell'
 ] as const
 
 function cloneGradientStops(stops: FillGradientStop[]) {

@@ -141,7 +141,6 @@ import {
   DEFAULT_KEYLINE_MARGIN,
   DEFAULT_KEYLINE_OPACITY,
   DEFAULT_KEYLINE_TEMPLATE,
-  DEFAULT_PIXEL_GRID_SIZE,
   EXPORT_PNG_SIZE_OPTIONS,
   GRADIENT_PRESET_GRID_COLUMNS,
   ICONIFY_SEARCH_LIMIT,
@@ -159,6 +158,7 @@ import {
   USER_ASSET_THUMBNAIL_SIZE,
   USER_STYLE_PRESET_STORAGE_KEY
 } from './constants'
+import { loadUserPreferences, saveUserPreferences } from './userPreferences'
 import type {
   BooleanPreviewHiddenObject,
   BitmapTraceMode,
@@ -198,7 +198,14 @@ import type {
   UiFillGradientStop,
   UserAssetItem
 } from './types'
-import { isTransparentCanvasBg, normalizeCanvasBg, normalizeKeylineMargin, normalizeKeylineOpacity, normalizeKeylineTemplate, normalizePixelGridSize } from './canvasSettings'
+import { isTransparentCanvasBg, normalizeCanvasBg, normalizeKeylineMargin, normalizeKeylineOpacity, normalizeKeylineTemplate, normalizePixelGridSize, normalizePixelPaintBrushSize } from './canvasSettings'
+import {
+  getBrushPaintRegion,
+  getGridPaintAnchorCell,
+  planGridPaintWrite,
+  type GridCell,
+  type GridRect
+} from './geometry/gridPaint'
 import { DEFAULT_TEXT_FONT_FAMILY } from './fontCatalog'
 import { buildIconCheckIssues as buildIconCheckIssuesFromContext } from './iconChecks'
 import { commitNumericInput, commitPositiveNumericInput, formatNumericInputValue, normalizeInputValue } from './inputUtils'
@@ -300,11 +307,14 @@ export function useHomeEditorRuntime() {
   const artboardIdSeed = ref(0)
 
   const leftTab = ref<LeftPanelTab>('shape')
-  const leftPanelCollapsed = ref(false)
+  // 应用级偏好（网格间距 / 画笔大小 / 左侧栏收起 / 标尺 / 网格吸附）启动时从本地存储恢复，
+  // 变更通过下方 watch 即时写回，保证关闭插件再打开回到上次状态；必须先于依赖这些值的输入框 ref 初始化。
+  const userPreferences = loadUserPreferences()
+  const leftPanelCollapsed = ref(userPreferences.leftPanelCollapsed)
   const activeRightTab = ref<RightPanelTab>('properties')
-  const showRuler = ref(true)
+  const showRuler = ref(userPreferences.showRuler)
   const showPixelGrid = ref(false)
-  const snapToPixelGrid = ref(false)
+  const snapToPixelGrid = ref(userPreferences.snapToPixelGrid)
   // ── 对齐参考线（用户参考线，区别于 Keyline 安全区模板）──
   // 参考线数据挂工程级 guides 通道持久化（documentGuides.ts 有归属说明）；
   // showGuides 为会话级视图开关（与 showRuler 同策略），不写入工程文件。
@@ -313,8 +323,16 @@ export function useHomeEditorRuntime() {
   // 进行中的参考线拖拽（标尺新建或画布内移动）：orientation + 最新位置 + 被移动的参考线 id
   // （isNew=true 表示从标尺拖出的新建预览，未落定前不写入 guides 列表）。
   const guideDragState = ref<{ orientation: GuideOrientation; position: number; guideId: string | null; isNew: boolean } | null>(null)
-  const pixelGridSize = ref(DEFAULT_PIXEL_GRID_SIZE)
+  const pixelGridSize = ref(userPreferences.pixelGridSize)
   const pixelGridSizeInput = ref(String(pixelGridSize.value))
+  // ── 油漆桶网格上色 ──
+  // 画笔大小（N × N 个网格单元格），随画布设置持久化；悬停单元格驱动方形画笔光标（null 时隐藏）。
+  const pixelPaintBrushSize = ref(userPreferences.pixelPaintBrushSize)
+  const pixelPaintBrushSizeInput = ref(String(pixelPaintBrushSize.value))
+  const gridPaintHoverCell = ref<GridCell | null>(null)
+  // 进行中的网格上色手势：记录上一锚点单元格用于拖动插值补格；changed 标记手势内是否实际写入过颜色。
+  let gridPaintGesture: { lastAnchor: GridCell } | null = null
+  let gridPaintChanged = false
   const keylineTemplate = ref<KeylineTemplate>(DEFAULT_KEYLINE_TEMPLATE)
   const keylineMargin = ref(DEFAULT_KEYLINE_MARGIN)
   const keylineOpacity = ref(DEFAULT_KEYLINE_OPACITY)
@@ -565,6 +583,26 @@ export function useHomeEditorRuntime() {
   // 钢笔/油漆桶等"点击画布产生效果"的工具态：抑制 Fabric 原生框选与命中，
   // 避免 mouse:down 之后的内置 setActiveObject 把对象选中（见 canvas kernel 的 syncInteractionMode）。
   const toolSuppressSelection = computed(() => penToolActive.value || paintBucketActive.value)
+  // 网格上色模式：油漆桶填充行为 + 网格可见时，点击/拖动不再对对象整体上色，
+  // 而是按网格单元格写入同尺寸色块（行为切到 stroke 或关闭网格即回到普通油漆桶语义）。
+  const gridPaintMode = computed(() =>
+    paintBucketActive.value
+    && showPixelGrid.value
+    && paintBucketState.paintBehavior.value === 'fill'
+  )
+  // 方形画笔光标样式：锚定悬停单元格左上角、随网格线吸附移动；退出网格上色或不在画布内时隐藏。
+  const gridPaintCursorStyle = computed(() => {
+    const cell = gridPaintHoverCell.value
+    if (!gridPaintMode.value || !cell) return null
+    const step = Math.max(1, pixelGridSize.value)
+    const edge = Math.max(1, pixelPaintBrushSize.value) * step * zoom.value
+    return {
+      left: `${cell.col * step * zoom.value}px`,
+      top: `${cell.row * step * zoom.value}px`,
+      width: `${edge}px`,
+      height: `${edge}px`
+    }
+  })
   const directEditState = homeDirectEdit.controller.state
   const directEditCommands = homeDirectEdit.controller.commands
   const {
@@ -942,6 +980,7 @@ export function useHomeEditorRuntime() {
     showPixelGrid,
     snapToPixelGrid,
     pixelGridSize,
+    pixelPaintBrushSize,
     keylineTemplate,
     keylineMargin,
     keylineOpacity
@@ -956,6 +995,7 @@ export function useHomeEditorRuntime() {
     clearBooleanPreview,
     clearPointEditing,
     syncPixelGridSizeInput,
+    syncPixelPaintBrushSizeInput,
     syncKeylineMarginInput,
     syncCanvasSizeInputs,
     syncCanvasInteractionMode,
@@ -997,6 +1037,7 @@ export function useHomeEditorRuntime() {
     activeArtboardId,
     showArtboardList,
     artboardRenameDialog,
+    draftRestoreDialog,
     undoStack,
     historyIndex,
     canUndo,
@@ -1007,6 +1048,8 @@ export function useHomeEditorRuntime() {
     captureHistoryState,
     clearStoredDraft,
     confirmArtboardRename,
+    confirmDraftRestore,
+    handleDraftRestoreDialogShowChange,
     deleteArtboard,
     duplicateArtboard,
     handleArtboardRenameDialogShowChange,
@@ -4100,6 +4143,28 @@ export function useHomeEditorRuntime() {
       pixelGridSize.value,
       setPixelGridSize,
       (next) => { pixelGridSizeInput.value = formatNumericInputValue(normalizePixelGridSize(next)) }
+    )
+  }
+
+  // 同步画笔大小输入框显示，保证工程恢复、画板切换和非法输入回退后界面数值一致。
+  function syncPixelPaintBrushSizeInput() {
+    pixelPaintBrushSizeInput.value = formatNumericInputValue(pixelPaintBrushSize.value)
+  }
+
+  // 更新网格上色画笔大小（N × N 个网格单元格）并同步输入框；该设置随画布设置持久化。
+  function setPixelPaintBrushSize(value: number) {
+    pixelPaintBrushSize.value = normalizePixelPaintBrushSize(value)
+    syncPixelPaintBrushSizeInput()
+    scheduleDraftSave()
+  }
+
+  // 提交画笔大小输入，非法内容回退到当前值，避免输入错误时把画笔改成不可用状态。
+  function setPixelPaintBrushSizeFromInput(value: string | number) {
+    commitNumericInput(
+      value,
+      pixelPaintBrushSize.value,
+      setPixelPaintBrushSize,
+      (next) => { pixelPaintBrushSizeInput.value = formatNumericInputValue(normalizePixelPaintBrushSize(next)) }
     )
   }
 
@@ -8395,6 +8460,135 @@ export function useHomeEditorRuntime() {
     paintBucketCommands.setBehavior(behavior)
   }
 
+  // ── 油漆桶网格上色 ──
+  // 网格可见 + 填充行为下，油漆桶改按网格单元格上色：以矩形色块对象承载每个同色连续区域
+  //（gridPaintCell 标记），写入前先从既有色块挖去本区域、再与相邻同色块贪心合并，
+  // 使"同色连续区域 = 单个矩形"尽量成立，避免对象数量随笔画线性膨胀。
+
+  /** 网格色块条目：画布对象 + 其场景坐标包围盒 + 当前填充色（非纯色字符串按未知色处理）。 */
+  type GridPaintEntry = { obj: AnyFabricObject; rect: GridRect; color: string }
+
+  /**
+   * 收集画布上全部网格色块（gridPaintCell 标记的矩形对象）及其包围盒。
+   * 包围盒按 left/top + width/height × scale 原始几何计算：色块统一以 originX/originY=left/top
+   * 创建且无描边；getBoundingRect/getScaledWidth 会把默认 strokeWidth=1 计入（16px 读成 17px），
+   * 用它做挖切/覆盖判定会引入半格缝隙与拖影。
+   */
+  function collectGridPaintEntries(): GridPaintEntry[] {
+    return (fabricCanvas?.getObjects() ?? [])
+      .filter((obj) => (obj as AnyFabricObject).gridPaintCell === true)
+      .map((obj) => {
+        const typed = obj as AnyFabricObject
+        const width = (Number(typed.width) || 0) * (Number(typed.scaleX) || 1)
+        const height = (Number(typed.height) || 0) * (Number(typed.scaleY) || 1)
+        return {
+          obj: typed,
+          rect: { x: Number(typed.left) || 0, y: Number(typed.top) || 0, width, height },
+          color: typeof obj.fill === 'string' ? obj.fill : ''
+        }
+      })
+  }
+
+  /**
+   * 创建网格色块矩形（场景坐标对齐网格线，scale 保持 1）：
+   * fabric v7 对象默认 originX/originY=center，这里必须显式声明 left/top 锚点，
+   * 否则 left/top 会被当作色块中心，整块偏移半格、出现跨格拖影；
+   * 元数据口径与油漆桶对象填充一致（fillMode/lastFill），并带 gridPaintCell 标记参与后续挖切合并。
+   */
+  function createGridPaintRect(rect: GridRect, color: string) {
+    const obj = new Rect({
+      left: rect.x,
+      top: rect.y,
+      width: rect.width,
+      height: rect.height,
+      fill: color,
+      originX: 'left',
+      originY: 'top'
+    })
+    const typed = obj as AnyFabricObject
+    typed.gridPaintCell = true
+    typed.fillMode = 'solid'
+    typed.lastFill = color
+    typed.name = nextName('网格上色')
+    applyDefaultFillGradientMetadata(typed)
+    ensureEditorObjectId(typed)
+    obj.setCoords()
+    return obj
+  }
+
+  /**
+   * 把画笔覆盖区域以指定颜色写入网格：
+   * 核心挖切/合并算法在 geometry/gridPaint.ts 的 planGridPaintWrite（纯函数，可单测），
+   * 这里按计划同步 fabric 对象（remove 既有色块、add 残块与新块）。
+   * 挖切合并的 add/remove 会触发 object:added/removed 的自动快照，逐笔抑制，
+   * 只在手势结束（finishGridPaintGesture）提交一条"网格上色"记录——
+   * 一次完整的按下、拖动、抬起（含快速拖动扫过 N 格）只产生一条历史记录。
+   */
+  function applyGridPaintRegion(region: GridRect, color: string): boolean {
+    if (!fabricCanvas) return false
+    const entries = collectGridPaintEntries()
+    const plan = planGridPaintWrite(entries, region, color)
+    if (!plan.changed) return false
+    const previousSkipSnapshot = skipSnapshot
+    skipSnapshot = true
+    try {
+      plan.remove.forEach((shape) => fabricCanvas.remove(shape.obj))
+      plan.add.forEach((shape) => fabricCanvas.add(createGridPaintRect(shape.rect, shape.color)))
+    } finally {
+      skipSnapshot = previousSkipSnapshot
+    }
+    fabricCanvas.requestRenderAll()
+    return true
+  }
+
+  /** 在锚点单元格处落一笔画笔区域（brushSize × brushSize 格，超出画布部分自动裁剪）。 */
+  function paintGridBrushAt(anchor: GridCell) {
+    const region = getBrushPaintRegion(anchor, pixelPaintBrushSize.value, canvasWidth.value, canvasHeight.value, pixelGridSize.value)
+    if (!region) return
+    if (applyGridPaintRegion(region, paintBucketState.paintForegroundColor.value)) {
+      gridPaintChanged = true
+    }
+  }
+
+  /** 网格上色按下：锚定点击单元格并落第一笔，同时开始手势（供拖动连刷）。 */
+  function handleGridPaintDown(scenePoint: { x: number; y: number }) {
+    const anchor = getGridPaintAnchorCell(scenePoint, canvasWidth.value, canvasHeight.value, pixelGridSize.value)
+    if (!anchor) return
+    gridPaintHoverCell.value = anchor
+    gridPaintGesture = { lastAnchor: anchor }
+    gridPaintChanged = false
+    paintGridBrushAt(anchor)
+  }
+
+  /**
+   * 网格上色移动：更新悬停单元格（驱动方形画笔光标）；手势中沿上次锚点到当前锚点的连线
+   * 逐格插值补笔，快速拖动也不会漏格。
+   */
+  function handleGridPaintMove(scenePoint: { x: number; y: number }) {
+    const anchor = getGridPaintAnchorCell(scenePoint, canvasWidth.value, canvasHeight.value, pixelGridSize.value)
+    gridPaintHoverCell.value = anchor
+    if (!gridPaintGesture || !anchor) return
+    const last = gridPaintGesture.lastAnchor
+    const steps = Math.max(Math.abs(anchor.col - last.col), Math.abs(anchor.row - last.row))
+    for (let step = 1; step <= steps; step += 1) {
+      const ratio = step / steps
+      paintGridBrushAt({
+        col: Math.round(last.col + (anchor.col - last.col) * ratio),
+        row: Math.round(last.row + (anchor.row - last.row) * ratio)
+      })
+    }
+    if (steps > 0) gridPaintGesture.lastAnchor = anchor
+  }
+
+  /** 结束网格上色手势：手势内确实写入过颜色才刷新图层并提交一条撤销记录。 */
+  function finishGridPaintGesture() {
+    gridPaintGesture = null
+    if (!gridPaintChanged) return
+    gridPaintChanged = false
+    refreshLayers()
+    snapshot({ description: '网格上色' })
+  }
+
   // ── 添加元素 ──
   /**
    * 把钢笔描点的场景数据生成为可编辑路径对象（支持直线/贝塞尔曲线混合段）。
@@ -10128,6 +10322,15 @@ export function useHomeEditorRuntime() {
       fabricCanvas?.requestRenderAll()
     })
 
+    // 退出网格上色模式（关闭网格 / 切描边行为 / 退出油漆桶）时清理光标，
+    // 并把进行中的手势收尾提交：拖动中退出也按"一次手势"补一条历史记录，
+    // 保证已上色的格子不会漏记（否则撤销会一步跳到本次上色之前的状态）。
+    watch(gridPaintMode, (active) => {
+      if (active) return
+      gridPaintHoverCell.value = null
+      finishGridPaintGesture()
+    })
+
     fabricCanvas.on('mouse:down:before', (event) => {
       const nativeEvent = event.e as MouseEvent
 
@@ -10140,6 +10343,15 @@ export function useHomeEditorRuntime() {
         if (nativeEvent.button === 0) {
           const scenePoint = event.scenePoint ?? fabricCanvas.getScenePoint(event.e)
           penCommands.handlePenLeftDown({ x: scenePoint.x, y: scenePoint.y })
+        }
+        return
+      }
+
+      // ── 油漆桶网格上色（网格可见 + 填充行为：按网格单元上色，支持拖动连刷） ──
+      if (paintBucketActive.value && gridPaintMode.value) {
+        if (nativeEvent.button === 0) {
+          const scenePoint = event.scenePoint ?? fabricCanvas.getScenePoint(event.e)
+          handleGridPaintDown({ x: scenePoint.x, y: scenePoint.y })
         }
         return
       }
@@ -10230,6 +10442,11 @@ export function useHomeEditorRuntime() {
         penCommands.handlePenPointerMove(event)
         return
       }
+      if (gridPaintMode.value) {
+        const scenePoint = event.scenePoint ?? fabricCanvas.getScenePoint(event.e)
+        handleGridPaintMove({ x: scenePoint.x, y: scenePoint.y })
+        return
+      }
       handlePointGestureCanvasMove(event)
     })
 
@@ -10249,7 +10466,17 @@ export function useHomeEditorRuntime() {
         penCommands.handlePenPointerUp()
         return
       }
+      if (gridPaintMode.value) {
+        finishGridPaintGesture()
+        return
+      }
       finishPointGesture()
+    })
+
+    // 鼠标离开画布容器时隐藏网格画笔光标；手势由 fabric 的 document 级 mouse:up 兜底结束。
+    const canvasContainer = fabricCanvas.getElement()?.parentElement
+    canvasContainer?.addEventListener('mouseleave', () => {
+      gridPaintHoverCell.value = null
     })
 
     // 节点编辑模式下双击线段插入锚点；钢笔态的双击语义由钢笔模块自行处理，油漆桶态双击等价单击，均跳过
@@ -10664,6 +10891,27 @@ export function useHomeEditorRuntime() {
     }
   )
 
+  // 应用级偏好任意一项变化即时写回本地存储；工程 / 草稿恢复覆盖这些值同样会被记住，
+  // 作为「上次状态」在下次打开插件时恢复。写入失败已在 saveUserPreferences 内降级为警告。
+  watch(
+    () => [
+      pixelGridSize.value,
+      pixelPaintBrushSize.value,
+      leftPanelCollapsed.value,
+      showRuler.value,
+      snapToPixelGrid.value
+    ],
+    () => {
+      saveUserPreferences({
+        pixelGridSize: pixelGridSize.value,
+        pixelPaintBrushSize: pixelPaintBrushSize.value,
+        leftPanelCollapsed: leftPanelCollapsed.value,
+        showRuler: showRuler.value,
+        snapToPixelGrid: snapToPixelGrid.value
+      })
+    }
+  )
+
   onBeforeUnmount(() => {
     void editorRuntime?.dispose()
     editorRuntime = null
@@ -10682,6 +10930,9 @@ export function useHomeEditorRuntime() {
     showPixelGrid,
     snapToPixelGrid,
     pixelGridSizeInput,
+    pixelPaintBrushSizeInput,
+    gridPaintMode,
+    gridPaintCursorStyle,
     keylineTemplate,
     keylineMarginInput,
     keylineOpacity,
@@ -10777,6 +11028,7 @@ export function useHomeEditorRuntime() {
     artboards,
     activeArtboardId,
     artboardRenameDialog,
+    draftRestoreDialog,
     undoStack,
     historyIndex,
     addArtboard,
@@ -10787,6 +11039,8 @@ export function useHomeEditorRuntime() {
     renameArtboard,
     confirmArtboardRename,
     handleArtboardRenameDialogShowChange,
+    confirmDraftRestore,
+    handleDraftRestoreDialogShowChange,
     switchArtboard,
     keylineTemplateOptions,
     previewBackgroundOptions,
@@ -10855,6 +11109,7 @@ export function useHomeEditorRuntime() {
     setPixelGridVisible,
     setSnapToPixelGrid,
     setPixelGridSizeFromInput,
+    setPixelPaintBrushSizeFromInput,
     setKeylineTemplate,
     setKeylineMarginFromInput,
     setKeylineOpacity,
