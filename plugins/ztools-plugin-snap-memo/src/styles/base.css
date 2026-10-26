@@ -1,0 +1,313 @@
+/**
+ * 基础样式：reset、通用控件（按钮/输入/开关/chip）、滚动条、焦点环、动效约定。
+ * 动效只用于状态过渡（≤150ms），并尊重 prefers-reduced-motion。
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  font-size: var(--sm-font-m);
+  color: var(--sm-text);
+  background: var(--sm-bg);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  user-select: none;
+}
+
+#app {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+input,
+textarea,
+button {
+  font: inherit;
+  color: inherit;
+}
+
+/* 文本类内容区域允许选择（预览、编辑器） */
+.selectable {
+  user-select: text;
+}
+
+:focus-visible {
+  outline: 2px solid var(--sm-accent);
+  outline-offset: 1px;
+  border-radius: var(--sm-radius-s);
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--sm-border-strong);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ---- 通用控件 ---- */
+
+.sm-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: 1px solid var(--sm-border);
+  border-radius: var(--sm-radius-s);
+  background: var(--sm-surface);
+  color: var(--sm-text);
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+  white-space: nowrap;
+}
+
+.sm-btn:hover {
+  background: var(--sm-hover);
+  border-color: var(--sm-border-strong);
+}
+
+.sm-btn.primary {
+  background: var(--sm-accent);
+  border-color: var(--sm-accent);
+  color: #fff;
+}
+
+.sm-btn.primary:hover {
+  filter: brightness(1.06);
+}
+
+.sm-btn.danger {
+  color: var(--sm-danger);
+}
+
+.sm-btn.small {
+  padding: 3px 10px;
+  font-size: var(--sm-font-s);
+}
+
+.sm-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: var(--sm-radius-s);
+  background: transparent;
+  color: var(--sm-text-3);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+  flex: none;
+}
+
+.sm-icon-btn:hover {
+  background: var(--sm-hover);
+  color: var(--sm-text);
+}
+
+.sm-icon-btn.active {
+  color: var(--sm-accent);
+}
+
+.sm-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sm-field > label {
+  font-size: var(--sm-font-s);
+  color: var(--sm-text-2);
+}
+
+.sm-input,
+.sm-textarea,
+.sm-select {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--sm-border);
+  border-radius: var(--sm-radius-s);
+  background: var(--sm-surface);
+  transition: border-color 0.12s ease;
+}
+
+.sm-input:focus,
+.sm-textarea:focus,
+.sm-select:focus {
+  outline: none;
+  border-color: var(--sm-accent);
+}
+
+.sm-textarea {
+  resize: vertical;
+  font-family: inherit;
+  line-height: 1.55;
+}
+
+.sm-textarea.mono {
+  font-family: 'SF Mono', Menlo, Consolas, 'Courier New', monospace;
+  font-size: var(--sm-font-s);
+}
+
+/* 开关 */
+.sm-switch {
+  position: relative;
+  width: 34px;
+  height: 20px;
+  border-radius: 10px;
+  background: var(--sm-border-strong);
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  flex: none;
+}
+
+.sm-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s ease;
+}
+
+.sm-switch.on {
+  background: var(--sm-accent);
+}
+
+.sm-switch.on::after {
+  transform: translateX(14px);
+}
+
+/* chip（分组筛选） */
+.sm-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 13px;
+  border: 1px solid var(--sm-border);
+  background: var(--sm-surface);
+  color: var(--sm-text-2);
+  cursor: pointer;
+  font-size: var(--sm-font-s);
+  white-space: nowrap;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+  flex: none;
+}
+
+.sm-chip:hover {
+  background: var(--sm-hover);
+}
+
+.sm-chip.active {
+  background: var(--sm-accent-soft);
+  border-color: var(--sm-accent);
+  color: var(--sm-accent);
+}
+
+.sm-chip .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--sm-text-3);
+}
+
+.sm-chip .count {
+  color: var(--sm-text-3);
+  font-size: 11px;
+}
+
+/* 单选组（导入策略 / 设置项） */
+.sm-seg {
+  display: inline-flex;
+  border: 1px solid var(--sm-border);
+  border-radius: var(--sm-radius-s);
+  overflow: hidden;
+}
+
+.sm-seg button {
+  padding: 5px 12px;
+  border: none;
+  background: var(--sm-surface);
+  color: var(--sm-text-2);
+  cursor: pointer;
+  font-size: var(--sm-font-s);
+}
+
+.sm-seg button.active {
+  background: var(--sm-accent-soft);
+  color: var(--sm-accent);
+}
+
+/* 键位提示 */
+.kbd {
+  display: inline-block;
+  padding: 0 5px;
+  border: 1px solid var(--sm-border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--sm-surface-2);
+  font-size: 11px;
+  font-family: inherit;
+  color: var(--sm-text-2);
+  line-height: 17px;
+}
+
+/* 高亮命中 */
+.hl {
+  background: var(--sm-highlight);
+  border-radius: 2px;
+}
+
+/* 窄窗口（宿主主窗可调宽度）：列表优先，预览面板自动隐藏（宽窗口可用 Space 恢复） */
+@media (max-width: 659px) {
+  .preview {
+    display: none !important;
+  }
+}
+
+/* 淡入位移动效（仅状态过渡） */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.13s ease, transform 0.13s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+  transform: translateY(4px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "$schema": "node_modules/@ztools-center/ztools-api-types/resource/ztools.schema.json",
+  "name": "snap-memo",
+  "title": "速贴备忘",
+  "description": "毫秒级检索备忘与常用片段，回车直接粘贴到当前应用；支持图文混排备忘与 OCR 搜索、拼音搜索、分组标签、占位符、批量管理与导入导出",
+  "author": "ZTools Collection",
+  "version": "0.4.0",
+  "main": "index.html",
+  "preload": "preload/services.cjs",
+  "logo": "logo.png",
+  "development": {
+    "main": "http://localhost:5183"
+  },
+  "features": [
+    {
+      "code": "snap-memo",
+      "explain": "打开速贴备忘，搜索后回车直接粘贴到当前应用",
+      "icon": "logo.png",
+      "cmds": ["备忘", "备忘录", "memo", "片段", "snippet", "速贴"]
+    },
+    {
+      "code": "snap-memo-save",
+      "explain": "把选中的文本保存为备忘",
+      "icon": "logo.png",
+      "cmds": [
+        {
+          "type": "over",
+          "label": "存为备忘"
+        }
+      ]
+    },
+    {
+      "code": "snap-memo-save-img",
+      "explain": "把图片保存为备忘（拖图片到搜索栏，或在图片上复制后使用）",
+      "icon": "logo.png",
+      "cmds": [
+        {
+          "type": "img",
+          "label": "存为图片备忘"
+        }
+      ]
+    },
+    {
+      "code": "snap-memo-save-regex",
+      "explain": "把输入的链接 / 邮箱 / 手机号 / IP 保存为备忘",
+      "icon": "logo.png",
+      "cmds": [
+        {
+          "type": "regex",
+          "label": "存为备忘",
+          "match": "/^(https?:\\/\\/|ftp:\\/\\/)[^\\s]{4,}$|(^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$)|(^1[3-9]\\d{9}$)|(^\\d{1,3}(\\.\\d{1,3}){3}$)/g",
+          "minLength": 6,
+          "maxLength": 500
+        }
+      ]
+    },
+    {
+      "code": "snap-memo-new",
+      "explain": "新建备忘（自动预填剪贴板文本或图片）",
+      "icon": "logo.png",
+      "cmds": ["新建备忘", "记一下"]
+    }
+  ]
+}

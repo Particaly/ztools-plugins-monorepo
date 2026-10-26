@@ -13,6 +13,7 @@
 | ztools-plugin-text-copy | [`plugins/ztools-plugin-text-copy`](plugins/ztools-plugin-text-copy) | 文本复制插件 |
 | ztools-plugin-ip-switcher | [`plugins/ztools-plugin-ip-switcher`](plugins/ztools-plugin-ip-switcher) | IP 切换插件 |
 | ztools-plugin-swap-file | [`plugins/ztools-plugin-swap-file`](plugins/ztools-plugin-swap-file) | 局域网文件分享，浏览器即可浏览 / 下载 / 上传 |
+| ztools-plugin-snap-memo | [`plugins/ztools-plugin-snap-memo`](plugins/ztools-plugin-snap-memo) | 速贴备忘：毫秒级检索备忘与常用片段，回车直接粘贴到当前应用，支持图文混排 / OCR / 拼音搜索 |
 
 ## 迁移说明
 

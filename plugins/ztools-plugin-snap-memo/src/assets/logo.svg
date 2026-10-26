@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- 速贴备忘 logo：圆角底板 + 便签卡 + 闪电（快贴） -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5b7cfa"/>
+      <stop offset="1" stop-color="#3d55d6"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="120" height="120" rx="28" fill="url(#bg)"/>
+  <!-- 便签卡（右上角折角） -->
+  <path d="M36 30 h40 l16 16 v52 a4 4 0 0 1 -4 4 H36 a4 4 0 0 1 -4 -4 V34 a4 4 0 0 1 4 -4 z" fill="#ffffff"/>
+  <path d="M76 30 l16 16 h-14 a2 2 0 0 1 -2 -2 z" fill="#dbe3ff"/>
+  <!-- 便签行 -->
+  <rect x="42" y="52" width="34" height="6" rx="3" fill="#5b7cfa" opacity="0.55"/>
+  <rect x="42" y="66" width="44" height="6" rx="3" fill="#5b7cfa" opacity="0.35"/>
+  <rect x="42" y="80" width="28" height="6" rx="3" fill="#5b7cfa" opacity="0.35"/>
+  <!-- 闪电 -->
+  <path d="M88 56 l-22 30 h14 l-6 22 24 -32 h-15 z" fill="#ffb02e" stroke="#e8930c" stroke-width="2" stroke-linejoin="round"/>
+</svg>

@@ -1,0 +1,68 @@
+/**
+ * 主题变量：明/暗两套，全部颜色走 CSS 变量（不写死）；
+ * 强调色优先取宿主注入的 --plugin-primary-color（ZTools 主题色），缺失时回退品牌蓝。
+ * 字号 4 级、圆角 3 级、阴影 2 级；行高由密度 data-density 控制。
+ */
+
+:root {
+  --sm-accent: var(--plugin-primary-color, #4f6ef7);
+  --sm-accent-soft: color-mix(in srgb, var(--sm-accent) 12%, transparent);
+
+  --sm-bg: #f7f8fa;
+  --sm-surface: #ffffff;
+  --sm-surface-2: #f1f3f6;
+  --sm-border: #e3e6eb;
+  --sm-border-strong: #cfd4dc;
+  --sm-text: #1f2430;
+  --sm-text-2: #5a6272;
+  --sm-text-3: #9aa1af;
+  --sm-hover: #f2f4f8;
+  --sm-selected: #edf1fd;
+  --sm-danger: #d64541;
+  --sm-success: #2f9e68;
+  --sm-warning-bg: #fff7e6;
+  --sm-warning-text: #8a6116;
+  --sm-mask: rgba(31, 36, 48, 0.4);
+  --sm-highlight: rgba(255, 200, 0, 0.35);
+
+  --sm-font-s: 12px;
+  --sm-font-m: 13px;
+  --sm-font-l: 15px;
+  --sm-font-xl: 18px;
+
+  --sm-radius-s: 6px;
+  --sm-radius-m: 10px;
+  --sm-radius-l: 14px;
+
+  --sm-shadow-1: 0 1px 2px rgba(20, 24, 34, 0.06);
+  --sm-shadow-2: 0 8px 28px rgba(20, 24, 34, 0.14);
+
+  --sm-row-h: 64px;
+  --sm-row-gap: 4px;
+}
+
+[data-theme='dark'] {
+  --sm-bg: #1c1f26;
+  --sm-surface: #242830;
+  --sm-surface-2: #2c313b;
+  --sm-border: #343a45;
+  --sm-border-strong: #454c59;
+  --sm-text: #e8eaf0;
+  --sm-text-2: #a8afc0;
+  --sm-text-3: #6c7484;
+  --sm-hover: #2b3039;
+  --sm-selected: #2b3350;
+  --sm-danger: #e5695f;
+  --sm-success: #4fc98a;
+  --sm-warning-bg: #3a3320;
+  --sm-warning-text: #d9b36a;
+  --sm-mask: rgba(0, 0, 0, 0.55);
+  --sm-highlight: rgba(255, 200, 0, 0.28);
+
+  --sm-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --sm-shadow-2: 0 8px 28px rgba(0, 0, 0, 0.45);
+}
+
+[data-density='compact'] {
+  --sm-row-h: 48px;
+}
