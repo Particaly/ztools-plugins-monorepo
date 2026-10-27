@@ -13,7 +13,7 @@ function dismiss(id: number): void {
 
 <template>
   <div class="toast-host" aria-live="polite">
-    <TransitionGroup name="fade">
+    <TransitionGroup name="slide">
       <div
         v-for="item in store.state.toasts"
         :key="item.id"

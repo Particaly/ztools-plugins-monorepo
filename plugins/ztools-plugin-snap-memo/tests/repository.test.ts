@@ -24,8 +24,11 @@ function fakePlatform(): PlatformApi {
     copyImage: async () => false,
     pasteImage: async () => 'failed',
     readClipboardImage: async () => null,
-    openImageExternal: async () => false,
+    openImageExternal: async () => ({ ok: true }),
+    openImageFloat: async () => ({ ok: true }),
     ocr: null,
+    fonts: null,
+    hostData: null,
     db: {
       getDoc: <T>(id: string) => {
         const value = docs.get(id)

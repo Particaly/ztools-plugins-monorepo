@@ -93,6 +93,7 @@ export interface Settings {
   listMode: ListMode
   /** 主题模式：跟随系统 / 亮色 / 暗色。 */
   themeMode: ThemeMode
+  /** 预览面板总开关：false 彻底停用（面板不可再展开，快捷键与点击均无效），true 启用且进入插件时分栏显示。 */
   showPreviewPane: boolean
   /** 粘贴后恢复原剪贴板内容。 */
   restoreClipboard: boolean

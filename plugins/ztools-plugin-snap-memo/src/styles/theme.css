@@ -2,6 +2,8 @@
  * 主题变量：明/暗两套，全部颜色走 CSS 变量（不写死）；
  * 强调色优先取宿主注入的 --plugin-primary-color（ZTools 主题色），缺失时回退品牌蓝。
  * 字号 4 级、圆角 3 级、阴影 2 级；行高由密度 data-density 控制。
+ * 动效令牌：时长 5 级、缓动 4 级、位移 2 级 —— 全项目一切 transition/animation
+ * 只允许引用这些变量，禁止硬编码时长与曲线（预设见 base.css「动效预设」段）。
  */
 
 :root {
@@ -30,6 +32,15 @@
   --sm-font-l: 15px;
   --sm-font-xl: 18px;
 
+  /* ---- 字体 ----
+     英文走 Maple Mono（等宽）、中文走阿里巴巴普惠体 3.0，均由 core/fonts.ts 在安装后
+     首次启动动态下载并注册；前面的字体未就绪/下载失败时逐级回退到系统栈。 */
+  --sm-font-ui:
+    'Maple Mono', 'Alibaba PuHuiTi 3.0', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  /* 代码/片段等场景：Maple Mono 优先，系统等宽栈兜底 */
+  --sm-font-mono: 'Maple Mono', 'SF Mono', Menlo, Consolas, 'Courier New', monospace;
+
   --sm-radius-s: 6px;
   --sm-radius-m: 10px;
   --sm-radius-l: 14px;
@@ -39,6 +50,33 @@
 
   --sm-row-h: 64px;
   --sm-row-gap: 4px;
+
+  /* ---- 动效令牌 · 时长 ---- */
+  --sm-dur-instant: 50ms; /* 跟手交互（滚轮缩放、拖拽微跟随） */
+  --sm-dur-fast: 120ms; /* 悬停 / 按压等即时反馈 */
+  --sm-dur-base: 160ms; /* 一般状态过渡（开关、chip、浮层显隐） */
+  --sm-dur-slow: 220ms; /* 大面积变化（面板、弹窗、视图切换、列表重排） */
+  --sm-dur-pulse: 1100ms; /* 骨架屏呼吸等氛围动画的单个周期 */
+
+  /* ---- 动效令牌 · 缓动 ---- */
+  --sm-ease-out: cubic-bezier(0, 0, 0.2, 1); /* 进入 / 展开：减速停靠 */
+  --sm-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1); /* 通用状态与位移 */
+  --sm-ease-in: cubic-bezier(0.4, 0, 1, 1); /* 退出：加速离场 */
+  --sm-ease-linear: linear; /* 呼吸、进度类匀速动画 */
+
+  /* ---- 动效令牌 · 位移距离（预设动效的出入场幅度） ---- */
+  --sm-move-s: 4px; /* 行内小元素 / toast */
+  --sm-move-m: 12px; /* 面板级滑入滑出 */
+}
+
+/* 减弱动态效果：令牌整体坍缩为近零时长，预设与组件样式无需分别处理 */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --sm-dur-instant: 1ms;
+    --sm-dur-fast: 1ms;
+    --sm-dur-base: 1ms;
+    --sm-dur-slow: 1ms;
+  }
 }
 
 [data-theme='dark'] {

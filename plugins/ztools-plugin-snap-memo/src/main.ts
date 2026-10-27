@@ -1,6 +1,9 @@
 import { createApp } from 'vue'
 import App from './App.vue'
+import { ensureAppFonts } from './core/fonts'
+import { platform } from './platform'
 import './styles/theme.css'
+import 'overlayscrollbars/overlayscrollbars.css'
 import './styles/base.css'
 
 /**
@@ -30,3 +33,6 @@ window.addEventListener('unhandledrejection', (e) => {
 })
 
 app.mount('#app')
+
+// 应用字体后台加载（首次启动下载，之后读缓存）：不阻塞首屏，就绪前以系统回退字体渲染
+void ensureAppFonts(platform)

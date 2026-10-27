@@ -9,8 +9,10 @@ import {
   formatImageBytes,
   imageDimensions,
   isImageDataUrl,
+  normalizeImageMime,
   normalizeImagePayload,
-  parseDataUrl
+  parseDataUrl,
+  sniffImageMime
 } from '../src/core/image'
 
 // 1x1 红色像素 PNG 的 base64（标准测试图）
@@ -52,8 +54,7 @@ describe('字节数与上限', () => {
   })
 })
 
-describe('base64 编解码往返', () => {
-  it('bytes → base64 → bytes 无损', () => {
+describe('base64 编解码往返', () => {  it('bytes → base64 → bytes 无损', () => {
     const bytes = new Uint8Array([0, 1, 2, 250, 251, 252, 253, 254, 255, 77])
     const b64 = bytesToBase64(bytes)
     expect(base64ToBytes(b64)).toEqual(bytes)
@@ -71,6 +72,37 @@ describe('base64 编解码往返', () => {
       for (let i = 0; i < n; i++) bytes[i] = (i * 37 + n) % 256
       expect(Array.from(base64ToBytes(bytesToBase64(bytes)))).toEqual(Array.from(bytes))
     }
+  })
+})
+
+describe('MIME 嗅探与归一（宿主附件类型元数据不可信时兜底）', () => {
+  const PNG_BYTES = base64ToBytes(TINY_PNG_BASE64)
+
+  it('合法 image/* MIME 原样保留（小写化）', () => {
+    expect(normalizeImageMime('image/png', PNG_BYTES)).toBe('image/png')
+    expect(normalizeImageMime('Image/JPEG', new Uint8Array([0xff, 0xd8, 0xff, 0xdb]))).toBe('image/jpeg')
+  })
+
+  it('异常 MIME 按魔数修正：PNG 头', () => {
+    expect(normalizeImageMime('png', PNG_BYTES)).toBe('image/png')
+    expect(normalizeImageMime('undefined', PNG_BYTES)).toBe('image/png')
+    expect(normalizeImageMime('', PNG_BYTES)).toBe('image/png')
+  })
+
+  it('异常 MIME 按魔数修正：JPEG / GIF / BMP / WebP 头', () => {
+    expect(normalizeImageMime('bad', new Uint8Array([0xff, 0xd8, 0xff, 0xe0]))).toBe('image/jpeg')
+    expect(normalizeImageMime('bad', new Uint8Array([0x47, 0x49, 0x46, 0x38]))).toBe('image/gif')
+    expect(normalizeImageMime('bad', new Uint8Array([0x42, 0x4d, 0x00, 0x00]))).toBe('image/bmp')
+    expect(normalizeImageMime('bad', new Uint8Array([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50]))).toBe(
+      'image/webp'
+    )
+  })
+
+  it('未知魔数回落 image/png；sniffImageMime 与归一结果一致', () => {
+    const unknown = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
+    expect(sniffImageMime(unknown)).toBe('image/png')
+    expect(normalizeImageMime('weird', unknown)).toBe('image/png')
+    expect(normalizeImageMime('weird', PNG_BYTES)).toBe(sniffImageMime(PNG_BYTES))
   })
 })
 

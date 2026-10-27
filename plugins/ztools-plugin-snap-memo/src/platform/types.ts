@@ -24,6 +24,49 @@ export interface DynamicFeatureInput {
   cmds: string[]
 }
 
+/** 字体文件下载源：tarball=npm 包 tgz（member 为包内目标文件，按 basename 匹配提取）；file=单文件直链。 */
+export type FontSource = { kind: 'file'; url: string } | { kind: 'tarball'; url: string; member: string }
+
+/** 字体缓存请求：path 为字体缓存目标绝对路径（pluginData 下），sources 按优先级排列。 */
+export interface FontFileRequest {
+  path: string
+  sources: FontSource[]
+}
+
+/** 字体缓存结果：与请求对齐；失败时 ok=false 且带 error 信息。 */
+export interface FontFileResult {
+  ok: boolean
+  base64?: string
+  error?: string
+}
+
+/**
+ * 图片外开/悬浮窗操作结果：ok=false 时 reason 指明失败环节，
+ * 用于分级提示（帮助定位宿主环境缺哪一环）。
+ */
+export interface ImageViewOutcome {
+  ok: boolean
+  /** 失败环节：preload 未注入 / 宿主缺 API / 临时文件写入失败 / 宿主调用抛错。 */
+  reason?: 'no-preload' | 'no-host-api' | 'write-failed' | 'host-call-failed'
+  /** 原始错误信息（写文件/宿主调用抛错时携带），用于排查。 */
+  detail?: string
+}
+
+/**
+ * 其他插件在宿主数据库中的原始数据快照（只读提取，用于跨插件导入）。
+ * 由 preload 只读打开宿主本地 LMDB 产出；id 均为去掉 `PLUGIN/<name>/` 前缀后的 key。
+ */
+export interface HostPluginDump {
+  /** 数据来源账号目录名（default 或账号哈希），用于提示与排查。 */
+  account: string
+  /** 文档列表：doc 为解析后的完整文档体（已剔除墓碑与坏文档）。 */
+  docs: Array<{ id: string; doc: Record<string, unknown> }>
+  /** 附件列表：id 形如 `attachment/<md5>`；mime 来自附件元数据，缺失为空串。 */
+  attachments: Array<{ id: string; mime: string; bytes: Uint8Array }>
+  /** 附件总字节超过 preload 上限时为 true（数据被截断，导入结果可能不完整）。 */
+  truncated: boolean
+}
+
 export interface PlatformApi {
   kind: HostKind
   isMac: boolean
@@ -73,10 +116,20 @@ export interface PlatformApi {
   readClipboardImage(): Promise<string | null>
 
   /**
-   * 用系统默认看图软件打开图片：dataURL 先写入受控临时文件，再走宿主 shellOpenPath。
-   * 宿主或 preload 能力缺失、写入/打开失败时返回 false（调用方负责提示）。
+   * 用系统默认看图软件打开图片：dataURL 先写入受控临时文件，再走宿主 shellOpenPath
+   * （未适配时回退已实现的 shellOpenExternal(file://)，同样交给系统默认应用）。
+   * 失败时返回原因分级结果（调用方负责提示）。
    */
-  openImageExternal(dataUrl: string): Promise<boolean>
+  openImageExternal(dataUrl: string): Promise<ImageViewOutcome>
+
+  /**
+   * 独立悬浮窗查看图片：宿主 createBrowserWindow 创建无边框置顶小窗，
+   * 加载打包内的 float-image.html 展示（图片先经 preload 写临时文件，以 file:// 注入）；
+   * 窗口已存在时复用并换图，不重复开窗。image 为图片原始像素尺寸（未知传 0），
+   * 实现层据此适配所在屏幕（初始不超过工作区 80%，最小 360×280；用户手动调整不受限）。
+   * 失败时返回原因分级结果（调用方负责提示）。
+   */
+  openImageFloat(dataUrl: string, image: { width: number; height: number }): Promise<ImageViewOutcome>
 
   /**
    * 图片文字识别：走 ZTools「提供商」机制中用户设为默认的 OCR 提供商
@@ -136,6 +189,31 @@ export interface PlatformApi {
 
   /** 系统通知（页面可能已被隐藏时使用）。 */
   notify(body: string): void
+
+  /**
+   * 应用字体（中文普体 3.0 + 英文 Maple Mono）本地缓存：见 core/fonts.ts。
+   * 宿主缺 pluginData/preload 能力时为 null（浏览器开发态），调用方回退系统字体栈。
+   */
+  fonts: {
+    /** 插件持久数据目录绝对路径（缓存字体文件的父目录）；不可用返回 null。 */
+    dataDir(): string | null
+    /**
+     * 批量确保字体文件存在（合法缓存直接读，缺失时下载）并返回 base64。
+     * 任一能力缺失返回 null；单个文件失败不影响其余（见 FontFileResult）。
+     */
+    ensureFiles(items: FontFileRequest[]): Promise<FontFileResult[] | null>
+  } | null
+
+  /**
+   * 跨插件数据提取（只读）：读取其他插件在宿主数据库里的文档与附件。
+   * 依赖宿主自带 lmdb 模块与本地数据目录，仅安装版 ZTools 可用；
+   * 浏览器开发态 / preload 缺失时为 null，调用方提示降级。
+   * 失败（找不到数据目录、打开数据库失败等）抛带中文信息的 Error。
+   */
+  hostData: {
+    /** 读取指定插件命名空间下的全部文档与附件（如 'memo-quick-paste'）。 */
+    readPlugin(pluginName: string): HostPluginDump
+  } | null
 
   /** 明暗主题：当前值 + 变化监听（返回取消函数）。 */
   isDark(): boolean

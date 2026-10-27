@@ -4,7 +4,7 @@
  * 删除即物理删除（删除前自动快照 + 5 秒撤销 Toast），无回收站。
  */
 import { computed, reactive, ref } from 'vue'
-import { platform, type PasteOutcome } from '../platform'
+import { platform, type ImageViewOutcome, type PasteOutcome } from '../platform'
 import { createRepository, type Repository } from './repository'
 import {
   getCachedSearchEntry,
@@ -26,6 +26,7 @@ import {
   type ImportPlan,
   type TextImportEntry
 } from '../core/transfer'
+import { convertMemoQuickPaste } from '../core/mqpImport'
 import {
   CONTENT_MAX_BYTES,
   CONTENT_WARN_BYTES,
@@ -54,6 +55,13 @@ import { t } from '../i18n/zh-CN'
 
 export type ViewName = 'list' | 'editor' | 'settings' | 'data'
 
+/**
+ * 预览面板两态：split 列表+面板分栏（默认）；hidden 仅列表（面板收起）。
+ * 设置项 showPreviewPane 是面板总开关：关闭即彻底停用（hidden 且不可再展开，
+ * Space / ⌘/Ctrl+P / 单击条目均无效），开启时进入插件初始为 split。
+ */
+export type PreviewMode = 'split' | 'hidden'
+
 export interface Toast {
   id: number
   text: string
@@ -75,6 +83,9 @@ export interface EditorForm {
   pinned: boolean
   sensitive: boolean
 }
+
+/** 编辑器顶栏字段弹窗的目标字段（一次只开一个）。 */
+export type EditorMetaField = 'group' | 'tags' | 'keyword'
 
 export interface PendingPaste {
   memo: Memo
@@ -153,10 +164,18 @@ export function createAppStore(repo: Repository = createRepository(platform)) {
     view: 'list' as ViewName,
     previousView: 'list' as ViewName,
     selectionId: null as string | null,
+    /** 最近一次选区移动的方向（1 向下 / -1 向上 / 0 非键盘）：列表据此决定滚动对齐方式。 */
+    selectionMoveDir: 0 as 0 | 1 | -1,
     editor: null as EditorForm | null,
+    /**
+     * 编辑器字段弹窗（顶栏分组/标签/触发词徽片点开的设置弹窗）：
+     * 状态进 store 供全局键盘路由感知——弹窗开着时 Esc 只关弹窗，不关编辑器。
+     */
+    editorMeta: null as EditorMetaField | null,
     /** 分组管理弹窗（列表视图上的浮层）：全局键盘路由需感知，Esc 先关弹窗而不是退出插件 */
     showGroupManager: false,
-    previewVisible: true,
+    /** 预览面板显隐（showPreviewPane=false 时恒为 hidden 且不可展开，见 togglePreviewPane）。 */
+    previewMode: 'split' as PreviewMode,
     /** 预览面板行内编辑草稿：焦点在标题/正文输入框时存在，失焦自动保存后置 null。 */
     previewEdit: null as PreviewEditDraft | null,
     /** 条目右键菜单（屏幕坐标定位；null 表示关闭）。 */
@@ -365,7 +384,7 @@ export function createAppStore(repo: Repository = createRepository(platform)) {
   function init(): void {
     reload()
     seedIfNeeded()
-    state.previewVisible = state.settings.showPreviewPane
+    state.previewMode = state.settings.showPreviewPane ? 'split' : 'hidden'
     applyTheme()
     state.backupAt = repo.loadBackup()?.savedAt ?? null
     reconcileKeywordFeatures()
@@ -410,6 +429,7 @@ export function createAppStore(repo: Repository = createRepository(platform)) {
     if (vis.length === 0) return false
     const idx = selectionIndex.value
     const next = idx === -1 ? 0 : (idx + delta + vis.length) % vis.length
+    state.selectionMoveDir = delta > 0 ? 1 : -1
     state.selectionId = vis[next].id
     return true
   }
@@ -418,6 +438,7 @@ export function createAppStore(repo: Repository = createRepository(platform)) {
   function jumpSelection(edge: 'first' | 'last'): boolean {
     const vis = visibleMemos.value
     if (vis.length === 0) return false
+    state.selectionMoveDir = edge === 'first' ? 1 : -1
     state.selectionId = (edge === 'first' ? vis[0] : vis[vis.length - 1])!.id
     return true
   }
@@ -428,18 +449,30 @@ export function createAppStore(repo: Repository = createRepository(platform)) {
     if (vis.length === 0) return false
     const idx = Math.max(0, selectionIndex.value)
     const next = Math.max(0, Math.min(vis.length - 1, idx + direction * 10))
+    state.selectionMoveDir = direction
     state.selectionId = vis[next]!.id
     return true
   }
 
   /** 选中指定条目（组件不得直接改 state）。 */
   function selectMemo(id: string): void {
+    state.selectionMoveDir = 0
     state.selectionId = id
   }
 
   /** 合并编辑器表单字段（分组内联新建等场景）。 */
   function patchEditor(patch: Partial<EditorForm>): void {
     if (state.editor) state.editor = { ...state.editor, ...patch }
+  }
+
+  /** 打开编辑器字段弹窗（分组/标签/触发词，一次一个）；传 null 即关闭。 */
+  function setEditorMeta(field: EditorMetaField | null): void {
+    state.editorMeta = field
+  }
+
+  /** 关闭编辑器字段弹窗。 */
+  function closeEditorMeta(): void {
+    state.editorMeta = null
   }
 
   function cycleFilter(direction: 1 | -1): void {
@@ -823,6 +856,7 @@ export function createAppStore(repo: Repository = createRepository(platform)) {
       pinned: form.pinned ?? false,
       sensitive: form.sensitive ?? false
     }
+    state.editorMeta = null
     switchView('editor')
   }
 
@@ -880,8 +914,8 @@ export function createAppStore(repo: Repository = createRepository(platform)) {
     state.selectionId = saved.id
   }
 
-  /** 校验并保存编辑器表单；saveAndNew=true 时保存后停留在编辑器继续新建。 */
-  function saveEditor(saveAndNew = false): boolean {
+  /** 校验并保存编辑器表单，成功后返回列表并选中新保存的条目。 */
+  function saveEditor(): boolean {
     const form = state.editor
     if (!form) return false
     const now = Date.now()
@@ -1023,10 +1057,6 @@ export function createAppStore(repo: Repository = createRepository(platform)) {
     if (saved.images && saved.images.length > 0 && state.settings.imageOcrEnabled) {
       void runOcr(saved.id, { onlyMissing: true })
     }
-    if (saveAndNew) {
-      openEditor({ mode: 'new', groupId: form.groupId, tagsText: form.tagsText })
-      return true
-    }
     state.editor = null
     switchView('list')
     revealAfterSave(saved)
@@ -1051,6 +1081,7 @@ export function createAppStore(repo: Repository = createRepository(platform)) {
     }
     repo.clearDraft()
     state.editorImages = {}
+    state.editorMeta = null
     state.editor = null
     switchView('list')
   }
@@ -1342,6 +1373,7 @@ export function createAppStore(repo: Repository = createRepository(platform)) {
     const vis = visibleMemos.value
     const idx = vis.findIndex((m) => m.id === id)
     if (idx === -1) return
+    state.selectionMoveDir = delta
     reorderMemo(id, idx + delta)
     state.selectionId = id
   }
@@ -1412,7 +1444,7 @@ export function createAppStore(repo: Repository = createRepository(platform)) {
   function updateSetting<K extends keyof Settings>(key: K, value: Settings[K]): void {
     state.settings = { ...state.settings, [key]: value }
     repo.saveSettings(state.settings)
-    if (key === 'showPreviewPane') state.previewVisible = Boolean(value)
+    if (key === 'showPreviewPane') state.previewMode = value ? 'split' : 'hidden'
     if (key === 'themeMode') applyTheme()
     // 切换列表展示模式时清空条目级展开开关：模式切换是全局重置，
     // 避免旧开关在 XOR 语义下把刚展开的条目又收起来
@@ -1445,6 +1477,18 @@ export function createAppStore(repo: Repository = createRepository(platform)) {
     else state.expandedItems.add(id)
   }
 
+  /**
+   * 键盘 Space：等价于鼠标单击选中条目——切换内联展开（展开↔收起），
+   * 并拉出收起的预览面板（与条目单击同语义：面板只会被拉出、不会被 Space 收起；
+   * 设置停用面板时 expandPreviewPane 为无操作）。列表为空时无操作。
+   */
+  function activateSelection(): void {
+    const memo = selectedMemo.value
+    if (!memo) return
+    if (state.previewMode === 'hidden') expandPreviewPane()
+    toggleExpanded(memo.id)
+  }
+
   // ---------- 条目右键菜单 ----------
 
   /** 打开条目右键菜单（顺带选中该条目，预览面板同步跟随）。 */
@@ -1457,13 +1501,33 @@ export function createAppStore(repo: Repository = createRepository(platform)) {
     state.contextMenu = null
   }
 
-  // ---------- 预览面板：显隐与行内编辑（focus 编辑态 / 失焦自动保存） ----------
+  // ---------- 预览面板：显隐切换（面板头部收起 / 收起态右缘拉出）与行内编辑 ----------
 
-  /** 切换预览面板显隐（工具栏按钮与 Space 共用；不改动持久化设置）。 */
+  /**
+   * 预览面板显隐切换（Space 与 ⌘/Ctrl+P 共用）：可见（分栏）→ 收起；收起 → 显示。
+   * 设置停用面板（showPreviewPane=false）时为无操作。条目点击不走这里（只会拉出面板）。
+   * 完整编辑（原「全屏编辑」态）统一走编辑器视图（editMemo），不再有第二套全屏编辑样式。
+   */
   function togglePreviewPane(): void {
-    // 编辑中收起面板视同失焦：先自动保存再隐藏
-    commitPreviewEdit()
-    state.previewVisible = !state.previewVisible
+    if (!state.settings.showPreviewPane) return
+    applyPreviewMode(state.previewMode === 'hidden' ? 'split' : 'hidden')
+  }
+
+  /** 显示预览面板（收起后单击折叠条目拉出；已显示或设置停用时保持）。 */
+  function expandPreviewPane(): void {
+    if (!state.settings.showPreviewPane) return
+    applyPreviewMode('split')
+  }
+
+  /** 面板头部 ► 按钮：收起面板（收起态保持）。 */
+  function collapsePreviewPane(): void {
+    applyPreviewMode('hidden')
+  }
+
+  /** 统一落地模式切换：离开可见态先自动保存行内编辑（视同失焦）。 */
+  function applyPreviewMode(mode: PreviewMode): void {
+    if (mode !== state.previewMode && state.previewMode !== 'hidden') commitPreviewEdit()
+    state.previewMode = mode
   }
 
   /**
@@ -1520,6 +1584,14 @@ export function createAppStore(repo: Repository = createRepository(platform)) {
     })
   }
 
+  /**
+   * 放弃行内编辑草稿并回到预览（Esc）：不落盘、不提示；
+   * 保存路径仍是失焦 / Mod+Enter（commitPreviewEdit）。
+   */
+  function cancelPreviewEdit(): void {
+    state.previewEdit = null
+  }
+
   // ---------- 图片全屏与系统查看器 ----------
 
   /** 打开图片全屏浮层（插件窗口内最大展示）；按 memoId+imageId 记录，支持 ←/→ 翻页。 */
@@ -1548,6 +1620,24 @@ export function createAppStore(repo: Repository = createRepository(platform)) {
     state.lightbox = null
   }
 
+  /** 把图片外开/悬浮窗的失败原因转为可操作提示（宿主内可据此定位环境缺哪一环）。 */
+  function toastImageViewFailure(fail: ImageViewOutcome, apiName: string): void {
+    switch (fail.reason) {
+      case 'no-preload':
+        toast(t('toasts.imageViewNoPreload'), { kind: 'error' })
+        break
+      case 'no-host-api':
+        toast(t('toasts.imageViewNoApi', { api: apiName }), { kind: 'error' })
+        break
+      case 'write-failed':
+        toast(t('toasts.imageViewWriteFailed', { detail: fail.detail ?? '' }), { kind: 'error' })
+        break
+      case 'host-call-failed':
+        toast(t('toasts.imageViewCallFailed', { api: apiName, detail: fail.detail ?? '' }), { kind: 'error' })
+        break
+    }
+  }
+
   /** 用系统默认看图软件打开图片（dataURL → 临时文件 → 宿主 shellOpenPath）。 */
   async function openMemoImageExternal(slotId: string): Promise<void> {
     const dataUrl = memoImage(slotId)
@@ -1555,8 +1645,23 @@ export function createAppStore(repo: Repository = createRepository(platform)) {
       toast(t('toasts.imageMissing'), { kind: 'error' })
       return
     }
-    const ok = await platform.openImageExternal(dataUrl)
-    if (!ok) toast(t('toasts.imageOpenFailed'), { kind: 'error' })
+    const out = await platform.openImageExternal(dataUrl)
+    if (!out.ok) toastImageViewFailure(out, 'shellOpenPath')
+  }
+
+  /**
+   * 独立悬浮窗查看图片：把图片原始像素尺寸交给平台层，
+   * 由实现层查询所在屏幕适配初始窗口（≤工作区 80%，最小 360×280，可手动拖大）；不可用时提示。
+   */
+  async function openImageFloat(slotId: string): Promise<void> {
+    const dataUrl = memoImage(slotId)
+    if (!dataUrl) {
+      toast(t('toasts.imageMissing'), { kind: 'error' })
+      return
+    }
+    const meta = state.memos.flatMap((m) => m.images ?? []).find((img) => img.id === slotId)
+    const out = await platform.openImageFloat(dataUrl, { width: meta?.width ?? 0, height: meta?.height ?? 0 })
+    if (!out.ok) toastImageViewFailure(out, 'createBrowserWindow')
   }
 
   // ---------- 图片 OCR ----------
@@ -1686,6 +1791,50 @@ export function createAppStore(repo: Repository = createRepository(platform)) {
     importPlan.value = planImport(state.memos, state.groups, parsed.payload, 'merge', () => newMemoId())
   }
 
+  /** 备忘快贴插件在宿主数据库中的命名空间名。 */
+  const MQP_PLUGIN_NAME = 'memo-quick-paste'
+
+  /**
+   * 从备忘快贴（memo-quick-paste）导入：preload 只读提取宿主数据库里该插件的
+   * 文档与附件 → 转换为导入载荷 → 走与 JSON 导入相同的预览/合并管线。
+   * 只读操作，不改动备忘快贴的数据；提取失败（非安装宿主等）按原因提示。
+   */
+  function importFromMemoQuickPaste(): void {
+    if (!platform.hostData) {
+      console.warn('[snap-memo] platform.hostData 不可用（preload 缺少 readHostPluginData），无法跨插件导入')
+      toast(t('toasts.mqpNoHost'), { kind: 'error' })
+      return
+    }
+    let dump
+    try {
+      dump = platform.hostData.readPlugin(MQP_PLUGIN_NAME)
+    } catch (e) {
+      // 完整错误对象（含 preload 侧诊断日志线索）打进控制台，便于排查；toast 仅显示 message
+      console.error('[snap-memo] 读取备忘快贴宿主数据失败', e)
+      toast(t('toasts.mqpReadFail', { reason: e instanceof Error ? e.message : String(e) }), { kind: 'error' })
+      return
+    }
+    console.info('[snap-memo] 宿主数据提取成功:', {
+      account: dump?.account,
+      docs: dump?.docs?.length ?? 0,
+      attachments: dump?.attachments?.length ?? 0,
+      truncated: dump?.truncated
+    })
+    const result = convertMemoQuickPaste(dump, { newMemoId })
+    if (result.payload.memos.length === 0) {
+      toast(t('toasts.mqpEmpty'), { kind: 'error' })
+      return
+    }
+    lastImportPayload.value = result.payload
+    importPlan.value = planImport(state.memos, state.groups, result.payload, 'merge', () => newMemoId())
+    if (result.missingImages > 0 || result.skippedDocs > 0) {
+      toast(
+        t('toasts.mqpPartial', { images: result.missingImages, skipped: result.skippedDocs }),
+        { kind: 'info', duration: 6000 }
+      )
+    }
+  }
+
   /** 文本导入：分组按名复用/新建，标签与触发词一并带入；重复内容跳过。 */
   function applyTextImport(entries: TextImportEntry[]): void {
     snapshotBeforeBulk('import-text')
@@ -1782,7 +1931,7 @@ export function createAppStore(repo: Repository = createRepository(platform)) {
       state.settings = { ...plan.settingsToApply }
       repo.saveSettings(state.settings)
       applyTheme()
-      state.previewVisible = state.settings.showPreviewPane
+      state.previewMode = state.settings.showPreviewPane ? 'split' : 'hidden'
     }
     toast(
       t('toasts.imported', { add: plan.memosToAdd.length, update: plan.memosToUpdate.length, skip: plan.memosUnchanged.length }),
@@ -2007,6 +2156,8 @@ export function createAppStore(repo: Repository = createRepository(platform)) {
       pageSelection,
       selectMemo,
       patchEditor,
+      setEditorMeta,
+      closeEditorMeta,
       cycleFilter,
       setFilter,
       switchView,
@@ -2061,20 +2212,26 @@ export function createAppStore(repo: Repository = createRepository(platform)) {
       clearUsage,
       toggleReveal,
       toggleExpanded,
+      activateSelection,
       openContextMenu,
       closeContextMenu,
       togglePreviewPane,
+      expandPreviewPane,
+      collapsePreviewPane,
       beginPreviewEdit,
       patchPreviewEdit,
       commitPreviewEdit,
+      cancelPreviewEdit,
       applyTheme,
       setSystemDark,
       openLightboxForMemo,
       stepLightbox,
       closeLightbox,
       openMemoImageExternal,
+      openImageFloat,
       exportData,
       importFromFile,
+      importFromMemoQuickPaste,
       setImportStrategy,
       applyImport,
       cancelImport,

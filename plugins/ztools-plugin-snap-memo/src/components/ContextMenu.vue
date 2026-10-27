@@ -122,28 +122,30 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div
-    v-if="cm && memo && items.length"
-    ref="rootRef"
-    class="ctx-menu"
-    :style="{ left: `${pos.x}px`, top: `${pos.y}px` }"
-    role="menu"
-    tabindex="-1"
-    @contextmenu.prevent
-    @keydown="onMenuKeydown"
-  >
-    <button
-      v-for="item in items"
-      :key="item.key"
-      class="ctx-item"
-      :class="{ danger: item.danger }"
-      role="menuitem"
-      @click="run(item)"
+  <Transition name="scale">
+    <div
+      v-if="cm && memo && items.length"
+      ref="rootRef"
+      class="ctx-menu"
+      :style="{ left: `${pos.x}px`, top: `${pos.y}px` }"
+      role="menu"
+      tabindex="-1"
+      @contextmenu.prevent
+      @keydown="onMenuKeydown"
     >
-      <Icon :name="item.icon" :size="14" />
-      <span>{{ item.label }}</span>
-    </button>
-  </div>
+      <button
+        v-for="item in items"
+        :key="item.key"
+        class="ctx-item"
+        :class="{ danger: item.danger }"
+        role="menuitem"
+        @click="run(item)"
+      >
+        <Icon :name="item.icon" :size="14" />
+        <span>{{ item.label }}</span>
+      </button>
+    </div>
+  </Transition>
 </template>
 
 <style scoped>
@@ -159,6 +161,8 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   outline: none;
+  /* 缩放入场（scale 预设）以指针位置为原点生长 */
+  transform-origin: top left;
 }
 
 .ctx-item {
@@ -174,6 +178,7 @@ onBeforeUnmount(() => {
   cursor: pointer;
   white-space: nowrap;
   text-align: left;
+  transition: background var(--sm-dur-fast) var(--sm-ease-out);
 }
 
 .ctx-item:hover,

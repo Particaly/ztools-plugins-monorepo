@@ -3,7 +3,9 @@
  * 图文混排正文编辑器（contenteditable 自研，无 UI 库依赖）：
  * 正文里的 {img:<slotId>} 标记渲染为行内图片，文字与图片原地混排、随光标编辑；
  * 粘贴图片文件/拖入图片文件在光标处插入（槽分配经 stageImage 回调交给 store），
- * 文本粘贴强制纯文本（拦截富文本 HTML），Enter/Tab 沿用 textarea 语义（换行/两空格缩进）。
+ * 文本粘贴强制纯文本（拦截富文本 HTML），Enter 沿用 textarea 语义（换行）；
+ * 裸 Tab 不拦截：保持浏览器默认的焦点切换（⇧+Tab 反向），保证键盘可达性；
+ * ⌘/Ctrl+Tab 在光标处插入两空格缩进（代码片段缩进入口）。
  *
  * DOM 与数据流：
  * - 只在挂载与外部（程序化）modelValue 变化时整体重建 DOM；用户输入只单向序列化上抛
@@ -122,7 +124,7 @@ function placeCaretAtEnd(): void {
   sel.addRange(range)
 }
 
-/** 在光标处插入文本（textarea 语义：Enter 换行 / Tab 缩进 / 纯文本粘贴共用）。 */
+/** 在光标处插入文本（Enter 换行 / 纯文本粘贴共用）。 */
 function insertTextAtCaret(text: string): void {
   const el = rootRef.value
   const sel = window.getSelection()
@@ -254,10 +256,11 @@ function onDrop(e: DragEvent): void {
   void placeImageFile(file, range)
 }
 
-// ---- 键盘：Enter/Tab 沿用 textarea 语义 ----
+// ---- 键盘：Enter 换行；⌘/Ctrl+Tab 缩进；裸 Tab 不拦截（交还浏览器焦点切换） ----
 
 function onKeydown(e: KeyboardEvent): void {
-  if (e.key === 'Tab' && !e.shiftKey) {
+  const mod = e.metaKey || e.ctrlKey
+  if (e.key === 'Tab' && mod && !e.shiftKey && !e.isComposing) {
     e.preventDefault()
     insertTextAtCaret('  ')
     return

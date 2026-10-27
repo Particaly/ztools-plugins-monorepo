@@ -60,71 +60,81 @@ function deleteGroup(mode: 'keep' | 'delete'): void {
 </script>
 
 <template>
+  <!-- 开合过渡由父级（GroupBar）的挂载点驱动：pop 预设 = 遮罩淡入淡出 + 弹窗缩放入场 -->
   <div class="modal-mask" @click.self="emit('close')">
-    <div class="modal" role="dialog" aria-modal="true" :aria-label="t('groups.title')">
-      <header class="modal-head">
-        <span>{{ t('groups.title') }}</span>
-        <button class="sm-icon-btn" :aria-label="t('help.close')" @click="emit('close')"><Icon name="close" /></button>
-      </header>
-      <div class="new-row">
-        <input
-          ref="newNameRef"
-          v-model="newName"
-          class="sm-input"
-          :placeholder="t('groups.namePlaceholder')"
-          maxlength="30"
-          @keydown="onNewNameKeydown"
-        />
-        <button class="sm-btn primary small" @click="createGroup">{{ t('groups.create') }}</button>
-      </div>
-      <ul class="group-list">
-        <li v-for="(g, i) in store.state.groups" :key="g.id" class="group-row">
-          <div class="ops">
-            <button class="sm-icon-btn" :disabled="i === 0" :aria-label="t('groups.moveUp')" :title="t('groups.moveUp')" @click="moveUp(g)">
-              <Icon name="chevron" style="transform: rotate(180deg)" :size="13" />
-            </button>
-            <button
-              class="sm-icon-btn"
-              :disabled="i === store.state.groups.length - 1"
-              :aria-label="t('groups.moveDown')"
-              :title="t('groups.moveDown')"
-              @click="moveDown(g)"
-            >
-              <Icon name="chevron" :size="13" />
-            </button>
-          </div>
-          <span class="dot" :style="{ background: g.color ?? 'var(--sm-text-3)' }" />
+      <div class="modal" role="dialog" aria-modal="true" :aria-label="t('groups.title')">
+        <header class="modal-head">
+          <span>{{ t('groups.title') }}</span>
+          <button class="sm-icon-btn" :aria-label="t('help.close')" @click="emit('close')"><Icon name="close" /></button>
+        </header>
+        <div class="new-row">
           <input
-            class="sm-input rename"
-            :value="g.name"
+            ref="newNameRef"
+            v-model="newName"
+            class="sm-input"
+            :placeholder="t('groups.namePlaceholder')"
             maxlength="30"
-            :aria-label="g.name"
-            @change="(e) => store.actions.renameGroup(g.id, (e.target as HTMLInputElement).value)"
+            @keydown="onNewNameKeydown"
           />
-          <div class="palette">
-            <button
-              v-for="c in PALETTE"
-              :key="c"
-              class="color-dot"
-              :class="{ active: g.color === c }"
-              :style="{ background: c }"
-              :aria-label="t('groups.colorLabel', { color: c })"
-              @click="store.actions.setGroupColor(g.id, c)"
+          <button class="sm-btn primary small" @click="createGroup">{{ t('groups.create') }}</button>
+        </div>
+        <!-- 分组增删 / 上移下移：slide 预设驱动进出场与重排位移 -->
+        <TransitionGroup name="slide" tag="ul" class="group-list">
+          <li v-for="(g, i) in store.state.groups" :key="g.id" class="group-row">
+            <div class="ops">
+              <button
+                class="sm-icon-btn"
+                :disabled="i === 0"
+                :aria-label="t('groups.moveUp')"
+                :title="t('groups.moveUp')"
+                @click="moveUp(g)"
+              >
+                <Icon name="chevron" style="transform: rotate(180deg)" :size="13" />
+              </button>
+              <button
+                class="sm-icon-btn"
+                :disabled="i === store.state.groups.length - 1"
+                :aria-label="t('groups.moveDown')"
+                :title="t('groups.moveDown')"
+                @click="moveDown(g)"
+              >
+                <Icon name="chevron" :size="13" />
+              </button>
+            </div>
+            <span class="dot" :style="{ background: g.color ?? 'var(--sm-text-3)' }" />
+            <input
+              class="sm-input rename"
+              :value="g.name"
+              maxlength="30"
+              :aria-label="g.name"
+              @change="(e) => store.actions.renameGroup(g.id, (e.target as HTMLInputElement).value)"
             />
+            <div class="palette">
+              <button
+                v-for="c in PALETTE"
+                :key="c"
+                class="color-dot"
+                :class="{ active: g.color === c }"
+                :style="{ background: c }"
+                :aria-label="t('groups.colorLabel', { color: c })"
+                @click="store.actions.setGroupColor(g.id, c)"
+              />
+            </div>
+            <span class="count">{{ t('groups.countSuffix', { count: countOf(g.id) }) }}</span>
+            <button class="sm-icon-btn" :title="t('groups.remove')" @click="deleting = g">
+              <Icon name="trash" />
+            </button>
+          </li>
+        </TransitionGroup>
+        <Transition name="slide">
+          <div v-if="deleting" class="confirm-row">
+            <span>{{ t('groups.deleteQuestion', { name: deleting.name }) }}</span>
+            <button class="sm-btn small" @click="deleteGroup('keep')">{{ t('groups.deleteMove') }}</button>
+            <button class="sm-btn small danger" @click="deleteGroup('delete')">{{ t('groups.deleteWith') }}</button>
+            <button class="sm-btn small" @click="deleting = null">{{ t('groups.cancel') }}</button>
           </div>
-          <span class="count">{{ t('groups.countSuffix', { count: countOf(g.id) }) }}</span>
-          <button class="sm-icon-btn" :title="t('groups.remove')" @click="deleting = g">
-            <Icon name="trash" />
-          </button>
-        </li>
-      </ul>
-      <div v-if="deleting" class="confirm-row">
-        <span>{{ t('groups.deleteQuestion', { name: deleting.name }) }}</span>
-        <button class="sm-btn small" @click="deleteGroup('keep')">{{ t('groups.deleteMove') }}</button>
-        <button class="sm-btn small danger" @click="deleteGroup('delete')">{{ t('groups.deleteWith') }}</button>
-        <button class="sm-btn small" @click="deleting = null">{{ t('groups.cancel') }}</button>
+        </Transition>
       </div>
-    </div>
   </div>
 </template>
 
@@ -171,6 +181,15 @@ function deleteGroup(mode: 'keep' | 'delete'): void {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  /* 离场行改绝对定位（slide 预设的平滑重排需要）时以此为定位上下文 */
+  position: relative;
+}
+
+/* 离场行脱离文档流并保持占宽：余下行由 .slide-move 平滑上移补位 */
+.group-list .slide-leave-active {
+  position: absolute;
+  left: 0;
+  right: 0;
 }
 
 .group-row {
@@ -207,6 +226,7 @@ function deleteGroup(mode: 'keep' | 'delete'): void {
   border: 2px solid transparent;
   cursor: pointer;
   padding: 0;
+  transition: border-color var(--sm-dur-fast) var(--sm-ease-out);
 }
 
 .color-dot.active {

@@ -1,6 +1,7 @@
 /**
- * 基础样式：reset、通用控件（按钮/输入/开关/chip）、滚动条、焦点环、动效约定。
- * 动效只用于状态过渡（≤150ms），并尊重 prefers-reduced-motion。
+ * 基础样式：reset、通用控件（按钮/输入/开关/chip）、滚动条、焦点环、动效预设。
+ * 动效只用于状态过渡：时长/缓动一律引用 theme.css 的 --sm-dur-* / --sm-ease-* 令牌，
+ * 组件内禁止硬编码；Vue 过渡统一用下方预设名（fade / slide / scale / pane / pop）。
  */
 
 *,
@@ -11,14 +12,20 @@
   padding: 0;
 }
 
+/* 全局平滑滚动：所有滚动容器（弹窗正文、预览、编辑器、下拉弹层、页面）的键盘与程序化
+   滚动统一走平滑动画（scroll-behavior 不影响滚轮/拖滚动条，二者本就是原生动效）。
+   依赖瞬时 scrollTop 写入的容器单独覆盖回 auto，如虚拟列表的 .os-viewport（MemoList）。 */
+* {
+  scroll-behavior: smooth;
+}
+
 html,
 body {
   height: 100%;
 }
 
 body {
-  font-family:
-    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  font-family: var(--sm-font-ui);
   font-size: var(--sm-font-m);
   color: var(--sm-text);
   background: var(--sm-bg);
@@ -51,18 +58,70 @@ button {
   border-radius: var(--sm-radius-s);
 }
 
+/* 滚动条：细拇指 + 透明 border 内缩，与容器边缘留出间距，轨道透明融入内容。
+   注意：不要给元素设置 scrollbar-width / scrollbar-color —— Chromium 121+ 中
+   非 auto 值会整体禁用 ::-webkit-scrollbar 伪元素样式，退回原生粗滚动条贴边显示。 */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--sm-border-strong);
-  border-radius: 4px;
+  background-color: var(--sm-border-strong);
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
 }
 
-::-webkit-scrollbar-track {
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--sm-text-3);
+}
+
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
   background: transparent;
+}
+
+/* Firefox：无 ::-webkit-scrollbar 伪元素，用标准属性兜底 */
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--sm-border-strong) transparent;
+  }
+}
+
+/* OverlayScrollbars 虚拟滚动条（备忘列表的覆盖式滚动条）：柔化默认主题——
+   细圆拇指、随明暗主题取色（文本色低透明度，深浅色自动跟随）、加宽隐形热区更易命中。
+   本文件在 overlayscrollbars.css 之后导入，同特异性规则由此处胜出。
+   过渡一律引用动效令牌：reduced-motion 下自动退化为瞬时切换。 */
+.os-theme-dark,
+.os-theme-light {
+  --os-size: 12px; /* 命中区宽度 */
+  --os-padding-perpendicular: 4px; /* 两侧留白 → 拇指仅 4px 细条，悬浮感 */
+  --os-padding-axis: 4px; /* 两端留白 → 拇指不顶到轨道尽头 */
+  --os-track-border-radius: 999px;
+  --os-handle-border-radius: 999px;
+  --os-handle-min-size: 48px;
+  --os-handle-interactive-area-offset: 6px; /* 拇指外侧的隐形热区 */
+  --os-handle-bg: color-mix(in srgb, var(--sm-text) 25%, transparent);
+  --os-handle-bg-hover: color-mix(in srgb, var(--sm-text) 40%, transparent);
+  --os-handle-bg-active: color-mix(in srgb, var(--sm-text) 55%, transparent);
+}
+
+/* 显隐淡入淡出：默认 0.15s 硬切生硬，放宽为 slow 令牌；
+   保留 top/right/bottom/left 过渡（初始化与主题切换时的让位动画） */
+.os-scrollbar {
+  transition: opacity var(--sm-dur-slow) var(--sm-ease-out), visibility var(--sm-dur-slow) var(--sm-ease-out),
+    top var(--sm-dur-base) var(--sm-ease-out), right var(--sm-dur-base) var(--sm-ease-out),
+    bottom var(--sm-dur-base) var(--sm-ease-out), left var(--sm-dur-base) var(--sm-ease-out);
+}
+
+/* 悬停加深 / 按压再加深：跟随 fast→base 令牌的反馈节奏 */
+.os-scrollbar .os-scrollbar-track,
+.os-scrollbar .os-scrollbar-handle {
+  transition: opacity var(--sm-dur-base) var(--sm-ease-out), background-color var(--sm-dur-base) var(--sm-ease-out),
+    border-color var(--sm-dur-base) var(--sm-ease-out), width var(--sm-dur-base) var(--sm-ease-out),
+    height var(--sm-dur-base) var(--sm-ease-out);
 }
 
 /* ---- 通用控件 ---- */
@@ -77,7 +136,7 @@ button {
   background: var(--sm-surface);
   color: var(--sm-text);
   cursor: pointer;
-  transition: background 0.12s ease, border-color 0.12s ease;
+  transition: background var(--sm-dur-fast) var(--sm-ease-out), border-color var(--sm-dur-fast) var(--sm-ease-out);
   white-space: nowrap;
 }
 
@@ -116,7 +175,7 @@ button {
   background: transparent;
   color: var(--sm-text-3);
   cursor: pointer;
-  transition: background 0.12s ease, color 0.12s ease;
+  transition: background var(--sm-dur-fast) var(--sm-ease-out), color var(--sm-dur-fast) var(--sm-ease-out);
   flex: none;
 }
 
@@ -141,19 +200,17 @@ button {
 }
 
 .sm-input,
-.sm-textarea,
-.sm-select {
+.sm-textarea {
   width: 100%;
   padding: 7px 10px;
   border: 1px solid var(--sm-border);
   border-radius: var(--sm-radius-s);
   background: var(--sm-surface);
-  transition: border-color 0.12s ease;
+  transition: border-color var(--sm-dur-fast) var(--sm-ease-out);
 }
 
 .sm-input:focus,
-.sm-textarea:focus,
-.sm-select:focus {
+.sm-textarea:focus {
   outline: none;
   border-color: var(--sm-accent);
 }
@@ -165,7 +222,7 @@ button {
 }
 
 .sm-textarea.mono {
-  font-family: 'SF Mono', Menlo, Consolas, 'Courier New', monospace;
+  font-family: var(--sm-font-mono);
   font-size: var(--sm-font-s);
 }
 
@@ -178,7 +235,7 @@ button {
   background: var(--sm-border-strong);
   border: none;
   cursor: pointer;
-  transition: background 0.15s ease;
+  transition: background var(--sm-dur-base) var(--sm-ease-out);
   flex: none;
 }
 
@@ -191,7 +248,7 @@ button {
   height: 16px;
   border-radius: 50%;
   background: #fff;
-  transition: transform 0.15s ease;
+  transition: transform var(--sm-dur-base) var(--sm-ease-out);
 }
 
 .sm-switch.on {
@@ -216,7 +273,8 @@ button {
   cursor: pointer;
   font-size: var(--sm-font-s);
   white-space: nowrap;
-  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+  transition: background var(--sm-dur-fast) var(--sm-ease-out), color var(--sm-dur-fast) var(--sm-ease-out),
+    border-color var(--sm-dur-fast) var(--sm-ease-out);
   flex: none;
 }
 
@@ -257,6 +315,7 @@ button {
   color: var(--sm-text-2);
   cursor: pointer;
   font-size: var(--sm-font-s);
+  transition: background var(--sm-dur-fast) var(--sm-ease-out), color var(--sm-dur-fast) var(--sm-ease-out);
 }
 
 .sm-seg button.active {
@@ -284,30 +343,180 @@ button {
   border-radius: 2px;
 }
 
-/* 窄窗口（宿主主窗可调宽度）：列表优先，预览面板自动隐藏（宽窗口可用 Space 恢复） */
+/* 窄窗口（宿主主窗可调宽度）：列表优先，预览面板自动隐藏（宽窗口可 Space 恢复或单击条目拉出） */
 @media (max-width: 659px) {
   .preview {
     display: none !important;
   }
 }
 
-/* 淡入位移动效（仅状态过渡） */
+/* ---- 动效预设（Vue <Transition> / <TransitionGroup> 的 name）----
+ * 全项目唯一动效入口：组件只选预设名，时长缓动全部来自 theme.css 令牌。
+ * fade  纯透明度 —— 遮罩、视图切换、无位移元素的显隐；
+ * slide 上滑淡入 + move —— toast、行内提示、小型列表增删（TransitionGroup）；
+ * scale 缩放淡入 —— 右键菜单、悬浮快览、下拉弹层等指针附近的浮层；
+ * pane  宽度生长收合 —— 预览面板贴边展开 / 收起（宽度覆写在 PreviewPane 内）；
+ * fold  高度生长收合 —— 列表条目内联展开 / 收起（起止高度由组件 JS 钩子量取内联写入）；
+ * pop   遮罩淡入淡出 + .modal 缩放入场 —— 所有居中弹窗（作用于遮罩一层）。
+ */
+
 .fade-enter-active,
 .fade-leave-active {
-  transition: opacity 0.13s ease, transform 0.13s ease;
+  transition: opacity var(--sm-dur-base) var(--sm-ease-out);
+}
+
+.fade-leave-active {
+  transition-duration: var(--sm-dur-fast);
 }
 
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
-  transform: translateY(4px);
 }
 
+.fade-move {
+  transition: transform var(--sm-dur-slow) var(--sm-ease-in-out);
+}
+
+.slide-enter-active {
+  transition: opacity var(--sm-dur-base) var(--sm-ease-out), transform var(--sm-dur-base) var(--sm-ease-out);
+}
+
+.slide-leave-active {
+  transition: opacity var(--sm-dur-fast) var(--sm-ease-in), transform var(--sm-dur-fast) var(--sm-ease-in);
+}
+
+.slide-enter-from,
+.slide-leave-to {
+  opacity: 0;
+  transform: translateY(var(--sm-move-s));
+}
+
+.slide-move {
+  transition: transform var(--sm-dur-slow) var(--sm-ease-in-out);
+}
+
+.scale-enter-active {
+  transition: opacity var(--sm-dur-base) var(--sm-ease-out), transform var(--sm-dur-base) var(--sm-ease-out);
+}
+
+.scale-leave-active {
+  transition: opacity var(--sm-dur-fast) var(--sm-ease-in), transform var(--sm-dur-fast) var(--sm-ease-in);
+}
+
+.scale-enter-from,
+.scale-leave-to {
+  opacity: 0;
+  transform: scale(0.96);
+}
+
+/* pane 宽度生长 + 淡入淡出 —— 预览面板贴边展开 / 收起（列表平滑让位，宽度覆写在组件内） */
+.pane-enter-active {
+  transition: width var(--sm-dur-slow) var(--sm-ease-out), opacity var(--sm-dur-base) var(--sm-ease-out);
+}
+
+.pane-leave-active {
+  transition: width var(--sm-dur-slow) var(--sm-ease-in-out), opacity var(--sm-dur-fast) var(--sm-ease-in);
+}
+
+.pane-enter-from,
+.pane-leave-to {
+  opacity: 0;
+}
+
+/*
+ * fold 高度生长收合 + 淡入淡出 —— 列表条目内联展开 / 收起。
+ * CSS 过渡不了 auto 高度：起止值由组件的 before-enter/enter、before-leave/leave 钩子
+ * 量取 scrollHeight 后内联写入，这里只声明时长缓动与裁切。
+ * 高度在 enter/leave 两分支上保持同时长同缓动：v-if 双分支同时动画时，
+ * 行内总高度恰为旧值到新值的连续插值（摘要行收合的量与展开区长出的量互补）。
+ */
+.fold-enter-active,
+.fold-leave-active {
+  overflow: hidden;
+  transition: height var(--sm-dur-slow) var(--sm-ease-in-out), opacity var(--sm-dur-base) var(--sm-ease-out);
+}
+
+.fold-leave-active {
+  transition: height var(--sm-dur-slow) var(--sm-ease-in-out), opacity var(--sm-dur-fast) var(--sm-ease-in);
+}
+
+.fold-enter-from,
+.fold-leave-to {
+  opacity: 0;
+}
+
+/* pop：遮罩自身淡入淡出；.modal 内容叠加缩放入场（遮罩单层 Transition 驱动两层动效） */
+.pop-enter-active {
+  transition: opacity var(--sm-dur-slow) var(--sm-ease-out);
+}
+
+.pop-leave-active {
+  transition: opacity var(--sm-dur-fast) var(--sm-ease-in);
+}
+
+.pop-enter-from,
+.pop-leave-to {
+  opacity: 0;
+}
+
+.pop-enter-active .modal {
+  transition: transform var(--sm-dur-slow) var(--sm-ease-out);
+}
+
+.pop-enter-from .modal {
+  transform: scale(0.96) translateY(var(--sm-move-s));
+}
+
+.pop-leave-active .modal {
+  transition: transform var(--sm-dur-fast) var(--sm-ease-in);
+}
+
+.pop-leave-to .modal {
+  transform: scale(0.97);
+}
+
+/* 骨架屏呼吸：两个加载占位共用的氛围动画（时长/缓动走令牌） */
+@keyframes sm-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
+/* 原生滚动条统一为细圆角样式：主列表用 OverlayScrollbars 覆盖式滚动条（不走这里），
+   其余滚动容器（设置/数据/预览/编辑器等）保持观感一致；颜色走令牌随明暗主题翻转 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  border-radius: 4px;
+  background: var(--sm-border-strong);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--sm-text-3);
+}
+
+/* 减弱动态效果：令牌已在 theme.css 坍缩为 1ms，这里兜底拦截
+   未走令牌的时长（防回归），并停掉无限循环的氛围动画 */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

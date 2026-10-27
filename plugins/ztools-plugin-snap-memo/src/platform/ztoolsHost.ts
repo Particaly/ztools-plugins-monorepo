@@ -4,11 +4,16 @@
  */
 import type {
   DynamicFeatureInput,
+  FontFileRequest,
+  FontFileResult,
+  HostPluginDump,
+  ImageViewOutcome,
   PasteOutcome,
   PlatformApi,
   PluginEnterAction
 } from './types'
 import { parseDataUrl } from '../core/image'
+import { fitFloatWindowSize, FLOAT_WIN_MIN_H, FLOAT_WIN_MIN_W } from '../core/floatWindow'
 import { extractOcrText } from '../core/ocr'
 
 /** 惰性取宿主对象；页面加载早期可能尚未注入。 */
@@ -244,27 +249,184 @@ async function readClipboardImage(): Promise<string | null> {
   return null
 }
 
+/** 失败时打 console（宿主 devtools 可见）并返回分级结果。 */
+function imageViewFail(where: string, reason: ImageViewOutcome['reason'], detail?: string): ImageViewOutcome {
+  console.warn(`[snap-memo] ${where} 失败：${reason}${detail ? ` — ${detail}` : ''}`)
+  return { ok: false, reason, detail }
+}
+
+/**
+ * 写临时文件前的 dataURL 结构预检（与 preload 白名单同口径）：
+ * 问题直接在渲染层报出并可定位（前缀/结构/载荷），不再依赖宿主端笼统的「图片数据无效」。
+ */
+function describeDataUrlIssue(dataUrl: string): string | null {
+  if (!dataUrl.startsWith('data:')) return `非 dataURL（前缀「${dataUrl.slice(0, 24)}」）`
+  const m = /^data:([a-z]+\/[a-z0-9.+-]+);base64,([\s\S]+)$/i.exec(dataUrl.trim())
+  if (!m) return `dataURL 结构或 MIME 异常（前缀「${dataUrl.slice(0, 40)}」）`
+  if (!m[2]) return 'base64 载荷为空'
+  return null
+}
+
 /**
  * 用系统默认看图软件打开图片：先把 dataURL 经 preload 写入受控临时文件，
- * 再调用宿主 shellOpenPath（按扩展名交给系统默认应用）。任一环节不可用返回 false。
+ * 再走宿主 shellOpenPath（按扩展名交给系统默认应用）。ZTools 未适配 shellOpenPath 时
+ * 回退已实现的 shellOpenExternal(file://)——同样由系统按文件关联打开。
  */
-async function openImageExternal(dataUrl: string): Promise<boolean> {
+async function openImageExternal(dataUrl: string): Promise<ImageViewOutcome> {
   const p = preload()
-  if (!p || typeof p.writeTempImage !== 'function') return false
+  if (!p || typeof p.writeTempImage !== 'function') {
+    return imageViewFail('系统打开', 'no-preload')
+  }
+  const issue = describeDataUrlIssue(dataUrl)
+  if (issue) return imageViewFail('系统打开', 'write-failed', issue)
   let filePath = ''
   try {
     filePath = p.writeTempImage(dataUrl)
-  } catch {
-    return false
+  } catch (e) {
+    return imageViewFail('系统打开', 'write-failed', e instanceof Error ? e.message : String(e))
   }
   const api = z()
   if (api && typeof api.shellOpenPath === 'function') {
-    return safe(() => {
+    return safe<{ ok: true } | ImageViewOutcome>(() => {
       api.shellOpenPath(filePath)
-      return true
-    }, false)
+      return { ok: true }
+    }, imageViewFail('系统打开', 'host-call-failed', 'shellOpenPath'))
   }
-  return false
+  if (api && typeof api.shellOpenExternal === 'function') {
+    return safe<{ ok: true } | ImageViewOutcome>(() => {
+      api.shellOpenExternal(fileUrlOf(filePath))
+      return { ok: true }
+    }, imageViewFail('系统打开', 'host-call-failed', 'shellOpenExternal'))
+  }
+  return imageViewFail('系统打开', 'no-host-api', 'shellOpenPath / shellOpenExternal 均不可用')
+}
+
+/** createBrowserWindow 窗实例的最小结构（按 zbw.d.ts 收窄为本插件用到的方法）。 */
+interface FloatWindowHandle {
+  webContents?: { executeJavaScript?<T = unknown>(code: string, userGesture?: boolean): Promise<T> }
+  setSize?(width: number, height: number): void
+  show?(): void
+  moveTop?(): void
+  setAlwaysOnTop?(flag: boolean): void
+  isDestroyed?(): boolean
+}
+
+/** 图片悬浮窗单例：已打开时复用窗口换图，避免重复开窗闪烁。 */
+let floatWin: FloatWindowHandle | null = null
+
+/** 悬浮窗实例是否仍然存活（销毁后 isDestroyed 可能抛错，一并收敛为已销毁）。 */
+function floatWinAlive(): boolean {
+  if (!floatWin) return false
+  return safe(() => floatWin?.isDestroyed?.() === false, true)
+}
+
+/** 临时文件绝对路径 → file:// URL（Windows 反斜杠归一 + 非 ASCII/空格编码）。 */
+function fileUrlOf(filePath: string): string {
+  return encodeURI(`file:///${filePath.replace(/\\/g, '/')}`)
+}
+
+/** 从宿主 Display 读取工作区宽高（缺失/异常返回 null）。 */
+function readWorkArea(display: unknown): { width: number; height: number } | null {
+  const d = display as { workArea?: { width?: number; height?: number }; bounds?: { width?: number; height?: number } } | null
+  const area = d?.workArea ?? d?.bounds
+  const width = area?.width ?? 0
+  const height = area?.height ?? 0
+  return width > 0 && height > 0 ? { width, height } : null
+}
+
+/**
+ * 光标所在屏幕的工作区（扣除任务栏）：悬浮窗初始尺寸的 80% 上限以此为基准。
+ * 光标屏不可用回退主屏，宿主能力缺失回退 1920×1080。
+ */
+function cursorWorkArea(): { width: number; height: number } {
+  const api = z()
+  if (api && typeof api.getCursorScreenPoint === 'function' && typeof api.getDisplayNearestPoint === 'function') {
+    const near = safe(() => readWorkArea(api.getDisplayNearestPoint(api.getCursorScreenPoint())), null)
+    if (near) return near
+  }
+  if (api && typeof api.getPrimaryDisplay === 'function') {
+    const primary = safe(() => readWorkArea(api.getPrimaryDisplay()), null)
+    if (primary) return primary
+  }
+  return { width: 1920, height: 1080 }
+}
+
+/** 向悬浮窗注入图片（窗口存活时换图、调整尺寸并置顶展示）。 */
+function showInFloatWindow(fileUrl: string, width: number, height: number): void {
+  safe(() => {
+    floatWin?.setSize?.(width, height)
+    void floatWin?.webContents?.executeJavaScript?.(`showImage(${JSON.stringify(fileUrl)})`)
+    floatWin?.show?.()
+    floatWin?.moveTop?.()
+    floatWin?.setAlwaysOnTop?.(true)
+  }, undefined)
+}
+
+/**
+ * 独立悬浮窗查看图片：写临时文件后，用宿主 createBrowserWindow 打开打包内
+ * float-image.html（无边框、置顶、可缩放拖拽的独立 Electron 窗口，主窗口隐藏后仍停留），
+ * 加载完成经 executeJavaScript 注入 file:// 图片地址；窗口已存活时复用并换图、调尺寸。
+ * 初始尺寸按原图比例适配光标所在屏幕工作区的 80%（最小 360×280、小图最多放大 2 倍），
+ * 窗口不设 max 约束——用户手动拖拽可超过该限制。置顶三重保障：构造参数（含宿主
+ * api-types 的 alwayOnTop 拼写）+ 加载完成后 setAlwaysOnTop + 复用路径 setAlwaysOnTop。
+ * 成功判定为「宿主调用未抛错」——不同宿主返回值实现不一，可能不给句柄。
+ */
+async function openImageFloat(dataUrl: string, image: { width: number; height: number }): Promise<ImageViewOutcome> {
+  const p = preload()
+  if (!p || typeof p.writeTempImage !== 'function') {
+    return imageViewFail('悬浮窗', 'no-preload')
+  }
+  const issue = describeDataUrlIssue(dataUrl)
+  if (issue) return imageViewFail('悬浮窗', 'write-failed', issue)
+  let filePath = ''
+  try {
+    filePath = p.writeTempImage(dataUrl)
+  } catch (e) {
+    return imageViewFail('悬浮窗', 'write-failed', e instanceof Error ? e.message : String(e))
+  }
+  const api = z()
+  if (!api || typeof api.createBrowserWindow !== 'function') {
+    return imageViewFail('悬浮窗', 'no-host-api', 'createBrowserWindow 不可用')
+  }
+  const fileUrl = fileUrlOf(filePath)
+  const { width, height } = fitFloatWindowSize(image, cursorWorkArea())
+  if (floatWinAlive()) {
+    showInFloatWindow(fileUrl, width, height)
+    return { ok: true }
+  }
+  floatWin = safe(
+    () =>
+      api.createBrowserWindow(
+        'float-image.html',
+        {
+          width,
+          height,
+          minWidth: FLOAT_WIN_MIN_W,
+          minHeight: FLOAT_WIN_MIN_H,
+          frame: false,
+          resizable: true,
+          useContentSize: true,
+          autoHideMenuBar: true,
+          backgroundColor: '#10131c',
+          title: '图片悬浮窗',
+          skipTaskbar: true,
+          // 置顶（构造参数）：api-types 声明的 alwayOnTop 是宿主包装层约定，Electron 原生为 alwaysOnTop，两种都传
+          alwaysOnTop: true,
+          alwayOnTop: true,
+          // 不设 max 尺寸约束：初始尺寸按屏幕 80% 适配，用户手动拖拽不受限
+          webPreferences: { zoomFactor: 1 }
+        },
+        () => {
+          // 加载完成后注入图址并置顶（实例方法兜底，构造参数可能被宿主忽略）
+          safe(() => {
+            void floatWin?.webContents?.executeJavaScript?.(`showImage(${JSON.stringify(fileUrl)})`)
+            floatWin?.setAlwaysOnTop?.(true)
+          }, undefined)
+        }
+      ) as unknown as FloatWindowHandle | null,
+    null
+  )
+  return { ok: true }
 }
 
 /** 弹对话框选择图片文件，经 preload 读为 dataURL；浏览器兜底 file input。 */
@@ -466,6 +628,7 @@ export function createZtoolsPlatform(): PlatformApi {
     pasteImage,
     readClipboardImage,
     openImageExternal,
+    openImageFloat,
     db: {
       getDoc<T>(id: string) {
         const api = z()
@@ -587,6 +750,44 @@ export function createZtoolsPlatform(): PlatformApi {
       pickAndReadText,
       pickSaveAndWrite,
       pickImage
+    },
+    get fonts() {
+      const api = z()
+      const p = preload()
+      // pluginData（插件独立数据目录）尚未收录进 ztools-api-types 1.0.3，宿主实际支持，这里放宽取名
+      if (!api || typeof api.getPath !== 'function' || !p || typeof p.ensureFontFiles !== 'function') return null
+      const getPathLoose = api as unknown as { getPath(name: string): string }
+      // 首选 pluginData；宿主未提供时退回宿主 userData（snap-memo-fonts 前缀避免与其他插件冲突）
+      const pluginData = safe(() => getPathLoose.getPath('pluginData'), '')
+      const dir = pluginData
+        ? `${pluginData}/snap-memo-fonts`
+        : (() => {
+            const userData = safe(() => api.getPath('userData'), '')
+            return userData ? `${userData}/snap-memo-fonts` : ''
+          })()
+      if (!dir) return null
+      return {
+        dataDir(): string {
+          return dir
+        },
+        ensureFiles(items: FontFileRequest[]): Promise<FontFileResult[] | null> {
+          // 字体缓存路径由 core/fonts.ts 以 dir 拼出（不受用户输入影响），preload 侧仍有白名单兜底
+          return safeAsync(() => p.ensureFontFiles(items), null)
+        }
+      }
+    },
+    get hostData() {
+      const p = preload()
+      // 提取失败的中文 Error 由 preload 抛出并向上传递（导入入口捕获后提示原因），不在这里吞掉
+      if (!p || typeof p.readHostPluginData !== 'function') {
+        console.warn('[snap-memo] preload.readHostPluginData 不可用，跨插件导入能力降级为 null')
+        return null
+      }
+      return {
+        readPlugin(pluginName: string): HostPluginDump {
+          return p.readHostPluginData(pluginName) as HostPluginDump
+        }
+      }
     },
     get ocr() {
       const api = z()

@@ -94,41 +94,28 @@ watch(
   { immediate: true }
 )
 
-// ---- 高度管理：视图/密度/展示模式变化时调整插件区高度，避免跳动 ----
+// ---- 高度管理：所有视图统一窗口高度（首页/编辑/设置/数据一致，切换不跳动） ----
 
-const viewHeights: Record<string, number> = {
-  list: 520,
-  editor: 580,
-  settings: 470,
-  data: 500
+/** 插件窗口高度（px）；取原各视图最大值，保证编辑器与完整列表模式都放得下。 */
+const PLUGIN_HEIGHT = 580
+
+platform.setExpendHeight(PLUGIN_HEIGHT)
+
+// 视图切换过渡（out-in）会延迟新视图挂载，聚焦改在过渡完成后执行
+function onViewEntered(): void {
+  if (store.state.view === 'list') {
+    if (subInput.value) subInput.value.focus()
+    else searchFallbackRef.value?.focus()
+  }
 }
-
-watch(
-  () => [
-    store.state.view,
-    store.state.settings.density,
-    store.state.settings.listMode,
-    store.state.pendingPaste !== null
-  ] as const,
-  ([view, density, listMode, hasDialog]) => {
-    let h = viewHeights[view] ?? 520
-    if (view === 'list') {
-      if (density === 'compact') h = 460
-      else if (listMode === 'full') h = 640
-    }
-    if (hasDialog) h = Math.max(h, 420)
-    platform.setExpendHeight(h)
-  },
-  { immediate: true }
-)
 
 watch(
   () => store.state.view,
   (view) => {
-    if (view === 'list') {
-      if (subInput.value) subInput.value.focus()
-      else searchFallbackRef.value?.focus()
-    }
+    if (view !== 'list') return
+    // 无过渡的直接聚焦兜底：reduced-motion / 过渡被跳过时 after-enter 不触发
+    if (subInput.value) subInput.value.focus()
+    else searchFallbackRef.value?.focus()
   }
 )
 
@@ -152,6 +139,19 @@ function isInteractiveTarget(e: KeyboardEvent): boolean {
   return Boolean(el.closest('button, input, textarea, select, a[href], [tabindex]'))
 }
 
+/**
+ * 焦点在键盘可达的可激活控件（按钮/输入/链接/tabindex≥0 的控件）上时，
+ * Enter/Space/方向键等列表快捷键放行原生行为：否则 Tab 导航到按钮后按回车会误触发粘贴、
+ * 空格会误开预览面板。列表行的 tabindex="-1" 是程序化聚焦标记（点击行后仍要回车粘贴），不计入。
+ */
+function isActivatableTarget(e: KeyboardEvent): boolean {
+  const el = e.target as HTMLElement | null
+  if (!el) return false
+  return Boolean(
+    el.closest('button, input, textarea, select, a[href], [contenteditable], [tabindex]:not([tabindex="-1"])')
+  )
+}
+
 /** 给当前选中条目打开右键菜单（Menu / Shift+F10）：定位到选中行所在屏幕位置。 */
 function openMenuForSelection(): void {
   const id = store.state.selectionId
@@ -170,6 +170,14 @@ function onGlobalKeydown(e: KeyboardEvent): void {
   const mod = isMac ? e.metaKey : e.ctrlKey
   const key = e.key
 
+  // 自定义下拉浮层（SmSelect）打开时：按键全部交给组件自身（↑↓ 高亮 / Enter 选中 /
+  // Esc、Tab 关闭），不触发列表/编辑器级快捷键（否则方向键移动选中、Esc 直接关编辑器）
+  if (e.target instanceof Element && e.target.closest('.sm-select[data-open]')) return
+
+  // 编辑器标题行内编辑（下划线态）：Esc 还原修改、Enter 跳正文由输入框自行处理；
+  // 其余按键（含 Mod+Enter 保存）照常走全局路由
+  if (e.target instanceof Element && e.target.closest('.title-input') && !(mod && key === 'Enter')) return
+
   // 图片全屏浮层打开：Esc 关闭、←/→ 在图片条目间切换，其余按键不穿透（避免误触发列表操作）
   if (store.state.lightbox) {
     if (key === 'Escape') {
@@ -185,12 +193,15 @@ function onGlobalKeydown(e: KeyboardEvent): void {
     return
   }
 
-  // 预览面板行内编辑态：Mod+Enter 或 Esc 结束编辑（与失焦一样自动保存）；
+  // 预览面板行内编辑态：Mod+Enter（或失焦）自动保存；Esc 放弃修改退回预览；
   // 其余按键不拦截（正文自由输入），也屏蔽列表快捷键（回车粘贴/方向键选择/Del 删除等）
   if (store.state.previewEdit) {
-    if ((mod && key === 'Enter') || key === 'Escape') {
+    if (mod && key === 'Enter') {
       e.preventDefault()
       store.actions.commitPreviewEdit()
+    } else if (key === 'Escape') {
+      e.preventDefault()
+      store.actions.cancelPreviewEdit()
     }
     return
   }
@@ -225,9 +236,9 @@ function onGlobalKeydown(e: KeyboardEvent): void {
     return
   }
 
-  // 快捷键帮助浮层：Esc / ? 关闭
+  // 快捷键帮助浮层：Esc / F1 关闭
   if (store.state.helpVisible) {
-    if (key === 'Escape' || key === '?') {
+    if (key === 'Escape' || key === 'F1') {
       e.preventDefault()
       store.actions.toggleHelp(false)
     }
@@ -243,11 +254,21 @@ function onGlobalKeydown(e: KeyboardEvent): void {
     return
   }
 
-  // 编辑器视图：Mod+Enter 保存、Mod+Shift+Enter 保存并新建；Esc 关闭（含未保存确认）
+  // 编辑器字段弹窗（顶栏分组/标签/触发词徽片点开）打开：只响应 Esc 关闭，
+  // 其余快捷键不穿透（否则回车会误保存、方向键误触正文编辑器）
+  if (store.state.view === 'editor' && store.state.editorMeta) {
+    if (key === 'Escape') {
+      e.preventDefault()
+      store.actions.closeEditorMeta()
+    }
+    return
+  }
+
+  // 编辑器视图：Mod+Enter 保存；Esc 关闭（含未保存确认）
   if (store.state.view === 'editor') {
     if (mod && key === 'Enter') {
       e.preventDefault()
-      store.actions.saveEditor(e.shiftKey)
+      store.actions.saveEditor()
       return
     }
     if (key === 'Escape') {
@@ -267,6 +288,16 @@ function onGlobalKeydown(e: KeyboardEvent): void {
   }
 
   // ---- 列表视图 ----
+
+  // 焦点在可激活控件上（Tab 导航后的按钮/下拉触发器等）：激活类按键交还原生行为，
+  // 不触发列表快捷键（回车粘贴 / 空格预览开关 / 方向键移动选中 / 删除条目）
+  if (
+    isActivatableTarget(e) &&
+    ['Enter', ' ', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown', 'Delete', 'Backspace'].includes(key)
+  ) {
+    return
+  }
+
   switch (key) {
     case 'ArrowUp':
       e.preventDefault()
@@ -327,19 +358,25 @@ function onGlobalKeydown(e: KeyboardEvent): void {
         e.preventDefault()
         store.actions.setQuery('')
         subInput.value?.setValue('')
+      } else if (store.state.previewMode === 'split' && store.computed.selectedMemo.value) {
+        // 预览面板展开中：先收起面板，再按一次 Esc 才退出插件
+        e.preventDefault()
+        store.actions.collapsePreviewPane()
       } else {
-        // 无搜索词：交给宿主分步退出；浏览器开发态自行退出
+        // 无搜索词且面板已收起：交给宿主分步退出；浏览器开发态自行退出
         platform.outPlugin()
       }
       return
     case ' ':
-      if (!isTypingTarget(e) && !store.state.query) {
+      // Space = 鼠标单击选中条目的键盘等价（展开/收起 + 拉出收起的预览面板）；多选模式下为切换多选。
+      // 焦点须在页面上（输入框内由 isTypingTarget 拦下；宿主子输入框不转发 Space）
+      if (!isTypingTarget(e)) {
         e.preventDefault()
         if (store.state.batchMode) {
           const id = store.state.selectionId
           if (id) store.actions.toggleBatchSelection(id)
         } else {
-          store.actions.togglePreviewPane()
+          store.actions.activateSelection()
         }
       }
       return
@@ -450,7 +487,8 @@ function onGlobalKeydown(e: KeyboardEvent): void {
     return
   }
 
-  if (key === '?' && !isTypingTarget(e)) {
+  // F1 打开帮助：功能键不产生字符，搜索框/输入框聚焦时也不会误输入
+  if (key === 'F1') {
     e.preventDefault()
     store.actions.toggleHelp()
   }
@@ -475,18 +513,31 @@ function focusSearch(): void {
 
 <template>
   <div class="app" v-bind="themeAttrs">
-    <template v-if="store.state.view === 'list'">
-      <SearchFallback v-if="showFallbackSearch" ref="searchFallbackRef" :store="store" />
-      <GroupBar :store="store" @focus-search="focusSearch" />
-      <div class="list-wrap">
-        <MemoList :store="store" />
-        <PreviewPane v-if="store.state.previewVisible" :store="store" />
+    <!-- 视图切换：out-in 交叉淡入淡出（时长/缓动走 base.css 的 fade 预设令牌） -->
+    <Transition name="fade" mode="out-in" @after-enter="onViewEntered">
+      <div v-if="store.state.view === 'list'" key="view-list" class="view-stack">
+        <SearchFallback v-if="showFallbackSearch" ref="searchFallbackRef" :store="store" />
+        <GroupBar :store="store" @focus-search="focusSearch" />
+        <div class="list-wrap">
+          <MemoList :store="store" />
+          <!--
+            预览面板显隐：面板头部 ► 收起；收起后无常驻拉出按钮，
+            单击列表条目重新展开（宽度生长动画），Space / ⌘/Ctrl+P 亦可切换。
+          -->
+          <!-- 预览面板：贴边宽度生长展开 / 收起（pane 预设）；无选中条目时本来就无 DOM，条件等价 -->
+          <Transition name="pane">
+            <PreviewPane
+              v-if="store.state.previewMode !== 'hidden' && store.computed.selectedMemo.value"
+              :store="store"
+            />
+          </Transition>
+        </div>
+        <BatchBar :store="store" />
       </div>
-      <BatchBar :store="store" />
-    </template>
-    <EditorPanel v-else-if="store.state.view === 'editor'" :store="store" />
-    <SettingsPage v-else-if="store.state.view === 'settings'" :store="store" />
-    <DataPage v-else-if="store.state.view === 'data'" :store="store" />
+      <EditorPanel v-else-if="store.state.view === 'editor'" key="view-editor" :store="store" />
+      <SettingsPage v-else-if="store.state.view === 'settings'" key="view-settings" :store="store" />
+      <DataPage v-else key="view-data" :store="store" />
+    </Transition>
     <HintBar :store="store" />
     <FillInDialog :store="store" />
     <ImageLightbox :store="store" />
@@ -507,10 +558,19 @@ function focusSearch(): void {
   overflow: hidden;
 }
 
+/* 视图切换过渡的布局容器：接替原列表分支在 .app 中的 flex 位置 */
+.view-stack {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
 .list-wrap {
   flex: 1;
   display: flex;
   min-height: 0;
+  position: relative;
 }
 </style>
 

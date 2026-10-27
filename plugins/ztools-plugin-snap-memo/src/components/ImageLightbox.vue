@@ -103,41 +103,44 @@ const transformStyle = computed(() => ({
 </script>
 
 <template>
-  <div
-    v-if="current"
-    ref="rootRef"
-    class="lightbox"
-    role="dialog"
-    :aria-label="t('image.lightboxClose')"
-    @click="close"
-    @wheel="onWheel"
-  >
-    <img
-      :src="url"
-      :class="{ loaded }"
-      alt=""
-      draggable="false"
-      :style="transformStyle"
-      @load="loaded = true"
-      @click.stop
-      @dblclick="reset"
-      @pointerdown="onPointerDown"
-      @pointermove="onPointerMove"
-      @pointerup="onPointerUp"
-      @pointercancel="onPointerUp"
-    />
-    <template v-if="imageList.length > 1">
-      <button class="nav prev" :title="t('image.prevImage')" :aria-label="t('image.prevImage')" @click.stop="step(-1)">
-        <Icon name="chevron-left" :size="18" />
-      </button>
-      <button class="nav next" :title="t('image.nextImage')" :aria-label="t('image.nextImage')" @click.stop="step(1)">
-        <Icon name="chevron-right" :size="18" />
-      </button>
-      <span class="counter" @click.stop>{{ counterText }}</span>
-    </template>
-    <button class="zoom-badge" :title="t('image.resetZoom')" @click.stop="reset">{{ Math.round(scale * 100) }}%</button>
-    <span class="zoom-hint">{{ t('image.zoomHint') }}</span>
-  </div>
+  <!-- 全屏浮层开合：遮罩整体淡入淡出 -->
+  <Transition name="fade">
+    <div
+      v-if="current"
+      ref="rootRef"
+      class="lightbox"
+      role="dialog"
+      :aria-label="t('image.lightboxClose')"
+      @click="close"
+      @wheel="onWheel"
+    >
+      <img
+        :src="url"
+        :class="{ loaded }"
+        alt=""
+        draggable="false"
+        :style="transformStyle"
+        @load="loaded = true"
+        @click.stop
+        @dblclick="reset"
+        @pointerdown="onPointerDown"
+        @pointermove="onPointerMove"
+        @pointerup="onPointerUp"
+        @pointercancel="onPointerUp"
+      />
+      <template v-if="imageList.length > 1">
+        <button class="nav prev" :title="t('image.prevImage')" :aria-label="t('image.prevImage')" @click.stop="step(-1)">
+          <Icon name="chevron-left" :size="18" />
+        </button>
+        <button class="nav next" :title="t('image.nextImage')" :aria-label="t('image.nextImage')" @click.stop="step(1)">
+          <Icon name="chevron-right" :size="18" />
+        </button>
+        <span class="counter" @click.stop>{{ counterText }}</span>
+      </template>
+      <button class="zoom-badge" :title="t('image.resetZoom')" @click.stop="reset">{{ Math.round(scale * 100) }}%</button>
+      <span class="zoom-hint">{{ t('image.zoomHint') }}</span>
+    </div>
+  </Transition>
 </template>
 
 <style scoped>
@@ -159,7 +162,8 @@ const transformStyle = computed(() => ({
   border-radius: var(--sm-radius-m);
   box-shadow: var(--sm-shadow-2);
   cursor: grab;
-  transition: transform 0.05s linear, opacity 0.15s ease;
+  /* 跟手缩放：instant 令牌保证滚轮缩放即时响应，解码淡入走 base 时长 */
+  transition: transform var(--sm-dur-instant) var(--sm-ease-linear), opacity var(--sm-dur-base) var(--sm-ease-out);
   touch-action: none;
   opacity: 0;
 }
@@ -186,7 +190,7 @@ const transformStyle = computed(() => ({
   background: rgba(255, 255, 255, 0.12);
   color: #fff;
   cursor: pointer;
-  transition: background 0.12s ease;
+  transition: background var(--sm-dur-fast) var(--sm-ease-out);
 }
 
 .nav:hover {
@@ -228,6 +232,7 @@ const transformStyle = computed(() => ({
   line-height: 1;
   padding: 5px 9px;
   cursor: pointer;
+  transition: background var(--sm-dur-fast) var(--sm-ease-out);
 }
 
 .zoom-badge:hover {

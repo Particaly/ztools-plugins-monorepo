@@ -4,9 +4,23 @@
  * 不承诺任何持久化语义（localStorage 容量小、可被清空）。
  */
 import type { PlatformApi, PluginEnterAction } from './types'
+import { fitFloatWindowSize } from '../core/floatWindow'
 
 const LS_DOC_PREFIX = 'snapmemo:doc:'
 const LS_KV_PREFIX = 'snapmemo:kv:'
+
+/**
+ * dataURL → Blob URL（开发态供 window.open 使用）：
+ * Chromium 阻止顶层 data: 导航，blob: 不受限；失败返回 null（调用方提示）。
+ */
+async function dataUrlToBlobUrl(dataUrl: string): Promise<string | null> {
+  try {
+    const blob = await (await fetch(dataUrl)).blob()
+    return URL.createObjectURL(blob)
+  } catch {
+    return null
+  }
+}
 
 let enterHandler: ((action: PluginEnterAction) => void) | null = null
 let outHandler: (() => void) | null = null
@@ -78,9 +92,24 @@ export function createBrowserPlatform(): PlatformApi {
       // 浏览器安全模型不允许直接读剪贴板图片，开发态一律视为无图片
       return null
     },
-    async openImageExternal() {
-      // 浏览器开发态没有临时文件与 shell 能力，系统查看器入口不可用（UI 会提示失败）
-      return false
+    async openImageExternal(dataUrl) {
+      // 浏览器开发态：转 Blob URL 新标签页打开（Chromium 阻止顶层 data: 导航，blob: 不受限）
+      const url = await dataUrlToBlobUrl(dataUrl)
+      if (!url) return { ok: false, reason: 'write-failed', detail: 'dataURL 转 Blob URL 失败' }
+      window.open(url, '_blank')
+      return { ok: true }
+    },
+    async openImageFloat(dataUrl, image) {
+      // 浏览器开发态：无地址栏小弹窗近似独立悬浮窗；复用同名窗口换图，模拟宿主单例行为。
+      // 初始尺寸与宿主实现同规则：按原图比例适配屏幕可用区域 80%（fitFloatWindowSize）
+      const url = await dataUrlToBlobUrl(dataUrl)
+      if (!url) return { ok: false, reason: 'write-failed', detail: 'dataURL 转 Blob URL 失败' }
+      const size = fitFloatWindowSize(image, {
+        width: window.screen.availWidth || 1920,
+        height: window.screen.availHeight || 1080
+      })
+      window.open(url, 'snap-memo-float', `popup=yes,width=${size.width},height=${size.height}`)
+      return { ok: true }
     },
     files: {
       async pickAndReadText() {
@@ -134,6 +163,10 @@ export function createBrowserPlatform(): PlatformApi {
     },
     // 浏览器开发态没有宿主 OCR 提供商，设置页开关禁用
     ocr: null,
+    // 浏览器开发态无 pluginData/preload，应用字体走系统回退栈（见 core/fonts.ts）
+    fonts: null,
+    // 浏览器开发态无宿主本地数据，跨插件导入不可用（入口按钮点击时提示）
+    hostData: null,
     db: {
       getDoc<T>(id: string) {
         const raw = localStorage.getItem(LS_DOC_PREFIX + id)

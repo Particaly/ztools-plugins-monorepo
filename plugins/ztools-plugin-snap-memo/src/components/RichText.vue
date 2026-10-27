@@ -2,10 +2,11 @@
 /**
  * 富文本片段渲染：把正文拆为普通文字、行内代码片（`code`）与行内图片标记（{img:}），
  * 普通文字应用搜索命中高亮；代码片渲染为 chip，鼠标点击即复制其内容；
- * 行内图片两种模式——chip：小徽标（摘要行用，点击复制图片）；inline：限高缩略图
- * （展开区/预览用，点击复制图片、双击全屏查看）。父容器负责 white-space 与换行。
+ * 行内图片两种模式——chip：小徽标（摘要行用，点击复制图片）；inline：全尺寸行内图
+ * （展开区/预览用，单击全屏查看；列表展开区经父级样式放开限高，仅受列宽约束）。
+ * 父容器负责 white-space 与换行。
  */
-import { computed, watch } from 'vue'
+import { computed } from 'vue'
 import { platform } from '../platform'
 import type { AppStore } from '../store/appStore'
 import { parseCodeSpans } from '../core/codespan'
@@ -57,20 +58,10 @@ function highlightPieces(text: string): Piece[] {
   return pieces
 }
 
-/** 行内图片缩略图源（store 缩略图管线；生成中/缺失返回空串，渲染占位）。 */
-function thumbSrc(id: string): string {
-  const entry = props.store.state.imageThumbs[id]
-  return entry?.status === 'ready' ? entry.small : ''
+/** 行内图片源：全尺寸展示 URL（Blob URL，store 内 LRU 缓存）；附件缺失返回空串，渲染丢失占位。 */
+function inlineSrc(id: string): string {
+  return props.store.actions.memoImageDisplay(id)
 }
-
-// 正文里的既有图按需生成缩略图（幂等，store 内限流）
-watch(
-  () => nodes.value.filter((n): n is Extract<Node, { kind: 'image' }> => n.kind === 'image').map((n) => n.id).join(','),
-  (ids) => {
-    for (const id of ids ? ids.split(',') : []) props.store.actions.ensureThumbSlot(id)
-  },
-  { immediate: true }
-)
 
 /** 点击代码片：复制代码内容（不含反引号）并提示。 */
 async function onCodeClick(code: string): Promise<void> {
@@ -81,7 +72,7 @@ async function onCodeClick(code: string): Promise<void> {
   })
 }
 
-/** 点击行内图片：复制图片本体（混排条目回车只贴文字，图片按张取用）。 */
+/** 点击行内图片：复制图片本体（摘要徽标模式；混排条目回车只贴文字，图片按张取用）。 */
 async function copyImage(id: string): Promise<void> {
   const dataUrl = props.store.actions.memoImage(id)
   if (!dataUrl) {
@@ -95,7 +86,7 @@ async function copyImage(id: string): Promise<void> {
   })
 }
 
-/** 双击行内图片：进入全屏查看（←/→ 在全部图片间翻页）。 */
+/** 点击行内图片：进入全屏查看（←/→ 在全部图片间翻页）。 */
 function openLightbox(id: string): void {
   const memo = props.store.state.memos.find((m) => m.images?.some((img) => img.id === id))
   if (memo) props.store.actions.openLightboxForMemo(memo.id, id)
@@ -132,18 +123,36 @@ function openLightbox(id: string): void {
       >
         <Icon name="image" :size="11" />
       </button>
-      <!-- 展开模式：限高缩略图（点击复制、双击全屏） -->
+      <!-- 展开模式：全尺寸行内图（单击全屏查看），悬浮右下角出现悬浮窗/系统打开按钮 -->
       <template v-else>
-        <img
-          v-if="thumbSrc(node.id)"
-          class="inline-img"
-          :src="thumbSrc(node.id)"
-          :title="t('richText.copyImage')"
-          alt=""
-          draggable="false"
-          @click.stop="copyImage(node.id)"
-          @dblclick.stop="openLightbox(node.id)"
-        />
+        <span v-if="inlineSrc(node.id)" class="inline-wrap">
+          <img
+            class="inline-img"
+            :src="inlineSrc(node.id)"
+            :title="t('image.fullscreen')"
+            alt=""
+            draggable="false"
+            @click.stop="openLightbox(node.id)"
+          />
+          <span class="inline-bar" @click.stop>
+            <button
+              class="inline-btn"
+              :title="t('image.floatWindow')"
+              :aria-label="t('image.floatWindow')"
+              @click.stop="store.actions.openImageFloat(node.id)"
+            >
+              <Icon name="pip" :size="13" />
+            </button>
+            <button
+              class="inline-btn"
+              :title="t('image.openSystem')"
+              :aria-label="t('image.openSystem')"
+              @click.stop="store.actions.openMemoImageExternal(node.id)"
+            >
+              <Icon name="external" :size="13" />
+            </button>
+          </span>
+        </span>
         <span v-else class="inline-img-missing">{{ t('item.imageMissing') }}</span>
       </template>
     </template>
@@ -157,7 +166,7 @@ function openLightbox(id: string): void {
 
 .code-chip {
   display: inline;
-  font-family: 'SF Mono', Menlo, Consolas, 'Courier New', monospace;
+  font-family: var(--sm-font-mono);
   font-size: 0.92em;
   padding: 1px 6px;
   margin: 0 1px;
@@ -166,7 +175,7 @@ function openLightbox(id: string): void {
   border: 1px solid var(--sm-border);
   color: var(--sm-text);
   cursor: copy;
-  transition: border-color 0.12s ease, background 0.12s ease;
+  transition: border-color var(--sm-dur-fast) var(--sm-ease-out), background var(--sm-dur-fast) var(--sm-ease-out);
   word-break: break-all;
 }
 
@@ -196,7 +205,7 @@ function openLightbox(id: string): void {
   background: var(--sm-surface-2);
   color: var(--sm-text-3);
   cursor: copy;
-  transition: border-color 0.12s ease, color 0.12s ease;
+  transition: border-color var(--sm-dur-fast) var(--sm-ease-out), color var(--sm-dur-fast) var(--sm-ease-out);
 }
 
 .img-chip:hover,
@@ -206,16 +215,64 @@ function openLightbox(id: string): void {
   outline: none;
 }
 
-/* 展开区行内图片：限高等比，随文字流排版 */
+/* 展开区行内图片：随文字流排版；此处限高服务预览面板（列表展开区由 MemoItem 放开），
+   外层包定位容器承载悬浮操作条 */
+.inline-wrap {
+  position: relative;
+  display: inline-block;
+  vertical-align: text-bottom;
+}
+
 .inline-img {
   display: inline-block;
   vertical-align: text-bottom;
-  max-height: 140px;
+  max-height: 260px;
   max-width: 100%;
   margin: 2px 2px;
   border-radius: 5px;
   border: 1px solid var(--sm-border);
-  cursor: copy;
+  cursor: pointer;
+}
+
+/* 行内图悬浮操作条：右下角（独立悬浮窗 / 系统打开），触屏常显 */
+.inline-bar {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  display: flex;
+  gap: 3px;
+  opacity: 0;
+  transition: opacity var(--sm-dur-fast) var(--sm-ease-out);
+}
+
+.inline-wrap:hover .inline-bar,
+.inline-bar:focus-within {
+  opacity: 1;
+}
+
+@media (pointer: coarse) {
+  .inline-bar {
+    opacity: 1;
+  }
+}
+
+.inline-btn {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 5px;
+  background: rgba(15, 19, 28, 0.86);
+  color: #fff;
+  cursor: pointer;
+  padding: 0;
+  transition: background var(--sm-dur-fast) var(--sm-ease-out);
+}
+
+.inline-btn:hover {
+  background: rgba(15, 19, 28, 0.97);
 }
 
 .inline-img-missing {

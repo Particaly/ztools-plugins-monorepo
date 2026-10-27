@@ -8,8 +8,11 @@
  * 「图片」筛选 + 网格视图开启时切换为等尺寸缩略图墙（固定格宽 → 行列算术窗口化），
  * 点击格子直接进入全屏查看（←/→ 翻页）；多选模式自动回落列表行。
  * 可见行（或格子）统一在此触发缩略图预取（store 内限流生成）。
+ * 滚动条为 OverlayScrollbars 覆盖式虚拟滚动条（悬浮、自动隐藏、随明暗主题变色）：
+ * 真实滚动元素是 OS 在内部创建的 .os-viewport，本组件的 scroller ref 指向它。
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { OverlayScrollbars } from 'overlayscrollbars'
 import type { AppStore } from '../store/appStore'
 import type { Memo } from '../core/types'
 import { firstImageSlot, stripImageTokens } from '../core/inlineImage'
@@ -19,11 +22,17 @@ import { t } from '../i18n/zh-CN'
 
 const props = defineProps<{ store: AppStore }>()
 
+/** 滚动容器根（OverlayScrollbars 宿主；本身不滚动）。 */
+const hostEl = ref<HTMLElement | null>(null)
+/** 实际滚动元素（OS 内部创建的 .os-viewport）：scrollTop 读写、尺寸测量、scroll 事件都走它。 */
 const scroller = ref<HTMLElement | null>(null)
 const scrollTop = ref(0)
 const viewportH = ref(420)
 /** 网格几何用的内容区宽度（跟随容器尺寸重算列数）。 */
 const contentW = ref(360)
+
+/** OverlayScrollbars 实例（覆盖式滚动条：悬浮在内容上、停止滚动自动隐藏）。 */
+let osInstance: ReturnType<typeof OverlayScrollbars> | null = null
 
 const VIRTUAL_THRESHOLD = 300
 const BUFFER = 6
@@ -157,9 +166,11 @@ function cellTitle(memo: Memo): string {
   return head.trim() || t('imageMemo')
 }
 
-/** 格子点击：选中并全屏查看（敏感遮罩条目只选中，先揭示再看）。 */
+/** 格子点击：选中并全屏查看（敏感遮罩条目只选中，先揭示再看）；
+ * 预览面板收起时一并拉出（关掉大图后即回到分栏预览）。 */
 function onCellClick(memo: Memo): void {
   props.store.actions.selectMemo(memo.id)
+  if (props.store.state.previewMode === 'hidden') props.store.actions.expandPreviewPane()
   if (!(memo.sensitive && !props.store.state.revealSensitive.has(memo.id))) {
     props.store.actions.openLightboxForMemo(memo.id)
   }
@@ -196,7 +207,7 @@ const scrollerObserver = new ResizeObserver(() => {
   const el = scroller.value
   if (!el) return
   viewportH.value = el.clientHeight
-  contentW.value = el.clientWidth - 20 // 减去左右内边距（与 .memo-scroll 的 padding 一致）
+  contentW.value = el.clientWidth // 视口无自身边距（宿主 .memo-scroll 的 padding 已把内容区收窄）
 })
 
 /**
@@ -233,6 +244,20 @@ function onRowResize(entry: ResizeObserverEntry): void {
 }
 
 onMounted(() => {
+  // 覆盖式滚动条接管 .memo-scroll：OS 把子元素包进内部 viewport 并隐藏原生滚动条，
+  // scroller 指向该 viewport 后，既有滚动定位/测量/补偿逻辑无需感知差异
+  const host = hostEl.value
+  if (host) {
+    osInstance = OverlayScrollbars(host, {
+      overflow: { x: 'hidden' },
+      scrollbars: {
+        theme: props.store.state.dark ? 'os-theme-light' : 'os-theme-dark',
+        autoHide: 'move'
+      }
+    })
+    scroller.value = osInstance.elements().viewport
+    scroller.value.addEventListener('scroll', onScroll, { passive: true })
+  }
   onScroll()
   viewportH.value = scroller.value?.clientHeight ?? 420
   contentW.value = (scroller.value?.clientWidth ?? 380) - 20
@@ -243,6 +268,10 @@ onMounted(() => {
 onBeforeUnmount(() => {
   observer.disconnect()
   scrollerObserver.disconnect()
+  scroller.value?.removeEventListener('scroll', onScroll)
+  osInstance?.destroy()
+  osInstance = null
+  scroller.value = null
 })
 
 // 渲染集合变化（滚动窗口移动 / 数据变化）后重挂观察集合
@@ -274,29 +303,43 @@ watch(
   }
 )
 
-// 键盘选中自动跟随：列表按偏移量定位（行高可变）；网格按行列算术定位
+// 明暗主题切换：覆盖式滚动条跟随换主题（暗底用浅色滑块，亮底用深色滑块）
+watch(
+  () => props.store.state.dark,
+  (dark) => {
+    osInstance?.options({ scrollbars: { theme: dark ? 'os-theme-light' : 'os-theme-dark' } })
+  }
+)
+
+// 键盘选中自动跟随（方向感知）：移动后条目不在视区内时，向下把条目顶到可视区第一条、
+// 向上让条目贴底；已完整可见则不滚动。非键盘变更（点击/删除回落等 dir=0）保持最小滚动露出。
+// 列表按偏移量定位（行高可变）；网格按行列算术定位
 watch(
   () => props.store.computed.selectionIndex.value,
   async (idx) => {
     if (idx < 0 || !scroller.value) return
+    const dir = props.store.state.selectionMoveDir
     await nextTick()
+    const el = scroller.value
     if (gridMode.value) {
       const { cols, rowStep } = gridGeom.value
       const top = Math.floor(idx / cols) * rowStep
       const bottom = top + rowStep - GRID_GAP
-      if (top < scroller.value.scrollTop) scroller.value.scrollTop = top
-      else if (bottom > scroller.value.scrollTop + scroller.value.clientHeight) {
-        scroller.value.scrollTop = bottom - scroller.value.clientHeight
+      if (top < el.scrollTop || bottom > el.scrollTop + el.clientHeight) {
+        el.scrollTop = dir === -1 ? bottom - el.clientHeight : top
       }
       return
     }
     const top = offsets.value[idx]
     const id = items.value[idx]?.id
     const bottom = top + (id ? (heights.value.get(id) ?? estimate.value) + ROW_GAP : estimate.value)
-    if (top < scroller.value.scrollTop) scroller.value.scrollTop = top
-    else if (bottom > scroller.value.scrollTop + scroller.value.clientHeight) {
-      scroller.value.scrollTop = bottom - scroller.value.clientHeight
-    }
+    const outOfView = top < el.scrollTop || bottom > el.scrollTop + el.clientHeight
+    if (!outOfView) return
+    if (dir === -1) el.scrollTop = bottom - el.clientHeight
+    else if (dir === 1) el.scrollTop = top
+    // dir = 0：最小滚动——视口上方贴顶、下方贴底
+    else if (top < el.scrollTop) el.scrollTop = top
+    else el.scrollTop = bottom - el.clientHeight
   }
 )
 
@@ -355,7 +398,7 @@ async function seedExamples(): Promise<void> {
 </script>
 
 <template>
-  <div class="memo-scroll" ref="scroller" @scroll.passive="onScroll" @pointermove="moveDrag" @pointerup="endDrag" @pointercancel="endDrag">
+  <div ref="hostEl" class="memo-scroll" @pointermove="moveDrag" @pointerup="endDrag" @pointercancel="endDrag">
     <div v-if="emptyKind !== 'ok'" class="empty">
       <template v-if="emptyKind === 'none'">
         <Icon name="bolt" :size="30" />
@@ -441,9 +484,17 @@ async function seedExamples(): Promise<void> {
 <style scoped>
 .memo-scroll {
   flex: 1;
-  overflow-y: auto;
-  padding: 8px 10px 10px;
   position: relative;
+  /* 内容边距必须放在宿主上：OS 初始化时会给视口写内联 padding:0（内联样式压过任何样式表规则），
+     而宿主的内联样式 OS 不会改写。边距同时是悬浮滚动条的留白带，滑块落在留白内不压内容。 */
+  padding: 8px 10px 10px;
+}
+
+/* 全局平滑滚动规则（base.css）的例外：虚拟列表必须瞬时定位——
+   行高补偿、键盘跟随、拖拽自动滚动都依赖 scrollTop 同步写入，
+   平滑动画会让补偿失效并在快速导航时产生拖影。 */
+.memo-scroll :deep(.os-viewport) {
+  scroll-behavior: auto;
 }
 
 .row {
@@ -494,17 +545,7 @@ async function seedExamples(): Promise<void> {
   width: 100%;
   height: 100%;
   background: var(--sm-surface-2);
-  animation: grid-pulse 1.1s ease-in-out infinite;
-}
-
-@keyframes grid-pulse {
-  0%,
-  100% {
-    opacity: 0.55;
-  }
-  50% {
-    opacity: 0.9;
-  }
+  animation: sm-pulse var(--sm-dur-pulse) var(--sm-ease-in-out) infinite;
 }
 
 .empty {

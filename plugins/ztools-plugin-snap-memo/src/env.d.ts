@@ -48,4 +48,27 @@ interface SnapMemoPreload {
    * 失败抛带中文信息的 Error。
    */
   writeTempImage(dataUrl: string): string
+  /**
+   * 批量确保字体文件存在（合法缓存直接读，缺失时按 sources 顺序下载），返回 base64。
+   * 路径约束同上但扩展名白名单为 woff2/woff/ttf/otf；下载内容校验字体魔数。
+   * 与 items 对齐返回 [{ ok, base64 } | { ok: false, error }]；items 非法时抛 Error。
+   */
+  ensureFontFiles(
+    items: Array<{
+      path: string
+      sources: Array<{ kind: 'file'; url: string } | { kind: 'tarball'; url: string; member: string }>
+    }>
+  ): Promise<Array<{ ok: boolean; base64?: string; error?: string }>>
+  /**
+   * 只读提取其他插件在宿主数据库里的文档与附件（跨插件导入用，见 core/mqpImport.ts）。
+   * 复用宿主自带 lmdb 模块只读打开本地数据文件，读取范围限定指定插件命名空间前缀，
+   * 绝不写入；失败（非安装宿主 / 找不到数据目录 / 打开失败）抛带中文信息的 Error。
+   * 返回 { account, docs, attachments, truncated }，id 均已去掉插件命名空间前缀。
+   */
+  readHostPluginData(pluginName: string): {
+    account: string
+    docs: Array<{ id: string; doc: Record<string, unknown> }>
+    attachments: Array<{ id: string; mime: string; bytes: Uint8Array }>
+    truncated: boolean
+  }
 }

@@ -33,6 +33,7 @@ const ICONS: Record<IconName, string> = {
   restore: '<path d="M4 12a8 8 0 1 0 2.3-5.6"/><path d="M4 4v4h4"/>',
   shield: '<path d="M12 3l7 2.8v5.4c0 4.5-3 8.1-7 9.8-4-1.7-7-5.3-7-9.8V5.8z"/>',
   image: '<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M4.5 17.5l4.5-4.5 3 3 3.5-3.5 4 4"/>',
+  pip: '<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><rect x="12" y="11.5" width="6" height="5" rx="1" fill="currentColor" stroke="none"/>',
   maximize: '<path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/>',
   external: '<path d="M14 4h6v6M20 4l-8.5 8.5"/><path d="M20 14.5V19a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 19V5.5A1.5 1.5 0 0 1 5.5 4H10"/>',
   rows: '<path d="M4 6h16M4 12h16M4 18h10"/>',
@@ -51,7 +52,7 @@ export type IconName =
   | 'close' | 'check' | 'folder' | 'tag' | 'settings' | 'download' | 'upload'
   | 'undo' | 'bolt' | 'grip' | 'clock' | 'layers' | 'chevron' | 'more' | 'restore' | 'shield'
   | 'image' | 'maximize' | 'external' | 'rows' | 'article' | 'grid' | 'chevron-left' | 'chevron-right'
-  | 'panel' | 'minimize' | 'copy-plus' | 'code'
+  | 'panel' | 'minimize' | 'copy-plus' | 'code' | 'pip'
 
 const path = computed(() => ICONS[props.name] ?? '')
 </script>

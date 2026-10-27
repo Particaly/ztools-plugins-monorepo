@@ -1,7 +1,9 @@
 import { cpSync, existsSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+// fileURLToPath：URL.pathname 在 Windows 上是 "/D:/..." 形式，fs 识别不了（曾导致构建在 Windows 必失败）
+import { fileURLToPath } from 'node:url'
 
-const DIST = new URL('../dist', import.meta.url).pathname
+const DIST = fileURLToPath(new URL('../dist', import.meta.url))
 const RELEASE = join(DIST, '..', 'release', 'snap-memo')
 
 /** 汇总目录内所有文件的大小（KB）。 */
@@ -26,7 +28,7 @@ if (!existsSync(join(DIST, 'preload', 'services.cjs'))) {
 
 // 版本一致性：plugin.json 与 package.json 必须同版本（防止发布“旧版本号的新功能”）
 const pluginJson = JSON.parse(readFileSync(join(DIST, 'plugin.json'), 'utf8'))
-const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.meta.url).pathname, 'utf8'))
+const packageJson = JSON.parse(readFileSync(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf8'))
 if (pluginJson.version !== packageJson.version) {
   console.error(`[finalize] 版本不一致：plugin.json=${pluginJson.version} package.json=${packageJson.version}`)
   process.exit(1)
@@ -40,7 +42,7 @@ delete publishJson.development
 rmSync(RELEASE, { recursive: true, force: true })
 cpSync(DIST, RELEASE, { recursive: true })
 writeFileSync(join(RELEASE, 'plugin.json'), JSON.stringify(publishJson, null, 2) + '\n', 'utf8')
-cpSync(new URL('../src/assets/logo.svg', import.meta.url).pathname, join(RELEASE, 'logo.svg'))
+cpSync(fileURLToPath(new URL('../src/assets/logo.svg', import.meta.url)), join(RELEASE, 'logo.svg'))
 
 const files = readdirSync(DIST)
 console.log(`[finalize] dist 文件数: ${files.length}，总计 ${(totalSize(DIST) / 1024).toFixed(1)} KB`)

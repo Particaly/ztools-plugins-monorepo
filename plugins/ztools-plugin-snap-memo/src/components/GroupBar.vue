@@ -145,14 +145,6 @@ function toggleGridView(): void {
     </button>
     <button
       class="sm-icon-btn"
-      :class="{ active: store.state.previewVisible }"
-      :title="store.state.previewVisible ? t('preview.hidePane') : t('preview.showPane')"
-      @click="store.actions.togglePreviewPane()"
-    >
-      <Icon name="panel" />
-    </button>
-    <button
-      class="sm-icon-btn"
       :class="{ active: store.state.settings.listMode === 'full' }"
       :title="store.state.settings.listMode === 'full' ? t('listModeFullTitle') : t('listModeBriefTitle')"
       @click="toggleListMode"
@@ -184,7 +176,10 @@ function toggleGridView(): void {
       <Icon name="folder" />
     </button>
   </div>
-  <ManageGroups v-if="showManage" :store="store" @close="toggleManage(false)" />
+  <!-- 分组管理弹窗：挂载点驱动开合过渡（遮罩淡入淡出 + 弹窗缩放入场） -->
+  <Transition name="pop">
+    <ManageGroups v-if="showManage" :store="store" @close="toggleManage(false)" />
+  </Transition>
 </template>
 
 <style scoped>

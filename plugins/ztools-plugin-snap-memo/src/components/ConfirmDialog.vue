@@ -28,18 +28,25 @@ watch(
 </script>
 
 <template>
-  <div v-if="store.state.confirm" class="modal-mask" @click.self="store.actions.resolveConfirm(false)">
-    <div class="modal" role="alertdialog" aria-modal="true" :aria-label="t('confirm.title')">
-      <p class="confirm-text">{{ store.state.confirm.text }}</p>
-      <div class="modal-foot">
-        <span class="spacer" />
-        <button class="sm-btn" @click="store.actions.resolveConfirm(false)">{{ t('confirm.cancel') }}</button>
-        <button ref="okRef" class="sm-btn" :class="{ danger: store.state.confirm.danger }" @click="store.actions.resolveConfirm(true)">
-          {{ t('confirm.ok') }}
-        </button>
+  <Transition name="pop">
+    <div v-if="store.state.confirm" class="modal-mask" @click.self="store.actions.resolveConfirm(false)">
+      <div class="modal" role="alertdialog" aria-modal="true" :aria-label="t('confirm.title')">
+        <p class="confirm-text">{{ store.state.confirm.text }}</p>
+        <div class="modal-foot">
+          <span class="spacer" />
+          <button class="sm-btn" @click="store.actions.resolveConfirm(false)">{{ t('confirm.cancel') }}</button>
+          <button
+            ref="okRef"
+            class="sm-btn"
+            :class="{ danger: store.state.confirm.danger }"
+            @click="store.actions.resolveConfirm(true)"
+          >
+            {{ t('confirm.ok') }}
+          </button>
+        </div>
       </div>
     </div>
-  </div>
+  </Transition>
 </template>
 
 <style scoped>

@@ -15,7 +15,7 @@ import {
   type Settings
 } from '../core/types'
 import { allImageSlots } from '../core/inlineImage'
-import { base64ToBytes, bytesToBase64, parseDataUrl } from '../core/image'
+import { base64ToBytes, bytesToBase64, normalizeImageMime, parseDataUrl } from '../core/image'
 import { CURRENT_SCHEMA_VERSION, migrateGroups, migrateMemo, migrateSettings } from '../core/migration'
 
 /** 快照最多保留的条目数（单文档体积保护，超出部分截断并标记 truncated，恢复时 UI 提示）。 */
@@ -109,7 +109,9 @@ export function createRepository(platformApi: PlatformApi): Repository {
   function loadImage(slotId: string): string | null {
     const data = loadImageBytes(slotId)
     if (!data) return null
-    return `data:${data.mime};base64,${bytesToBase64(data.bytes)}`
+    // mime 归一：宿主 getAttachmentType 返回值实现不一（可能缺 image/ 前缀），
+    // 非 image/* 形式按字节魔数重新嗅探，保证拼出的 dataURL 过得了宿主白名单
+    return `data:${normalizeImageMime(data.mime, data.bytes)};base64,${bytesToBase64(data.bytes)}`
   }
 
   function removeImageSlot(slotId: string): boolean {

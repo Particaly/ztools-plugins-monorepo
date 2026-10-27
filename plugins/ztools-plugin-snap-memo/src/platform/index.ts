@@ -14,4 +14,4 @@ function detect(): PlatformApi {
 }
 
 export const platform: PlatformApi = detect()
-export type { PlatformApi, PasteOutcome, PluginEnterAction } from './types'
+export type { ImageViewOutcome, PlatformApi, PasteOutcome, PluginEnterAction } from './types'

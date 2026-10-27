@@ -1,11 +1,13 @@
 <script setup lang="ts">
 /**
  * 备忘条目（卡片式）：标题（或首行文字/OCR 首行）+ 摘要 + 分组/标签/置顶标识；
- * 简洁模式下摘要两行截断（图片标记渲染为小徽标），完整模式（listMode='full'）或条目展开后
- * 平铺全部内容——图文混排条目的行内图片渲染为限高缩略图（点击复制、双击全屏）。
- * 纯图条目：折叠行左侧缩略图（缩略图管线：小图 + 占位块 + 丢失占位），
- * 展开区大图（HoverImage）；悬浮缩略图约 0.3s 弹出快览浮层（复制/全屏/系统打开）。
- * 敏感图片条目缩略图模糊显示（不隐藏占位）；图片尺寸/体积徽标显示在元信息行；
+ * 标题与摘要按占位符引擎解析后展示（与预览面板一致，看到的是粘贴效果而非 {time} 原文）；
+ * 折叠态左侧展示首图缩略图（摘要文字不含图片徽标——图片一律看缩略图，纯图条目无备注时放大），
+ * 摘要两行截断，完整模式（listMode='full'）或条目展开后平铺全部内容——
+ * 混排条目的行内图片与纯图条目展开区大图（HoverImage）均按原图尺寸展示（最大不超过列宽，单击全屏查看）；
+ * 悬浮缩略图约 0.3s 弹出快览浮层（复制/全屏/系统打开）；单击折叠条目展开、已选中的展开条目收起
+ * （点击未选中的展开条目仅选中），面板收起时随点击拉出、条目点击不会收起面板；
+ * 敏感条目内容与图片模糊显示；图片尺寸/体积徽标显示在元信息行；
  * 行内代码片点击复制；前 9 条显示 Alt+数字 序号；
  * 条目操作（复制/编辑/删除等）走右键菜单；多选模式下左侧出现复选框，点击条目即切换选中。
  */
@@ -13,7 +15,8 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import type { AppStore } from '../store/appStore'
 import type { Memo } from '../core/types'
 import { formatImageBytes } from '../core/image'
-import { firstImageSlot, hasImages, splitByImageTokens, stripImageTokens } from '../core/inlineImage'
+import { firstImageSlot, hasImages, stripImageTokens } from '../core/inlineImage'
+import { resolveTemplate } from '../core/placeholders'
 import { highlightRanges } from '../core/search'
 import RichText from './RichText.vue'
 import HoverImage from './HoverImage.vue'
@@ -70,63 +73,60 @@ const hasMore = computed(() => {
   return content.length > 90
 })
 
+/** 条目标题（解析占位符后的预览效果）：无标题时回退内容首行文字 / OCR 首行。 */
 const displayTitle = computed(() => {
-  if (props.memo.title) return props.memo.title
+  if (props.memo.title) return resolveTemplate(props.memo.title, {}).text
   if (hasImages(props.memo)) {
     const noteHead = stripImageTokens(props.memo.content)
       .split('\n')
       .find((line) => line.trim())
-    if (noteHead?.trim()) return noteHead.trim()
+    if (noteHead?.trim()) return resolveTemplate(noteHead, {}).text.trim()
     const ocrHead = (props.memo.ocrText ?? '').split('\n')[0].trim()
     return ocrHead || t('imageMemo')
   }
-  return props.memo.content.split('\n')[0] || t('item.emptyContent')
+  return resolveTemplate(props.memo.content.split('\n')[0], {}).text || t('item.emptyContent')
 })
 
-/** 摘要行文本（含完整图片标记，截断时保持标记完整；RichText 渲染徽标）。 */
+/**
+ * 摘要行文本（解析占位符后的预览效果；不含图片标记——图片由左侧缩略图承担，
+ * 摘要里不再渲染徽标，避免同一张图出现两次）。
+ */
 const previewText = computed(() => {
   if (masked.value) return t('item.sensitiveMask')
   if (isImage.value) {
     // 纯图条目：备注文字优先，其次 OCR 文本
     const note = stripImageTokens(props.memo.content).replace(/\n+/g, ' ').trim()
-    if (note) return note
+    if (note) return resolveTemplate(note, {}).text
     return (props.memo.ocrText ?? '').replace(/\n+/g, ' ')
   }
   const content = props.memo.content
   const flat = props.memo.title ? content.replace(/\n+/g, ' ') : content.split('\n').slice(1).join(' ')
-  return tokenSafeTruncate(flat || '', 160)
+  // 图片标记在解析后剥离（解析器对其原样保留），摘要只留文字
+  return clampText(stripImageTokens(resolveTemplate(flat || '', {}).text), 160)
 })
+
+/** 纯文本截断（摘要行已无图片标记，无需标记保护）。 */
+function clampText(text: string, max: number): string {
+  return text.length > max ? text.slice(0, max) : text
+}
 
 /** 纯图片条目（无备注无 OCR）：折叠态缩略图放大显示，图片本身就是内容。 */
 const imageOnly = computed(() => isImage.value && !previewText.value)
 
 /**
- * 展开区正文：完整模式下展示全部内容（超长截断并标记省略，截断不拆图片标记）；
- * 无标题条目的首行已作为标题展示，正文跳过首行避免重复。
+ * 展开区正文：完整模式下展示全部内容（超长截断并标记省略，截断不拆图片标记），
+ * 再按占位符解析为预览效果；无标题条目的首行已作为标题展示，正文跳过首行避免重复。
  */
 const expandedText = computed(() => {
   let content = props.memo.content
   if (!props.memo.title) content = content.split('\n').slice(1).join('\n')
   if (!content) return ''
-  return content.length > EXPAND_MAX_CHARS
-    ? content.slice(0, EXPAND_MAX_CHARS).replace(/\{img:[A-Za-z0-9_-]*$/, '') + ' …'
-    : content
+  const clipped =
+    content.length > EXPAND_MAX_CHARS
+      ? content.slice(0, EXPAND_MAX_CHARS).replace(/\{img:[A-Za-z0-9_-]*$/, '') + ' …'
+      : content
+  return resolveTemplate(clipped, {}).text
 })
-
-/** 按字符数截断但保持图片标记完整（被截断的整张图以徽标/缩略图形式保留或省略）。 */
-function tokenSafeTruncate(content: string, max: number): string {
-  if (content.length <= max) return content
-  let out = ''
-  for (const seg of splitByImageTokens(content)) {
-    if (out.length >= max) break
-    if (seg.type === 'image') {
-      out += `{img:${seg.id}}`
-      continue
-    }
-    out += seg.text.length > max - out.length ? seg.text.slice(0, max - out.length) : seg.text
-  }
-  return out
-}
 
 // ---- 缩略图（store 缩略图管线；生成中渲染占位块，缺失渲染丢失占位） ----
 
@@ -237,6 +237,16 @@ async function copyFromPeek(): Promise<void> {
   await props.store.actions.copyMemo(props.memo)
 }
 
+/** 首图独立悬浮窗查看（宿主 createBrowserWindow 置顶小窗）；缩略图操作条与快览浮层共用。 */
+function openFloat(): void {
+  if (firstSlot.value) void props.store.actions.openImageFloat(firstSlot.value)
+}
+
+/** 首图用系统默认看图软件打开；缩略图操作条与快览浮层共用。 */
+function openSystem(): void {
+  if (firstSlot.value) void props.store.actions.openMemoImageExternal(firstSlot.value)
+}
+
 // 列表滚动时缩略图会移位，快览浮层固定定位会脱节：捕获期监听任意滚动立即关闭
 function onAnyScroll(): void {
   if (peekVisible.value) closePeek()
@@ -304,10 +314,57 @@ function onThumbClick(): void {
   props.store.actions.toggleExpanded(props.memo.id)
 }
 
-/** 点击条目：多选模式下切换选中；普通模式仅选中（回车粘贴，双击不再触发粘贴，避免误粘贴）。 */
+// ---- 展开/收起的高度过渡（fold 预设）：CSS 过渡不了 auto 高度，起止值在钩子里量取后内联写入 ----
+
+/** 进入动画起点：高度置 0（.fold-enter-active 的高度过渡从这里长出）。 */
+function onFoldBeforeEnter(el: Element): void {
+  ;(el as HTMLElement).style.height = '0'
+}
+
+/** 进入动画终点：量取目标高度写入；先强制回流提交 height:0 起始态，否则过渡不触发。 */
+function onFoldEnter(el: Element): void {
+  const node = el as HTMLElement
+  void node.offsetHeight
+  node.style.height = `${node.scrollHeight}px`
+}
+
+/** 进入结束：清掉内联高度还原 auto（此后内容高度变化——如图片加载——不受动画约束）。 */
+function onFoldAfterEnter(el: Element): void {
+  ;(el as HTMLElement).style.height = ''
+}
+
+/** 离开动画起点：把 auto 高度钉成固定值（同值写入，无视觉跳变），过渡才有可动画的起点。 */
+function onFoldBeforeLeave(el: Element): void {
+  ;(el as HTMLElement).style.height = `${(el as HTMLElement).offsetHeight}px`
+}
+
+/** 离开动画终点：高度收合到 0。 */
+function onFoldLeave(el: Element): void {
+  const node = el as HTMLElement
+  void node.offsetHeight
+  node.style.height = '0'
+}
+
+/** 离开结束：清理内联高度（元素即将移除，兜底防残留）。 */
+function onFoldAfterLeave(el: Element): void {
+  ;(el as HTMLElement).style.height = ''
+}
+
+/** 点击条目：多选模式下切换选中；普通模式选中条目，展开动作按点击前状态决定——
+ * 折叠项（无论此前是否选中）点击即展开；已选中的展开项点击收起；
+ * 未选中的展开项点击仅选中、保持展开（浏览时不会把别的展开条目点收起）。
+ * 预览面板收起时随点击拉出（条目点击只会展示面板，收起只走 Space / ⌘/Ctrl+P / 面板头部按钮 / Esc；
+ * 设置停用面板时 expandPreviewPane 在 store 内为无操作）。 */
 function onClick(e: MouseEvent): void {
+  const wasSelected = props.store.state.selectionId === props.memo.id
+  const wasExpanded = expanded.value
   props.store.actions.selectMemo(props.memo.id)
-  if (batchMode.value) props.store.actions.toggleBatchSelection(props.memo.id, e.shiftKey)
+  if (batchMode.value) {
+    props.store.actions.toggleBatchSelection(props.memo.id, e.shiftKey)
+    return
+  }
+  if (props.store.state.previewMode === 'hidden') props.store.actions.expandPreviewPane()
+  if (wasSelected || !wasExpanded) props.store.actions.toggleExpanded(props.memo.id)
 }
 
 function onBatchToggle(e: MouseEvent): void {
@@ -346,7 +403,6 @@ function onBatchToggle(e: MouseEvent): void {
       <div class="line-main">
         <span v-if="index < 9 && !batchMode" class="num-badge">{{ index + 1 }}</span>
         <Icon v-if="memo.pinned" name="pin" :size="12" class="pin-mark" />
-        <Icon v-if="firstSlot" name="image" :size="12" class="img-mark" />
         <span class="title selectable">
           <template v-if="masked">••••••</template>
           <template v-else>
@@ -363,43 +419,73 @@ function onBatchToggle(e: MouseEvent): void {
           <Icon name="chevron" :size="14" class="exp-icon" :class="{ rot: expanded }" />
         </button>
       </div>
-      <div v-if="!expanded && (previewText || isImage)" class="line-preview selectable">
-        <template v-if="isImage">
-          <img
-            v-if="thumbSrc"
-            ref="thumbEl"
-            class="thumb"
-            :class="{ solo: imageOnly, masked, loaded: thumbLoaded }"
-            :src="thumbSrc"
-            :title="t('item.expand')"
-            alt=""
-            draggable="false"
-            @load="thumbLoaded = true"
-            @click.stop="onThumbClick"
-            @mouseenter="onThumbEnter"
-            @mouseleave="onThumbLeave"
-          />
-          <div
-            v-else-if="thumbPending"
-            class="thumb-skeleton"
-            :class="{ solo: imageOnly }"
-            :style="{ width: `${skeletonWidth}px` }"
-          />
-          <span v-else-if="thumbFailed" class="thumb-missing">{{ t('item.imageMissing') }}</span>
-        </template>
-        <div v-if="previewText" class="preview-clamp">
-          <RichText :store="store" :text="previewText" :query="query" />
-        </div>
-      </div>
-      <div v-else-if="expanded && !masked && (isImage || expandedText)" class="expand-area selectable">
-        <template v-if="isImage">
-          <HoverImage v-if="thumbSrc && firstSlot" :store="store" :memo-id="memo.id" :image-id="firstSlot" />
-          <div v-if="memo.ocrText" class="expand-ocr">
-            <RichText :store="store" :text="memo.ocrText" :query="query" />
+      <!--
+        折叠摘要行 ↔ 展开区：fold 高度过渡（CSS 过渡不了 auto 高度，起止值由 JS 钩子量取内联写入）。
+        两分支同缓动同时长同时动画，行内总高度恰为旧值到新值的连续插值；展开区不渲染时仅单侧动画。
+      -->
+      <Transition
+        name="fold"
+        @before-enter="onFoldBeforeEnter"
+        @enter="onFoldEnter"
+        @after-enter="onFoldAfterEnter"
+        @before-leave="onFoldBeforeLeave"
+        @leave="onFoldLeave"
+        @after-leave="onFoldAfterLeave"
+      >
+        <!-- 折叠态：左侧首图缩略图（纯图无备注时放大），右侧纯文字摘要（无图片徽标） -->
+        <div v-if="!expanded && (previewText || firstSlot)" key="preview" class="line-preview selectable">
+          <template v-if="firstSlot">
+            <div v-if="thumbSrc" class="thumb-wrap" @mouseenter="onThumbEnter" @mouseleave="onThumbLeave">
+              <img
+                ref="thumbEl"
+                class="thumb"
+                :class="{ solo: imageOnly, masked, loaded: thumbLoaded }"
+                :src="thumbSrc"
+                :title="t('item.expand')"
+                alt=""
+                draggable="false"
+                @load="thumbLoaded = true"
+                @click.stop="onThumbClick"
+              />
+              <!-- 悬浮操作条：独立悬浮窗查看 / 系统看图软件打开；敏感遮罩下不提供 -->
+              <div v-if="!masked" class="thumb-bar" @click.stop>
+                <button class="thumb-btn" :title="t('image.floatWindow')" :aria-label="t('image.floatWindow')" @click.stop="openFloat">
+                  <Icon name="pip" :size="14" />
+                </button>
+                <button class="thumb-btn" :title="t('image.openSystem')" :aria-label="t('image.openSystem')" @click.stop="openSystem">
+                  <Icon name="external" :size="14" />
+                </button>
+              </div>
+            </div>
+            <div
+              v-else-if="thumbPending"
+              class="thumb-skeleton"
+              :class="{ solo: imageOnly }"
+              :style="{ width: `${skeletonWidth}px` }"
+            />
+            <span v-else-if="thumbFailed" class="thumb-missing">{{ t('item.imageMissing') }}</span>
+          </template>
+          <div v-if="previewText" class="preview-clamp">
+            <RichText :store="store" :text="previewText" :query="query" />
           </div>
-        </template>
-        <RichText v-if="expandedText" :store="store" :text="expandedText" :query="query" image-mode="inline" />
-      </div>
+        </div>
+        <!-- 展开态：平铺全部内容/大图 -->
+        <div v-else-if="expanded && !masked && (isImage || expandedText)" key="expanded" class="expand-area selectable">
+          <template v-if="isImage">
+            <HoverImage
+              v-if="thumbSrc && firstSlot"
+              :store="store"
+              :memo-id="memo.id"
+              :image-id="firstSlot"
+              click-action="fullscreen"
+            />
+            <div v-if="memo.ocrText" class="expand-ocr">
+              <RichText :store="store" :text="memo.ocrText" :query="query" />
+            </div>
+          </template>
+          <RichText v-if="expandedText" :store="store" :text="expandedText" :query="query" image-mode="inline" />
+        </div>
+      </Transition>
       <div class="line-meta">
         <span v-if="groupName" class="meta-group">
           <span class="dot" :style="{ background: groupColorValue || 'var(--sm-text-3)' }" />
@@ -410,37 +496,37 @@ function onBatchToggle(e: MouseEvent): void {
         <span v-if="memo.useCount > 0" class="meta-use">{{ memo.useCount }} 次</span>
       </div>
     </div>
-    <!-- 悬浮快览浮层：固定定位跟随缩略图位置，含复制/全屏/系统打开快捷操作 -->
-    <div
-      v-if="peekVisible"
-      class="thumb-peek"
-      :style="{ left: `${peekPos.x}px`, top: `${peekPos.y}px` }"
-      @mouseenter="onThumbEnter"
-      @mouseleave="onThumbLeave"
-    >
-      <img class="peek-img" :src="peekSrc" :title="t('image.peekExpand')" alt="" draggable="false" @click.stop="onPeekImageClick" />
-      <div class="peek-bar" @click.stop>
-        <button class="peek-btn" :title="t('a11y.copyImage')" :aria-label="t('a11y.copyImage')" @click.stop="copyFromPeek">
-          <Icon name="copy" :size="13" />
-        </button>
-        <button
-          class="peek-btn"
-          :title="t('image.fullscreen')"
-          :aria-label="t('image.fullscreen')"
-          @click.stop="store.actions.openLightboxForMemo(memo.id)"
-        >
-          <Icon name="maximize" :size="13" />
-        </button>
-        <button
-          class="peek-btn"
-          :title="t('image.openSystem')"
-          :aria-label="t('image.openSystem')"
-          @click.stop="store.actions.openMemoImageExternal(memo.id)"
-        >
-          <Icon name="external" :size="13" />
-        </button>
+    <!-- 悬浮快览浮层：固定定位跟随缩略图位置，含复制/全屏/系统打开快捷操作；缩放淡入淡出 -->
+    <Transition name="scale">
+      <div
+        v-if="peekVisible"
+        class="thumb-peek"
+        :style="{ left: `${peekPos.x}px`, top: `${peekPos.y}px` }"
+        @mouseenter="onThumbEnter"
+        @mouseleave="onThumbLeave"
+      >
+        <img class="peek-img" :src="peekSrc" :title="t('image.peekExpand')" alt="" draggable="false" @click.stop="onPeekImageClick" />
+        <div class="peek-bar" @click.stop>
+          <button class="peek-btn" :title="t('image.floatWindow')" :aria-label="t('image.floatWindow')" @click.stop="openFloat">
+            <Icon name="pip" :size="13" />
+          </button>
+          <button class="peek-btn" :title="t('a11y.copyImage')" :aria-label="t('a11y.copyImage')" @click.stop="copyFromPeek">
+            <Icon name="copy" :size="13" />
+          </button>
+          <button
+            class="peek-btn"
+            :title="t('image.fullscreen')"
+            :aria-label="t('image.fullscreen')"
+            @click.stop="store.actions.openLightboxForMemo(memo.id)"
+          >
+            <Icon name="maximize" :size="13" />
+          </button>
+          <button class="peek-btn" :title="t('image.openSystem')" :aria-label="t('image.openSystem')" @click.stop="openSystem">
+            <Icon name="external" :size="13" />
+          </button>
+        </div>
       </div>
-    </div>
+    </Transition>
   </div>
 </template>
 
@@ -457,7 +543,7 @@ function onBatchToggle(e: MouseEvent): void {
   background: var(--sm-surface);
   border: 1px solid var(--sm-border);
   box-shadow: var(--sm-shadow-1);
-  transition: background 0.12s ease, border-color 0.12s ease;
+  transition: background var(--sm-dur-fast) var(--sm-ease-out), border-color var(--sm-dur-fast) var(--sm-ease-out);
 }
 
 .memo-item:hover {
@@ -547,11 +633,6 @@ function onBatchToggle(e: MouseEvent): void {
   flex: none;
 }
 
-.img-mark {
-  color: var(--sm-text-3);
-  flex: none;
-}
-
 .title {
   font-size: var(--sm-font-m);
   font-weight: 550;
@@ -610,7 +691,7 @@ function onBatchToggle(e: MouseEvent): void {
   cursor: zoom-in;
   display: block;
   opacity: 0;
-  transition: opacity 0.15s ease;
+  transition: opacity var(--sm-dur-base) var(--sm-ease-out);
 }
 
 .thumb.loaded {
@@ -626,28 +707,64 @@ function onBatchToggle(e: MouseEvent): void {
   filter: blur(9px) saturate(0.7);
 }
 
-/* 生成中的占位块：与缩略图同尺寸，呼吸动画提示加载中 */
+/* 折叠缩略图悬浮操作条：右下角两枚按钮（独立悬浮窗 / 系统打开），
+   深色半透明保证任意底图可读；触屏（pointer: coarse）无 hover，常显保证可达 */
+.thumb-wrap {
+  position: relative;
+  flex: none;
+}
+
+.thumb-bar {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  display: flex;
+  gap: 3px;
+  opacity: 0;
+  transition: opacity var(--sm-dur-fast) var(--sm-ease-out);
+}
+
+.thumb-wrap:hover .thumb-bar,
+.thumb-bar:focus-within {
+  opacity: 1;
+}
+
+@media (pointer: coarse) {
+  .thumb-bar {
+    opacity: 1;
+  }
+}
+
+.thumb-btn {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 5px;
+  background: rgba(15, 19, 28, 0.86);
+  color: #fff;
+  cursor: pointer;
+  transition: background var(--sm-dur-fast) var(--sm-ease-out);
+}
+
+.thumb-btn:hover {
+  background: rgba(15, 19, 28, 0.97);
+}
+
+/* 生成中的占位块：与缩略图同尺寸，呼吸动画（sm-pulse）提示加载中 */
 .thumb-skeleton {
   flex: none;
   height: 44px;
   border-radius: 5px;
   border: 1px solid var(--sm-border);
   background: var(--sm-surface-2);
-  animation: thumb-pulse 1.1s ease-in-out infinite;
+  animation: sm-pulse var(--sm-dur-pulse) var(--sm-ease-in-out) infinite;
 }
 
 .thumb-skeleton.solo {
   height: 64px;
-}
-
-@keyframes thumb-pulse {
-  0%,
-  100% {
-    opacity: 0.55;
-  }
-  50% {
-    opacity: 0.9;
-  }
 }
 
 /* 附件缺失：虚线占位 chip，明确告知而不是无声消失 */
@@ -702,7 +819,7 @@ function onBatchToggle(e: MouseEvent): void {
   background: var(--sm-surface);
   color: var(--sm-text-2);
   cursor: pointer;
-  transition: background 0.12s ease, color 0.12s ease;
+  transition: background var(--sm-dur-fast) var(--sm-ease-out), color var(--sm-dur-fast) var(--sm-ease-out);
 }
 
 .peek-btn:hover {
@@ -721,6 +838,13 @@ function onBatchToggle(e: MouseEvent): void {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+/* 展开区图片按原图尺寸展示：仅受列宽约束（HoverImage / 行内图自带 max-width:100% 兜底），
+   此处放开预览面板共用的限高小图策略（预览面板仍限高 + 撑满互切） */
+.expand-area :deep(.himg-img),
+.expand-area :deep(.inline-img) {
+  max-height: none;
 }
 
 .expand-ocr {
@@ -777,7 +901,7 @@ function onBatchToggle(e: MouseEvent): void {
   background: transparent;
   color: var(--sm-text-3);
   cursor: pointer;
-  transition: background 0.12s ease, color 0.12s ease;
+  transition: background var(--sm-dur-fast) var(--sm-ease-out), color var(--sm-dur-fast) var(--sm-ease-out);
 }
 
 .exp-btn:hover {
@@ -786,7 +910,7 @@ function onBatchToggle(e: MouseEvent): void {
 }
 
 .exp-icon {
-  transition: transform 0.13s ease;
+  transition: transform var(--sm-dur-fast) var(--sm-ease-out);
 }
 
 .exp-icon.rot {

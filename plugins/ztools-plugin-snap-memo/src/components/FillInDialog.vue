@@ -42,30 +42,32 @@ function cancel(): void {
 </script>
 
 <template>
-  <div v-if="pending()" class="modal-mask">
-    <div class="modal" role="dialog" aria-modal="true" :aria-label="t('fillIn.title')" @keydown.esc.stop.prevent="cancel">
-      <header class="modal-head">
-        <span>{{ t('fillIn.title') }}</span>
-        <span class="hint">{{ t('fillIn.tabHint') }} · Enter {{ t('fillIn.confirm') }} · Esc {{ t('fillIn.cancel') }}</span>
-      </header>
-      <div class="fields">
-        <label v-for="(prompt, i) in pending()!.prompts" :key="prompt.key" class="field">
-          <span class="field-label">{{ prompt.label }}</span>
-          <input
-            :ref="(el) => { if (el) inputRefs[i] = el as HTMLInputElement }"
-            v-model="answers[prompt.key]"
-            class="sm-input"
-            @keydown="onInputKeydown"
-          />
-        </label>
+  <Transition name="pop">
+    <div v-if="pending()" class="modal-mask">
+      <div class="modal" role="dialog" aria-modal="true" :aria-label="t('fillIn.title')" @keydown.esc.stop.prevent="cancel">
+        <header class="modal-head">
+          <span>{{ t('fillIn.title') }}</span>
+          <span class="hint">{{ t('fillIn.tabHint') }} · Enter {{ t('fillIn.confirm') }} · Esc {{ t('fillIn.cancel') }}</span>
+        </header>
+        <div class="fields">
+          <label v-for="(prompt, i) in pending()!.prompts" :key="prompt.key" class="field">
+            <span class="field-label">{{ prompt.label }}</span>
+            <input
+              :ref="(el) => { if (el) inputRefs[i] = el as HTMLInputElement }"
+              v-model="answers[prompt.key]"
+              class="sm-input"
+              @keydown="onInputKeydown"
+            />
+          </label>
+        </div>
+        <footer class="modal-foot">
+          <span class="spacer" />
+          <button class="sm-btn" @click="cancel">{{ t('fillIn.cancel') }}</button>
+          <button class="sm-btn primary" @click="confirm">{{ t('fillIn.confirm') }}</button>
+        </footer>
       </div>
-      <footer class="modal-foot">
-        <span class="spacer" />
-        <button class="sm-btn" @click="cancel">{{ t('fillIn.cancel') }}</button>
-        <button class="sm-btn primary" @click="confirm">{{ t('fillIn.confirm') }}</button>
-      </footer>
     </div>
-  </div>
+  </Transition>
 </template>
 
 <style scoped>

@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>图片悬浮窗</title>
+    <style>
+      /* 独立图片悬浮窗（宿主 createBrowserWindow 创建的无边框置顶小窗）。
+         独立于插件主窗口：主窗口隐藏/退出插件后仍可停留查看。
+         父窗口通过 executeJavaScript 调用 showImage(fileUrl) 传入图片。 */
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        background: #10131c;
+        overflow: hidden;
+        user-select: none;
+      }
+      /* 顶部拖拽条：无边框窗口的移动手柄 */
+      #dragbar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 22px;
+        -webkit-app-region: drag;
+        z-index: 3;
+      }
+      #close {
+        position: fixed;
+        top: 5px;
+        right: 6px;
+        width: 22px;
+        height: 22px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: none;
+        border-radius: 6px;
+        background: transparent;
+        color: rgba(255, 255, 255, 0.65);
+        font-size: 13px;
+        line-height: 1;
+        cursor: pointer;
+        -webkit-app-region: no-drag;
+        z-index: 4;
+        transition: background 0.12s, color 0.12s;
+      }
+      #close:hover {
+        background: rgba(255, 255, 255, 0.14);
+        color: #fff;
+      }
+      #stage {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      img {
+        max-width: 100%;
+        max-height: 100%;
+        opacity: 0;
+        transition: opacity 0.16s ease-out;
+        cursor: grab;
+      }
+      img.on {
+        opacity: 1;
+      }
+      img:active {
+        cursor: grabbing;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="dragbar"></div>
+    <button id="close" title="关闭 (Esc)">✕</button>
+    <div id="stage"><img id="img" alt="" draggable="false" /></div>
+    <script>
+      // 悬浮窗查看器：滚轮以光标为锚点缩放，拖拽平移，双击复位，Esc 关闭。
+      // 图片由父窗口经 executeJavaScript('showImage("file:///…")') 注入（临时文件路径）。
+      var img = document.getElementById('img')
+      var scale = 1
+      var tx = 0
+      var ty = 0
+      var dragFrom = null
+
+      /** 父窗口入口：换图并复位视图（同窗复用时重复调用）。 */
+      window.showImage = function (url) {
+        scale = 1
+        tx = 0
+        ty = 0
+        apply()
+        img.onload = function () {
+          img.classList.add('on')
+        }
+        img.src = url
+      }
+
+      function apply() {
+        img.style.transform = 'translate(' + tx + 'px, ' + ty + 'px) scale(' + scale + ')'
+      }
+
+      document.getElementById('stage').addEventListener(
+        'wheel',
+        function (e) {
+          e.preventDefault()
+          var factor = e.deltaY < 0 ? 1.15 : 1 / 1.15
+          var next = Math.min(8, Math.max(0.2, scale * factor))
+          if (next === scale) return
+          var rect = img.getBoundingClientRect()
+          var cx = e.clientX - (rect.left + rect.width / 2)
+          var cy = e.clientY - (rect.top + rect.height / 2)
+          var px = (cx - tx) / scale
+          var py = (cy - ty) / scale
+          scale = next
+          tx = cx - px * next
+          ty = cy - py * next
+          apply()
+        },
+        { passive: false }
+      )
+
+      img.addEventListener('pointerdown', function (e) {
+        dragFrom = { x: e.clientX, y: e.clientY, tx: tx, ty: ty }
+        img.setPointerCapture(e.pointerId)
+      })
+      img.addEventListener('pointermove', function (e) {
+        if (!dragFrom) return
+        tx = dragFrom.tx + (e.clientX - dragFrom.x)
+        ty = dragFrom.ty + (e.clientY - dragFrom.y)
+        apply()
+      })
+      img.addEventListener('pointerup', function () {
+        dragFrom = null
+      })
+      img.addEventListener('pointercancel', function () {
+        dragFrom = null
+      })
+      img.addEventListener('dblclick', function () {
+        scale = 1
+        tx = 0
+        ty = 0
+        apply()
+      })
+
+      document.getElementById('close').addEventListener('click', function () {
+        window.close()
+      })
+      window.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') window.close()
+      })
+    </script>
+  </body>
+</html>

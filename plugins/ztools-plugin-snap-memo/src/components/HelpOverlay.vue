@@ -1,14 +1,17 @@
 <script setup lang="ts">
 /**
- * 快捷键帮助浮层（? 键或分组栏按钮打开）：集中展示全部快捷键与触发词说明。
- * Esc / ? / 点击背景关闭；Esc 主路由在 App，这里处理按钮点击与自身按键。
+ * 快捷键帮助浮层（F1 键或分组栏按钮打开）：集中展示全部快捷键与触发词说明。
+ * Esc / F1 / 点击背景关闭；Esc/F1 主路由在 App，这里处理按钮点击与自身按键。
  */
-import { computed } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { platform } from '../platform'
 import type { AppStore } from '../store/appStore'
 import { t } from '../i18n/zh-CN'
 
 const props = defineProps<{ store: AppStore }>()
+
+/** 帮助正文滚动容器：打开后聚焦它，方向键 / PgUp / PgDn / Home / End 才能滚动内容。 */
+const bodyRef = ref<HTMLElement | null>(null)
 
 const mod = platform.isMac ? '⌘' : 'Ctrl'
 
@@ -61,29 +64,79 @@ const sections = computed(() => {
     }
   ]
 })
+
+/**
+ * 弹窗打开后聚焦滚动容器，让 ↑/↓、PgUp/PgDn、Home/End 走原生滚动，
+ * 不受此前焦点在搜索框/列表的影响；preventScroll 避免聚焦时跳动。
+ */
+watch(
+  () => props.store.state.helpVisible,
+  async (visible) => {
+    if (!visible) return
+    await nextTick()
+    bodyRef.value?.focus({ preventScroll: true })
+  },
+  { immediate: true }
+)
+
+/**
+ * 焦点在弹窗内其他控件（如 Tab 到关闭按钮）时的兜底：滚动键手动滚动帮助正文。
+ * 滚动统一 behavior: 'smooth'（与全局 scroll-behavior: smooth 的节奏一致），
+ * preventDefault 抑制原生滚动，保证不会和聚焦容器的原生行为叠加；其余按键放行。
+ */
+function onMaskKeydown(e: KeyboardEvent): void {
+  if (e.isComposing || e.keyCode === 229) return
+  const body = bodyRef.value
+  if (!body) return
+  switch (e.key) {
+    case 'ArrowUp':
+      body.scrollBy({ top: -56, behavior: 'smooth' })
+      break
+    case 'ArrowDown':
+      body.scrollBy({ top: 56, behavior: 'smooth' })
+      break
+    case 'PageUp':
+      body.scrollBy({ top: -body.clientHeight * 0.85, behavior: 'smooth' })
+      break
+    case 'PageDown':
+      body.scrollBy({ top: body.clientHeight * 0.85, behavior: 'smooth' })
+      break
+    case 'Home':
+      body.scrollTo({ top: 0, behavior: 'smooth' })
+      break
+    case 'End':
+      body.scrollTo({ top: body.scrollHeight, behavior: 'smooth' })
+      break
+    default:
+      return
+  }
+  e.preventDefault()
+}
 </script>
 
 <template>
-  <div v-if="props.store.state.helpVisible" class="help-mask" @click.self="store.actions.toggleHelp(false)">
-    <div class="help" role="dialog" aria-modal="true" :aria-label="t('help.title')">
-      <header class="help-head">
-        <span>{{ t('help.title') }}</span>
-        <button class="sm-icon-btn" :aria-label="t('help.close')" @click="store.actions.toggleHelp(false)">
-          ✕
-        </button>
-      </header>
-      <div class="help-body">
-        <section v-for="group in sections" :key="group.title" class="help-section">
-          <h4>{{ group.title }}</h4>
-          <div v-for="row in group.rows" :key="row.keys" class="help-row">
-            <span class="help-keys">{{ row.keys }}</span>
-            <span class="help-desc">{{ row.desc }}</span>
-          </div>
-        </section>
-        <p class="help-tip">{{ t('help.triggerWordHint') }}</p>
+  <Transition name="pop">
+    <div v-if="props.store.state.helpVisible" class="help-mask" @click.self="store.actions.toggleHelp(false)" @keydown="onMaskKeydown">
+      <div class="modal help" role="dialog" aria-modal="true" :aria-label="t('help.title')">
+        <header class="help-head">
+          <span>{{ t('help.title') }}</span>
+          <button class="sm-icon-btn" :aria-label="t('help.close')" @click="store.actions.toggleHelp(false)">
+            ✕
+          </button>
+        </header>
+        <div ref="bodyRef" class="help-body" tabindex="-1">
+          <section v-for="group in sections" :key="group.title" class="help-section">
+            <h4>{{ group.title }}</h4>
+            <div v-for="row in group.rows" :key="row.keys" class="help-row">
+              <span class="help-keys">{{ row.keys }}</span>
+              <span class="help-desc">{{ row.desc }}</span>
+            </div>
+          </section>
+          <p class="help-tip">{{ t('help.triggerWordHint') }}</p>
+        </div>
       </div>
     </div>
-  </div>
+  </Transition>
 </template>
 
 <style scoped>
@@ -123,6 +176,7 @@ const sections = computed(() => {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  outline: none;
 }
 
 .help-section h4 {
@@ -143,7 +197,7 @@ const sections = computed(() => {
   flex: none;
   width: 128px;
   color: var(--sm-text-2);
-  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-family: var(--sm-font-mono);
   font-size: 11px;
 }
 

@@ -35,6 +35,11 @@ function importAs(kind: 'json' | 'text'): void {
   void props.store.actions.importFromFile(kind)
 }
 
+/** 从备忘快贴导入：只读提取宿主数据库里该插件的数据，走下方预览管线。 */
+function importFromMqp(): void {
+  props.store.actions.importFromMemoQuickPaste()
+}
+
 /** 覆盖导入：替换全部数据，必须经应用内确认。 */
 function applyImport(): void {
   if (plan.value?.strategy === 'overwrite') {
@@ -93,8 +98,10 @@ function restoreBackup(): void {
           {{ t('dataPage.importJson') }}
         </button>
         <button class="sm-btn" @click="importAs('text')">{{ t('dataPage.importText') }}</button>
+        <button class="sm-btn" @click="importFromMqp">{{ t('dataPage.importMqp') }}</button>
       </div>
       <p class="hint-text">{{ t('dataPage.importTextHint') }}</p>
+      <p class="hint-text">{{ t('dataPage.importMqpHint') }}</p>
 
       <div v-if="plan" class="import-preview">
         <p class="preview-title">{{ t('dataPage.importPreviewTitle') }}</p>
